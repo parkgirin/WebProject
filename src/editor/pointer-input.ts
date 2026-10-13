@@ -1,4 +1,5 @@
 import type { RigState } from "../rig/rig-state";
+import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry";
 import type { EditorSelection } from "./types";
 
 interface PointerInputOptions {
@@ -10,7 +11,9 @@ interface PointerInputOptions {
 
 type Interaction =
   | { type: "move"; jointId: string; offsetX: number; offsetY: number }
-  | { type: "rotate"; jointId: string; axisId: string; angleOffset: number };
+  | { type: "rotate-axis"; jointId: string; axisId: string; angleOffset: number }
+  | { type: "rotate-child"; jointId: string }
+  | { type: "rotate-peer"; peerGroupId: string };
 
 export function enablePointerInput(
   element: SVGSVGElement,
@@ -24,22 +27,29 @@ export function enablePointerInput(
     const jointId = target.dataset.jointId;
     const axisId = target.dataset.axisId;
     const faceId = target.dataset.faceId;
+    const peerGroupId = target.dataset.peerGroupId;
 
     if (target.hasAttribute("data-rotation-handle") && jointId && axisId) {
       const joint = options.state.getJoint(jointId);
       const axis = joint.axes.find((candidate) => candidate.id === axisId);
       if (!axis) return;
-      const pointerAngle = getAngle(joint.x, joint.y, point.x, point.y);
+      const world = getJointWorldTransform(options.state.rig, jointId);
+      const pointerAngle = getAngle(world.x, world.y, point.x, point.y);
       interaction = {
-        type: "rotate",
+        type: "rotate-axis",
         jointId,
         axisId,
-        angleOffset: axis.angle - pointerAngle,
+        angleOffset: getAxisWorldAngle(options.state.rig, joint, axis) - pointerAngle,
       };
+    } else if (target.hasAttribute("data-child-rotation") && jointId) {
+      interaction = { type: "rotate-child", jointId };
+    } else if (target.hasAttribute("data-peer-rotation") && peerGroupId) {
+      interaction = { type: "rotate-peer", peerGroupId };
     } else if (target.hasAttribute("data-select-axis") && jointId && axisId) {
       options.setSelection({ jointId, axisId });
     } else if (target.hasAttribute("data-drag-joint") && jointId) {
       const joint = options.state.getJoint(jointId);
+      const world = getJointWorldTransform(options.state.rig, jointId);
       const previous = options.getSelection();
       options.setSelection({
         jointId,
@@ -48,8 +58,8 @@ export function enablePointerInput(
       interaction = {
         type: "move",
         jointId,
-        offsetX: joint.x - point.x,
-        offsetY: joint.y - point.y,
+        offsetX: world.x - point.x,
+        offsetY: world.y - point.y,
       };
     } else if (faceId) {
       options.setSelectedFace(faceId);
@@ -74,13 +84,28 @@ export function enablePointerInput(
         point.x + interaction.offsetX,
         point.y + interaction.offsetY,
       );
-    } else {
+    } else if (interaction.type === "rotate-axis") {
       const joint = options.state.getJoint(interaction.jointId);
-      const pointerAngle = getAngle(joint.x, joint.y, point.x, point.y);
+      const world = getJointWorldTransform(options.state.rig, joint.id);
+      const pointerAngle = getAngle(world.x, world.y, point.x, point.y);
       options.state.setAxisAngle(
         interaction.jointId,
         interaction.axisId,
-        pointerAngle + interaction.angleOffset,
+        pointerAngle + interaction.angleOffset - world.rotation,
+      );
+    } else if (interaction.type === "rotate-child") {
+      const joint = options.state.getJoint(interaction.jointId);
+      if (!joint.parentJointId) return;
+      const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
+      options.state.rotateChildAroundParent(
+        interaction.jointId,
+        getAngle(parent.x, parent.y, point.x, point.y),
+      );
+    } else {
+      const pivot = getPeerGroupPivot(options.state.rig, interaction.peerGroupId);
+      options.state.rotatePeerGroup(
+        interaction.peerGroupId,
+        getAngle(pivot.x, pivot.y, point.x, point.y),
       );
     }
   };

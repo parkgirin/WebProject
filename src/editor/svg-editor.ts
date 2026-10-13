@@ -1,5 +1,5 @@
 import type { Rig } from "../rig/types";
-import { getAxisPoint, getFacePoints } from "../rig/geometry";
+import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry";
 import type { EditorSelection, EditorViewState } from "./types";
 import referenceImageUrl from "../../Grid_Img.svg";
 
@@ -11,11 +11,14 @@ export function renderSvgEditor(
 ): void {
   const jointItems = rig.joints
     .filter((joint) => joint.bodyVisible)
-    .map((joint) => ({
-      id: joint.id,
-      order: joint.renderOrder,
-      markup: `<circle class="body-joint" cx="${joint.x}" cy="${joint.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(rig.defaultColor)}" />`,
-    }))
+    .map((joint) => {
+      const world = getJointWorldTransform(rig, joint.id);
+      return {
+        id: joint.id,
+        order: joint.renderOrder,
+        markup: `<circle class="body-joint" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(rig.defaultColor)}" />`,
+      };
+    })
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 
   const faceItems = rig.faces
@@ -28,14 +31,37 @@ export function renderSvgEditor(
     }))
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 
+  const relationshipGuides = rig.joints
+    .filter((joint) => joint.guideVisible && joint.parentJointId)
+    .map((joint) => {
+      const parent = getJointWorldTransform(rig, joint.parentJointId!);
+      const child = getJointWorldTransform(rig, joint.id);
+      return `<line class="hierarchy-line" x1="${parent.x}" y1="${parent.y}" x2="${child.x}" y2="${child.y}"
+        data-child-rotation data-joint-id="${escapeXml(joint.id)}" />`;
+    })
+    .join("");
+  const peerLines = rig.peerGroups.map((group) => {
+    const pivot = getPeerGroupPivot(rig, group.id);
+    return group.jointIds.map((jointId) => {
+      const point = getJointWorldTransform(rig, jointId);
+      return `<line class="peer-line" x1="${pivot.x}" y1="${pivot.y}" x2="${point.x}" y2="${point.y}" />`;
+    }).join("");
+  }).join("");
+  const peerHandles = rig.peerGroups.map((group) => {
+    const pivot = getPeerGroupPivot(rig, group.id);
+    return `<rect class="peer-pivot" x="${pivot.x - 6}" y="${pivot.y - 6}" width="12" height="12"
+      data-peer-rotation data-peer-group-id="${escapeXml(group.id)}" />`;
+  }).join("");
+
   const guides = rig.joints
     .filter((joint) => joint.guideVisible)
     .map((joint) => {
       const selectedJoint = selection.jointId === joint.id;
+      const world = getJointWorldTransform(rig, joint.id);
       const axes = joint.axes
         .map((axis, axisIndex) => {
-          const start = getAxisPoint(joint, axis, -1);
-          const end = getAxisPoint(joint, axis, 1);
+          const start = getAxisPoint(rig, joint, axis, -1);
+          const end = getAxisPoint(rig, joint, axis, 1);
           const selectedAxis = selectedJoint && selection.axisId === axis.id;
           return `
             <g class="axis-guide axis-${axisIndex + 1}${selectedAxis ? " is-selected" : ""}">
@@ -48,14 +74,20 @@ export function renderSvgEditor(
         })
         .join("");
 
+      const jointControl = joint.isVirtual
+        ? `<rect class="virtual-joint-hit" x="${world.x - joint.radius}" y="${world.y - joint.radius}" width="${joint.radius * 2}" height="${joint.radius * 2}"
+              data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
+           <rect class="virtual-joint-outline" x="${world.x - 5}" y="${world.y - 5}" width="10" height="10" />`
+        : `<circle class="joint-hit" cx="${world.x}" cy="${world.y}" r="${joint.radius}"
+              data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
+           <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.radius}" />`;
+
       return `
         <g class="joint-guide${selectedJoint ? " is-selected" : ""}">
-          <circle class="joint-hit" cx="${joint.x}" cy="${joint.y}" r="${joint.radius}"
-            data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
-          <circle class="joint-outline" cx="${joint.x}" cy="${joint.y}" r="${joint.radius}" />
+          ${jointControl}
           ${axes}
-          <circle class="joint-center" cx="${joint.x}" cy="${joint.y}" r="3" />
-          <text class="joint-label" x="${joint.x}" y="${joint.y - joint.radius - 8}">${escapeXml(joint.id)}</text>
+          <circle class="joint-center" cx="${world.x}" cy="${world.y}" r="3" />
+          <text class="joint-label" x="${world.x}" y="${world.y - joint.radius - 8}">${escapeXml(joint.id)}</text>
         </g>`;
     })
     .join("");
@@ -64,12 +96,13 @@ export function renderSvgEditor(
   const selectedAxis = selectedJoint?.axes.find((axis) => axis.id === selection.axisId);
   let rotationHandle = "";
   if (selectedJoint && selectedAxis) {
-    const radians = (selectedAxis.angle * Math.PI) / 180;
+    const world = getJointWorldTransform(rig, selectedJoint.id);
+    const radians = (getAxisWorldAngle(rig, selectedJoint, selectedAxis) * Math.PI) / 180;
     const distance = selectedJoint.radius + 34;
-    const x = selectedJoint.x + Math.cos(radians) * distance;
-    const y = selectedJoint.y + Math.sin(radians) * distance;
+    const x = world.x + Math.cos(radians) * distance;
+    const y = world.y + Math.sin(radians) * distance;
     rotationHandle = `
-      <line class="rotation-guide" x1="${selectedJoint.x}" y1="${selectedJoint.y}" x2="${x}" y2="${y}" />
+      <line class="rotation-guide" x1="${world.x}" y1="${world.y}" x2="${x}" y2="${y}" />
       <circle class="rotation-handle" cx="${x}" cy="${y}" r="9"
         data-rotation-handle data-joint-id="${escapeXml(selectedJoint.id)}" data-axis-id="${escapeXml(selectedAxis.id)}" />`;
   }
@@ -86,7 +119,7 @@ export function renderSvgEditor(
       <g data-body-part="joints">${jointItems.map((item) => item.markup).join("")}</g>
       <g data-body-part="faces">${faceItems.map((item) => item.markup).join("")}</g>
     </g>
-    <g data-layer="editor-guides">${guides}${rotationHandle}</g>`;
+    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${peerHandles}</g>`;
 }
 
 function getFaceOrder(rig: Rig, face: Rig["faces"][number]): number {

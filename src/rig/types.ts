@@ -8,14 +8,25 @@ export interface JointAxis {
 
 export interface Joint {
   id: string;
+  /** Parent-relative position. Root joints use world coordinates. */
   x: number;
   y: number;
+  /** Rotation inherited by children, in degrees. */
+  localRotation: number;
+  parentJointId?: string;
+  /** Non-body transform control, such as a pelvis or scene pivot. */
+  isVirtual?: boolean;
   radius: number;
   bodyRadius?: number;
   axes: JointAxis[];
   renderOrder: number;
   guideVisible: boolean;
   bodyVisible: boolean;
+}
+
+export interface PeerGroup {
+  id: string;
+  jointIds: string[];
 }
 
 export interface JointPointRef {
@@ -34,6 +45,7 @@ export interface Face {
 export interface Rig {
   defaultColor: string;
   joints: Joint[];
+  peerGroups: PeerGroup[];
   faces: Face[];
 }
 

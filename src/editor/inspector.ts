@@ -1,4 +1,5 @@
 import type { RigState } from "../rig/rig-state";
+import { getJointWorldTransform } from "../rig/geometry";
 import type { EditorSelection, EditorViewState } from "./types";
 
 const END_JOINT_IDS = ["left-wrist", "right-wrist", "left-ankle", "right-ankle"];
@@ -22,6 +23,8 @@ export function renderInspector(
   const selectedFace = state.getFace(viewState.selectedFaceId);
   const selectedFaceColor = selectedFace.color ?? state.rig.defaultColor;
   const hasFaceColorOverride = selectedFace.color !== undefined;
+  const faceRotation = state.getFaceRotationAngle(viewState.selectedFaceId);
+  const jointWorld = joint ? getJointWorldTransform(state.rig, joint.id) : null;
 
   const jointMarkup = joint ? `
     <h2>관절 속성</h2>
@@ -29,10 +32,16 @@ export function renderInspector(
       <span class="eyebrow">선택 관절</span>
       <strong class="selection-name">${escapeHtml(joint.id)}</strong>
       <dl class="coordinate-list">
-        <div><dt>X</dt><dd>${joint.x.toFixed(1)}</dd></div>
-        <div><dt>Y</dt><dd>${joint.y.toFixed(1)}</dd></div>
+        <div><dt>월드 X</dt><dd>${jointWorld!.x.toFixed(1)}</dd></div>
+        <div><dt>월드 Y</dt><dd>${jointWorld!.y.toFixed(1)}</dd></div>
       </dl>
     </div>
+    <label class="field-label" for="parent-joint">부모 관절</label>
+    <select id="parent-joint" class="parent-select">
+      <option value="">없음 (최상위)</option>
+      ${state.getValidParents(joint.id).map((candidateId) => `<option value="${escapeHtml(candidateId)}"${candidateId === joint.parentJointId ? " selected" : ""}>${escapeHtml(candidateId)}</option>`).join("")}
+    </select>
+    <p class="hint">부모를 변경해도 현재 화면 포즈는 유지됩니다.</p>
     <label class="field-label" for="joint-radius">반지름 <output>${joint.radius.toFixed(0)}</output></label>
     <input id="joint-radius" type="range" min="8" max="80" step="1" value="${joint.radius}" />
     <div class="axis-section">
@@ -81,6 +90,14 @@ export function renderInspector(
         선택 면에 별도 색상 사용
       </label>
       <p class="hint">별도 색상을 끄면 선택 면은 전체 기본 색상을 따라갑니다.</p>
+      <div class="face-rotation-section">
+        <div class="section-heading"><h3>선택 면 회전</h3></div>
+        ${faceRotation === null
+          ? `<p class="hint">골반 면의 가상 피벗 회전은 준비 중입니다.</p>`
+          : `<label class="field-label" for="face-angle">회전 각도 <output>${faceRotation.toFixed(0)}°</output></label>
+             <input id="face-angle" type="range" min="0" max="359" step="1" value="${faceRotation}" />
+             <p class="hint">연결선을 드래그하는 것과 같은 회전 조작입니다.</p>`}
+      </div>
       <div class="section-heading end-joint-heading">
         <h3>손목·발목 표시</h3>
       </div>
@@ -95,6 +112,10 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("#joint-radius")?.addEventListener("change", (event) => {
     if (!joint) return;
     state.setJointRadius(joint.id, Number((event.target as HTMLInputElement).value));
+  });
+  element.querySelector<HTMLSelectElement>("#parent-joint")?.addEventListener("change", (event) => {
+    if (!joint) return;
+    state.setParentJoint(joint.id, (event.target as HTMLSelectElement).value || null);
   });
   element.querySelector<HTMLInputElement>("#axis-angle")?.addEventListener("change", (event) => {
     if (!joint || !selection.axisId) return;
@@ -119,6 +140,9 @@ export function renderInspector(
     const input = event.target as HTMLInputElement;
     if (input.checked) state.setFaceColor(viewState.selectedFaceId, selectedFaceColor);
     else state.clearFaceColor(viewState.selectedFaceId);
+  });
+  element.querySelector<HTMLInputElement>("#face-angle")?.addEventListener("change", (event) => {
+    state.rotateFace(viewState.selectedFaceId, Number((event.target as HTMLInputElement).value));
   });
   element.querySelectorAll<HTMLInputElement>("[data-body-visible]").forEach((input) => {
     input.addEventListener("change", () => {

@@ -12,16 +12,55 @@ export interface Point {
   y: number;
 }
 
+export interface JointWorldTransform extends Point {
+  rotation: number;
+}
+
+export function getJointWorldTransform(
+  rig: Rig,
+  jointId: string,
+  resolving = new Set<string>(),
+): JointWorldTransform {
+  const joint = rig.joints.find((candidate) => candidate.id === jointId);
+  if (!joint) throw new Error(`Unknown joint: ${jointId}`);
+  if (resolving.has(jointId)) throw new Error(`Parent cycle at joint: ${jointId}`);
+
+  if (!joint.parentJointId) {
+    return { x: joint.x, y: joint.y, rotation: joint.localRotation };
+  }
+
+  resolving.add(jointId);
+  const parent = getJointWorldTransform(rig, joint.parentJointId, resolving);
+  resolving.delete(jointId);
+  const radians = (parent.rotation * Math.PI) / 180;
+  return {
+    x: parent.x + Math.cos(radians) * joint.x - Math.sin(radians) * joint.y,
+    y: parent.y + Math.sin(radians) * joint.x + Math.cos(radians) * joint.y,
+    rotation: normalizeAngle(parent.rotation + joint.localRotation),
+  };
+}
+
+export function getJointWorldPoint(rig: Rig, jointId: string): Point {
+  const { x, y } = getJointWorldTransform(rig, jointId);
+  return { x, y };
+}
+
+export function getAxisWorldAngle(rig: Rig, joint: Joint, axis: JointAxis): number {
+  return normalizeAngle(getJointWorldTransform(rig, joint.id).rotation + axis.angle);
+}
+
 export function getAxisPoint(
+  rig: Rig,
   joint: Joint,
   axis: JointAxis,
   side: AxisPointSide,
 ): Point {
-  const radians = (axis.angle * Math.PI) / 180;
+  const world = getJointWorldTransform(rig, joint.id);
+  const radians = (getAxisWorldAngle(rig, joint, axis) * Math.PI) / 180;
 
   return {
-    x: joint.x + Math.cos(radians) * joint.radius * side,
-    y: joint.y + Math.sin(radians) * joint.radius * side,
+    x: world.x + Math.cos(radians) * joint.radius * side,
+    y: world.y + Math.sin(radians) * joint.radius * side,
   };
 }
 
@@ -42,9 +81,24 @@ export function getJointPoint(rig: Rig, ref: JointPointRef): Point {
     );
   }
 
-  return getAxisPoint(joint, axis, ref.side);
+  return getAxisPoint(rig, joint, axis, ref.side);
 }
 
 export function getFacePoints(rig: Rig, face: Face): Point[] {
   return face.vertices.map((vertex) => getJointPoint(rig, vertex));
+}
+
+export function getPeerGroupPivot(rig: Rig, peerGroupId: string): Point {
+  const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+  if (!group) throw new Error(`Unknown peer group: ${peerGroupId}`);
+  const points = group.jointIds.map((jointId) => getJointWorldPoint(rig, jointId));
+  const total = points.reduce(
+    (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),
+    { x: 0, y: 0 },
+  );
+  return { x: total.x / points.length, y: total.y / points.length };
+}
+
+export function normalizeAngle(angle: number): number {
+  return ((angle % 360) + 360) % 360;
 }

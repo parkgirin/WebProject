@@ -34,6 +34,18 @@ button, input { font: inherit; }
   color: #6a665f;
   font-size: 13px;
 }
+.header-tools { display: flex; align-items: center; gap: 14px; }
+.header-tools .app-header p { margin: 0; }
+.header-tools p { margin: 0 0 4px; display: flex; align-items: center; gap: 8px; color: #6a665f; font-size: 13px; }
+.pose-navigator { width: 104px; padding: 7px 8px 6px; border: 1px solid #d3d0ca; border-radius: 10px; background: rgba(255,255,255,.72); }
+.pose-navigator > span { display: block; margin-bottom: 4px; color: #817b72; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.pose-navigator-map { position: relative; width: 92px; height: 100px; }
+.pose-navigator-map svg { position: absolute; inset: 0; width: 92px; height: 100px; pointer-events: none; }
+.pose-navigator-map path { fill: none; stroke: #c1bcb4; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pose-shortcut { position: absolute; left: var(--x); top: var(--y); width: 9px; height: 9px; padding: 0; border: 1.5px solid #6f6961; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); cursor: pointer; }
+.pose-shortcut:hover { border-color: #2c8ca2; background: #dff2f6; transform: translate(-50%, -50%) scale(1.25); }
+.pose-shortcut.is-selected { border-color: #25231f; background: #2c8ca2; box-shadow: 0 0 0 2px rgba(44,140,162,.18); }
+.pose-face-shortcut { width: 100%; margin-top: 5px; padding: 3px 4px; border: 1px solid #d6d1ca; border-radius: 5px; background: #fff; color: #58524a; font-size: 9px; }
 
 .eyebrow { color: #817b72; font-size: 10px; font-weight: 800; letter-spacing: .14em; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #27a578; box-shadow: 0 0 0 4px rgba(39,165,120,.12); }
@@ -65,6 +77,9 @@ button, input { font: inherit; }
 
 .canvas-actions { display: flex; align-items: center; gap: 14px; }
 .toolbar-toggle { display: flex; align-items: center; gap: 5px; color: #57524b; cursor: pointer; }
+.global-rotation-control { display: flex; align-items: center; gap: 5px; color: #57524b; white-space: nowrap; cursor: pointer; }
+.global-rotation-control input { width: 72px; }
+.global-rotation-control output { width: 29px; color: #817a71; font-size: 10px; font-variant-numeric: tabular-nums; }
 .toolbar-toggle input { margin: 0; accent-color: #302d28; }
 .save-buttons { display: flex; gap: 6px; }
 .save-image-button {
@@ -103,6 +118,9 @@ button, input { font: inherit; }
 .joint-outline { fill: none; stroke: #847f77; stroke-width: 1.25; stroke-dasharray: 4 3; pointer-events: none; }
 .joint-guide.is-selected .joint-outline { stroke: #282622; stroke-width: 2.5; stroke-dasharray: none; }
 .joint-center { fill: #37342f; pointer-events: none; }
+.virtual-joint-hit { fill: transparent; cursor: grab; }
+.virtual-joint-outline { fill: #fff; stroke: #8263a8; stroke-width: 2; transform-box: fill-box; transform-origin: center; transform: rotate(45deg); pointer-events: none; }
+.joint-guide.is-selected .virtual-joint-outline { fill: #e9dff5; stroke: #5f3e89; stroke-width: 3; }
 .joint-label { fill: #756f67; font-size: 9px; text-anchor: middle; pointer-events: none; }
 .axis-hit { stroke: transparent; stroke-width: 14; cursor: pointer; }
 .axis-line { stroke: #2c8ca2; stroke-width: 2.5; pointer-events: none; }
@@ -113,6 +131,10 @@ button, input { font: inherit; }
 .axis-guide.is-selected .axis-point { r: 5px; }
 .rotation-guide { stroke: #25231f; stroke-width: 1.5; stroke-dasharray: 3 3; pointer-events: none; }
 .rotation-handle { fill: #fff; stroke: #25231f; stroke-width: 3; cursor: crosshair; }
+.hierarchy-line { stroke: #897f73; stroke-width: 5; stroke-opacity: .42; cursor: alias; }
+.peer-line { stroke: #8263a8; stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
+.peer-pivot { fill: #fff; stroke: #8263a8; stroke-width: 2.5; cursor: crosshair; transform-box: fill-box; transform-origin: center; }
+.peer-pivot:hover { fill: #eee7f7; }
 
 .inspector {
   height: 100%;
@@ -132,10 +154,12 @@ button, input { font: inherit; }
 .coordinate-list dt { color: #888178; }
 .coordinate-list dd { margin: 0; font-variant-numeric: tabular-nums; }
 .field-label { display: flex; justify-content: space-between; margin: 22px 0 8px; font-size: 12px; font-weight: 700; }
+.parent-select { width: 100%; padding: 9px; border: 1px solid #dedad3; border-radius: 8px; background: #fff; color: #3d3933; }
 .field-label output { color: #817a71; font-weight: 500; }
 input[type="range"] { width: 100%; accent-color: #2d8ca2; }
 .axis-section { margin-top: 26px; padding-top: 22px; border-top: 1px solid #e9e5df; }
 .appearance-section { margin-top: 26px; padding-top: 22px; border-top: 1px solid #e9e5df; }
+.face-rotation-section { margin-top: 18px; padding-top: 17px; border-top: 1px solid #e9e5df; }
 .color-setting-row { margin-top: 12px; padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; border-radius: 8px; background: #f4f2ee; color: #4f4a43; font-size: 11px; font-weight: 700; }
 .color-setting-row input[type="color"] { width: 42px; height: 32px; padding: 3px; border: 1px solid #dedad3; border-radius: 7px; background: #fff; cursor: pointer; }
 .face-color-row { display: grid; grid-template-columns: 1fr 42px; gap: 8px; margin-top: 12px; }
