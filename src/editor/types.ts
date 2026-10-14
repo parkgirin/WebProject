@@ -5,5 +5,6 @@ export interface EditorSelection {
 
 export interface EditorViewState {
   outlinesVisible: boolean;
+  hideSameJointEdges: boolean;
   selectedFaceId: string;
 }

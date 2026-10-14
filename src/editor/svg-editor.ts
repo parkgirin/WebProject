@@ -1,7 +1,6 @@
 import type { Rig } from "../rig/types";
 import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry";
 import type { EditorSelection, EditorViewState } from "./types";
-import referenceImageUrl from "../../Grid_Img.svg";
 
 export function renderSvgEditor(
   host: SVGSVGElement,
@@ -9,30 +8,79 @@ export function renderSvgEditor(
   selection: EditorSelection,
   viewState: EditorViewState,
 ): void {
-  const jointItems = rig.joints
-    .filter((joint) => joint.bodyVisible)
-    .map((joint) => {
+  const visibleJoints = rig.joints
+    .filter((joint) => joint.bodyVisible && isGroupVisible(rig, joint.groupId));
+  const visibleFaces = rig.faces
+    .filter((face) => isGroupVisible(rig, face.groupId))
+    .map((face) => ({ face, points: getFacePoints(rig, face) }));
+
+  const jointItems = visibleJoints
+    .map((joint, index) => {
       const world = getJointWorldTransform(rig, joint.id);
       return {
-        id: joint.id,
+        id: `joint:${joint.id}`,
+        groupId: joint.groupId,
         order: joint.renderOrder,
-        markup: `<circle class="body-joint" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(rig.defaultColor)}" />`,
+        markup: `<g class="body-joint-item">
+          <circle class="body-joint" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(joint.color ?? rig.defaultColor)}" />
+          <circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" mask="url(#joint-outline-mask-${index})" />
+        </g>`,
       };
-    })
-    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    });
 
-  const faceItems = rig.faces
-    .map((face) => ({
-      id: face.id,
-      order: getFaceOrder(rig, face),
-      markup: `<polygon class="body-face${face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${getFacePoints(rig, face)
-        .map((point) => `${point.x},${point.y}`)
-        .join(" ")}" fill="${escapeXml(face.color ?? rig.defaultColor)}" />`,
-    }))
-    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const faceItems = visibleFaces
+    .map(({ face, points }) => {
+      const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
+      const outlinePath = points.map((point, index) => {
+        const nextIndex = (index + 1) % points.length;
+        const nextPoint = points[nextIndex];
+        const sameJoint = face.vertices[index].jointId === face.vertices[nextIndex].jointId;
+        if (viewState.hideSameJointEdges && sameJoint) return "";
+        return `M ${point.x} ${point.y} L ${nextPoint.x} ${nextPoint.y}`;
+      }).filter(Boolean).join(" ");
+      return {
+        id: `face:${face.id}`,
+        groupId: face.groupId,
+        order: getFaceOrder(rig, face),
+        markup: `<g class="body-face-item">
+          <polygon class="body-face${face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(face.color ?? rig.defaultColor)}" />
+          <path class="body-face-outline" d="${outlinePath}" />
+        </g>`,
+      };
+    });
+
+  const jointOutlineMasks = visibleJoints.map((joint, index) => {
+    const otherJoints = visibleJoints
+      .filter((candidate) => candidate.id !== joint.id)
+      .map((candidate) => {
+        const world = getJointWorldTransform(rig, candidate.id);
+        return `<circle cx="${world.x}" cy="${world.y}" r="${candidate.bodyRadius ?? candidate.radius}" fill="#000" stroke="#000" stroke-width="3" />`;
+      })
+      .join("");
+    const faces = visibleFaces
+      .map(({ points }) => `<polygon points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" stroke="#000" stroke-width="3" />`)
+      .join("");
+    return `<mask id="joint-outline-mask-${index}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${otherJoints}${faces}
+    </mask>`;
+  }).join("");
+
+  const bodyItems = [...jointItems, ...faceItems];
+  const renderGroupItems = (groupId: string | undefined) => bodyItems
+    .filter((item) => item.groupId === groupId)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map((item) => item.markup)
+    .join("");
+  const ungroupedBody = renderGroupItems(undefined);
+  const groupedBody = rig.groups
+    .filter((group) => group.visible)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map((group) => `<g class="render-group" data-render-group="${escapeXml(group.id)}">${renderGroupItems(group.id)}</g>`)
+    .join("");
 
   const relationshipGuides = rig.joints
-    .filter((joint) => joint.guideVisible && joint.parentJointId)
+    .filter((joint) => joint.guideVisible && joint.parentJointId && isGroupVisible(rig, joint.groupId))
     .map((joint) => {
       const parent = getJointWorldTransform(rig, joint.parentJointId!);
       const child = getJointWorldTransform(rig, joint.id);
@@ -40,21 +88,25 @@ export function renderSvgEditor(
         data-child-rotation data-joint-id="${escapeXml(joint.id)}" />`;
     })
     .join("");
-  const peerLines = rig.peerGroups.map((group) => {
+  const visiblePeerGroups = rig.peerGroups.filter((group) => group.jointIds.every((jointId) => {
+    const joint = rig.joints.find((candidate) => candidate.id === jointId);
+    return joint ? isGroupVisible(rig, joint.groupId) : false;
+  }));
+  const peerLines = visiblePeerGroups.map((group) => {
     const pivot = getPeerGroupPivot(rig, group.id);
     return group.jointIds.map((jointId) => {
       const point = getJointWorldTransform(rig, jointId);
       return `<line class="peer-line" x1="${pivot.x}" y1="${pivot.y}" x2="${point.x}" y2="${point.y}" />`;
     }).join("");
   }).join("");
-  const peerHandles = rig.peerGroups.map((group) => {
+  const peerHandles = visiblePeerGroups.map((group) => {
     const pivot = getPeerGroupPivot(rig, group.id);
     return `<rect class="peer-pivot" x="${pivot.x - 6}" y="${pivot.y - 6}" width="12" height="12"
       data-peer-rotation data-peer-group-id="${escapeXml(group.id)}" />`;
   }).join("");
 
   const guides = rig.joints
-    .filter((joint) => joint.guideVisible)
+    .filter((joint) => joint.guideVisible && isGroupVisible(rig, joint.groupId))
     .map((joint) => {
       const selectedJoint = selection.jointId === joint.id;
       const world = getJointWorldTransform(rig, joint.id);
@@ -107,28 +159,51 @@ export function renderSvgEditor(
         data-rotation-handle data-joint-id="${escapeXml(selectedJoint.id)}" data-axis-id="${escapeXml(selectedAxis.id)}" />`;
   }
 
+  const waist = getJointWorldTransform(rig, "waist");
+  const pelvisPivot = getJointWorldTransform(rig, "pelvis-pivot");
+  const pelvisDx = pelvisPivot.x - waist.x;
+  const pelvisDy = pelvisPivot.y - waist.y;
+  const pelvisDistance = Math.hypot(pelvisDx, pelvisDy) || 1;
+  const pelvisAngle = Math.atan2(pelvisDy, pelvisDx);
+  const lowerBodyHandleAngle = pelvisAngle - 70 * Math.PI / 180;
+  const lowerBodyHandleDistance = Math.max(120, pelvisDistance + 75);
+  const lowerBodyHandleX = waist.x + Math.cos(lowerBodyHandleAngle) * lowerBodyHandleDistance;
+  const lowerBodyHandleY = waist.y + Math.sin(lowerBodyHandleAngle) * lowerBodyHandleDistance;
+  const lowerBodyRotationControl = isGroupVisible(rig, "torso")
+    && (isGroupVisible(rig, "left-leg") || isGroupVisible(rig, "right-leg")) ? `
+    <g class="lower-body-rotation-control">
+      <line class="lower-body-rotation-guide" x1="${pelvisPivot.x}" y1="${pelvisPivot.y}" x2="${lowerBodyHandleX}" y2="${lowerBodyHandleY}" />
+      <circle class="lower-body-rotation-handle" cx="${lowerBodyHandleX}" cy="${lowerBodyHandleY}" r="11"
+        data-lower-body-rotation data-joint-id="pelvis-pivot" />
+      <text class="lower-body-rotation-label" x="${lowerBodyHandleX + 16}" y="${lowerBodyHandleY + 4}">하체 회전</text>
+    </g>` : "";
+
   host.innerHTML = `
+    <defs data-export-defs>${jointOutlineMasks}</defs>
     <g data-layer="grid">
       ${[80, 200, 320, 440, 560, 680].map((y) => `<line x1="60" y1="${y}" x2="540" y2="${y}" />`).join("")}
       <line x1="300" y1="40" x2="300" y2="740" />
     </g>
-    <g data-layer="reference" pointer-events="none">
-      <image href="${escapeXml(referenceImageUrl)}" x="150" y="80" width="300" height="600" opacity="0.22" preserveAspectRatio="xMidYMid meet" />
-    </g>
     <g data-layer="body" class="${viewState.outlinesVisible ? "show-outlines" : ""}">
-      <g data-body-part="joints">${jointItems.map((item) => item.markup).join("")}</g>
-      <g data-body-part="faces">${faceItems.map((item) => item.markup).join("")}</g>
+      <g class="render-group" data-render-group="default">${ungroupedBody}</g>
+      ${groupedBody}
     </g>
-    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${peerHandles}</g>`;
+    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${peerHandles}${lowerBodyRotationControl}</g>`;
 }
 
 function getFaceOrder(rig: Rig, face: Rig["faces"][number]): number {
+  if (face.layerOrder !== undefined) return face.layerOrder;
   const ids = [...new Set(face.vertices.map((vertex) => vertex.jointId))];
   const total = ids.reduce(
     (sum, id) => sum + (rig.joints.find((joint) => joint.id === id)?.renderOrder ?? 0),
     0,
   );
   return total / Math.max(ids.length, 1) + face.orderOffset;
+}
+
+function isGroupVisible(rig: Rig, groupId: string | undefined): boolean {
+  if (!groupId) return true;
+  return rig.groups.find((group) => group.id === groupId)?.visible ?? true;
 }
 
 function escapeXml(value: string): string {

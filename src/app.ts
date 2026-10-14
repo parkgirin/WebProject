@@ -3,13 +3,17 @@ import { RigState } from "./rig/rig-state";
 import { renderSvgEditor } from "./editor/svg-editor";
 import { enablePointerInput } from "./editor/pointer-input";
 import { createInspector, renderInspector } from "./editor/inspector";
-import { exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image";
+import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image";
 import type { EditorSelection, EditorViewState } from "./editor/types";
 
 export function createApp(container: HTMLDivElement): void {
   const state = new RigState(createDefaultRig());
   let selection: EditorSelection = { jointId: "right-elbow", axisId: "upper-arm" };
-  const viewState: EditorViewState = { outlinesVisible: true, selectedFaceId: "torso" };
+  const viewState: EditorViewState = {
+    outlinesVisible: true,
+    hideSameJointEdges: true,
+    selectedFaceId: "torso",
+  };
 
   container.innerHTML = `
     <main class="app-shell">
@@ -31,10 +35,12 @@ export function createApp(container: HTMLDivElement): void {
               <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
               <label class="global-rotation-control">전체 회전
                 <input type="range" min="0" max="359" step="1" value="${state.getGlobalRotation()}" data-global-angle />
-                <output data-global-angle-output>${state.getGlobalRotation().toFixed(0)}°</output>
+                <span><input type="number" min="0" max="359" step="1" value="${state.getGlobalRotation().toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
               </label>
               <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
+              <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
               <div class="save-buttons">
+                <button class="save-image-button is-secondary" type="button" data-show-export-preview>저장 미리보기</button>
                 <button class="save-image-button is-secondary" type="button" data-save-svg>SVG 저장</button>
                 <button class="save-image-button" type="button" data-save-png>PNG 저장</button>
               </div>
@@ -44,6 +50,25 @@ export function createApp(container: HTMLDivElement): void {
         </div>
         <div data-inspector-host></div>
       </section>
+      <dialog class="export-preview-dialog" data-export-preview-dialog>
+        <div class="export-preview-header">
+          <div>
+            <span class="eyebrow">EXPORT PREVIEW</span>
+            <h2>저장할 이미지 미리보기</h2>
+          </div>
+          <button type="button" class="preview-close-button" data-close-export-preview aria-label="미리보기 닫기">×</button>
+        </div>
+        <div class="export-preview-stage">
+          <img data-export-preview-image alt="가이드가 제외된 저장 이미지 미리보기" />
+        </div>
+        <div class="export-preview-footer">
+          <span data-export-preview-size></span>
+          <div class="save-buttons">
+            <button class="save-image-button is-secondary" type="button" data-preview-save-svg>SVG 저장</button>
+            <button class="save-image-button" type="button" data-preview-save-png>PNG 저장</button>
+          </div>
+        </div>
+      </dialog>
     </main>
   `;
 
@@ -52,12 +77,23 @@ export function createApp(container: HTMLDivElement): void {
   const savePngButton = container.querySelector<HTMLButtonElement>("[data-save-png]");
   const saveSvgButton = container.querySelector<HTMLButtonElement>("[data-save-svg]");
   const outlineToggle = container.querySelector<HTMLInputElement>("[data-show-outlines]");
+  const sameJointEdgeToggle = container.querySelector<HTMLInputElement>("[data-hide-same-joint-edges]");
+  const previewButton = container.querySelector<HTMLButtonElement>("[data-show-export-preview]");
+  const previewDialog = container.querySelector<HTMLDialogElement>("[data-export-preview-dialog]");
+  const previewImage = container.querySelector<HTMLImageElement>("[data-export-preview-image]");
+  const previewSize = container.querySelector<HTMLElement>("[data-export-preview-size]");
+  const previewCloseButton = container.querySelector<HTMLButtonElement>("[data-close-export-preview]");
+  const previewSavePngButton = container.querySelector<HTMLButtonElement>("[data-preview-save-png]");
+  const previewSaveSvgButton = container.querySelector<HTMLButtonElement>("[data-preview-save-svg]");
   const faceShortcut = container.querySelector<HTMLSelectElement>("[data-face-shortcut]");
   const globalAngleInput = container.querySelector<HTMLInputElement>("[data-global-angle]");
-  const globalAngleOutput = container.querySelector<HTMLOutputElement>("[data-global-angle-output]");
-  if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !outlineToggle) {
+  const globalAngleNumber = container.querySelector<HTMLInputElement>("[data-global-angle-number]");
+  if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !outlineToggle
+    || !sameJointEdgeToggle || !previewButton || !previewDialog || !previewImage
+    || !previewSize || !previewCloseButton || !previewSavePngButton || !previewSaveSvgButton) {
     throw new Error("Editor hosts were not created");
   }
+  let previewUrl: string | null = null;
   const inspector = createInspector();
   inspectorHost.append(inspector);
 
@@ -78,12 +114,14 @@ export function createApp(container: HTMLDivElement): void {
     render();
   };
   const render = () => {
-    if (globalAngleInput && globalAngleOutput) {
+    if (globalAngleInput && globalAngleNumber) {
       globalAngleInput.value = String(state.getGlobalRotation());
-      globalAngleOutput.value = `${state.getGlobalRotation().toFixed(0)}°`;
+      globalAngleNumber.value = state.getGlobalRotation().toFixed(0);
     }
     renderSvgEditor(svg, state.rig, selection, viewState);
-    renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
+    if (inspector.dataset.liveRangeEditing !== "true") {
+      renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
+    }
   };
 
   state.subscribe(render);
@@ -107,9 +145,39 @@ export function createApp(container: HTMLDivElement): void {
   globalAngleInput?.addEventListener("input", () => {
     state.setGlobalRotation(Number(globalAngleInput.value));
   });
+  globalAngleNumber?.addEventListener("change", () => {
+    state.setGlobalRotation(globalAngleNumber.valueAsNumber);
+  });
   outlineToggle.addEventListener("change", () => {
     setViewState({ outlinesVisible: outlineToggle.checked });
   });
+  sameJointEdgeToggle.addEventListener("change", () => {
+    setViewState({ hideSameJointEdges: sameJointEdgeToggle.checked });
+  });
+  const closePreview = () => {
+    previewDialog.close();
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = null;
+    previewImage.removeAttribute("src");
+  };
+  previewButton.addEventListener("click", () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const preview = createExportPreview(svg);
+    previewUrl = preview.url;
+    previewImage.src = preview.url;
+    previewSize.textContent = `SVG ${Math.round(preview.width)} × ${Math.round(preview.height)} · PNG 2배 해상도 · 투명 배경`;
+    previewDialog.showModal();
+  });
+  previewCloseButton.addEventListener("click", closePreview);
+  previewDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closePreview();
+  });
+  previewDialog.addEventListener("click", (event) => {
+    if (event.target === previewDialog) closePreview();
+  });
+  previewSavePngButton.addEventListener("click", () => exportDrawingAsPng(svg));
+  previewSaveSvgButton.addEventListener("click", () => exportDrawingAsSvg(svg));
   savePngButton.addEventListener("click", async () => {
     savePngButton.disabled = true;
     savePngButton.textContent = "저장 중…";
@@ -167,6 +235,8 @@ function createPoseNavigatorMarkup(): string {
         <option value="shoulder-band">면: shoulder-band</option>
         <option value="neck">면: neck</option>
         <option value="pelvis">면: pelvis</option>
+        <option value="left-pelvis-triangle">면: left pelvis triangle</option>
+        <option value="right-pelvis-triangle">면: right pelvis triangle</option>
         <option value="left-upper-arm">면: left upper arm</option>
         <option value="left-lower-arm">면: left lower arm</option>
         <option value="right-upper-arm">면: right upper arm</option>

@@ -40,6 +40,18 @@ export function exportDrawingAsSvg(
   );
 }
 
+export function createExportPreview(source: SVGSVGElement): {
+  url: string;
+  width: number;
+  height: number;
+} {
+  const { svg, width, height } = createExportSvg(source);
+  const url = URL.createObjectURL(
+    new Blob([serializeSvg(svg)], { type: "image/svg+xml;charset=utf-8" }),
+  );
+  return { url, width, height };
+}
+
 function createExportSvg(source: SVGSVGElement): {
   svg: SVGSVGElement;
   width: number;
@@ -60,12 +72,23 @@ function createExportSvg(source: SVGSVGElement): {
   svg.setAttribute("width", `${width}`);
   svg.setAttribute("height", `${height}`);
 
+  const defs = source.querySelector<SVGDefsElement>("defs[data-export-defs]");
+  if (defs) svg.append(defs.cloneNode(true));
+
   const style = document.createElementNS(SVG_NAMESPACE, "style");
   style.textContent = `
     .body-face { stroke: none; }
+    .body-face-outline { fill: none; stroke: none; pointer-events: none; }
     .body-joint { stroke: none; }
-    .show-outlines .body-face { stroke: rgba(97, 63, 43, .45); stroke-width: 1.5; }
-    .show-outlines .body-joint { stroke: rgba(102, 67, 44, .42); stroke-width: 1.5; }
+    .body-joint-outline { fill: none; stroke: none; pointer-events: none; }
+    .show-outlines .body-face-outline,
+    .show-outlines .body-joint-outline {
+      stroke: #684936;
+      stroke-width: 1.5;
+      stroke-opacity: .58;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
   `;
   svg.append(style, body.cloneNode(true));
   return { svg, width, height };

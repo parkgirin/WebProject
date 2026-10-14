@@ -15,9 +15,18 @@ export function validateRig(
   const errors: string[] = [];
   const jointIds = new Set<string>();
   const faceIds = new Set<string>();
+  const groupIds = new Set<string>();
 
   if (!isHexColor(rig.defaultColor)) {
     errors.push(`Invalid default color: ${rig.defaultColor}`);
+  }
+
+  for (const group of rig.groups) {
+    if (!group.id.trim()) errors.push("Layer group id cannot be empty");
+    if (!group.name.trim()) errors.push(`Layer group name cannot be empty: ${group.id}`);
+    if (groupIds.has(group.id)) errors.push(`Duplicate layer group id: ${group.id}`);
+    if (!Number.isFinite(group.order)) errors.push(`Layer group order must be finite: ${group.id}`);
+    groupIds.add(group.id);
   }
 
   for (const joint of rig.joints) {
@@ -32,12 +41,21 @@ export function validateRig(
     if (!Number.isFinite(joint.localRotation)) {
       errors.push(`Joint local rotation must be finite: ${joint.id}`);
     }
+    if (!Number.isFinite(joint.renderOrder)) {
+      errors.push(`Joint render order must be finite: ${joint.id}`);
+    }
+    if (joint.groupId && !groupIds.has(joint.groupId)) {
+      errors.push(`Unknown joint layer group: ${joint.id}.${joint.groupId}`);
+    }
 
     if (!(joint.radius > 0)) {
       errors.push(`Joint radius must be positive: ${joint.id}`);
     }
     if (joint.bodyRadius !== undefined && !(joint.bodyRadius > 0)) {
       errors.push(`Joint body radius must be positive: ${joint.id}`);
+    }
+    if (joint.color !== undefined && !isHexColor(joint.color)) {
+      errors.push(`Invalid joint color: ${joint.id}.${joint.color}`);
     }
     if (joint.axes.length > limits.maxAxesPerJoint) {
       errors.push(
@@ -102,6 +120,31 @@ export function validateRig(
     if (face.color !== undefined && !isHexColor(face.color)) {
       errors.push(`Invalid face color: ${face.id}.${face.color}`);
     }
+    if (!Number.isFinite(face.orderOffset)) {
+      errors.push(`Face order offset must be finite: ${face.id}`);
+    }
+    if (face.layerOrder !== undefined && !Number.isFinite(face.layerOrder)) {
+      errors.push(`Face layer order must be finite: ${face.id}`);
+    }
+    if (face.groupId && !groupIds.has(face.groupId)) {
+      errors.push(`Unknown face layer group: ${face.id}.${face.groupId}`);
+    }
+    const rotationTarget = face.rotationTarget;
+    if (rotationTarget.type === "child") {
+      const child = rig.joints.find((joint) => joint.id === rotationTarget.childJointId);
+      if (!child) {
+        errors.push(`Unknown face rotation child: ${face.id}.${rotationTarget.childJointId}`);
+      } else if (!child.parentJointId) {
+        errors.push(`Face rotation child needs a parent: ${face.id}.${child.id}`);
+      }
+    } else {
+      const group = rig.peerGroups.find((candidate) => candidate.id === rotationTarget.peerGroupId);
+      if (!group) {
+        errors.push(`Unknown face rotation peer group: ${face.id}.${rotationTarget.peerGroupId}`);
+      } else if (!group.jointIds.includes(rotationTarget.referenceJointId)) {
+        errors.push(`Face rotation reference is not in peer group: ${face.id}.${rotationTarget.referenceJointId}`);
+      }
+    }
 
     for (const vertex of face.vertices) {
       const joint = rig.joints.find((candidate) => candidate.id === vertex.jointId);
@@ -153,6 +196,7 @@ export class RigState {
   }
 
   public moveJoint(jointId: string, x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const joint = this.getJoint(jointId);
     this.setJointWorldPosition(joint, x, y);
     this.notify();
@@ -245,6 +289,19 @@ export class RigState {
     }
   }
 
+  public getLowerBodyRotation(): number {
+    const pivot = this.getJoint("pelvis-pivot");
+    return normalizeSignedAngle(Math.atan2(pivot.y, pivot.x) * 180 / Math.PI - 90);
+  }
+
+  public setLowerBodyRotation(angle: number): void {
+    if (!Number.isFinite(angle)) return;
+    const pivot = this.getJoint("pelvis-pivot");
+    if (!pivot.parentJointId) return;
+    const parent = getJointWorldTransform(this.rig, pivot.parentJointId);
+    this.rotateChildAroundParent(pivot.id, parent.rotation + 90 + angle);
+  }
+
   public getGlobalRotation(): number {
     return this.getJoint("scene-root").localRotation;
   }
@@ -263,6 +320,84 @@ export class RigState {
 
   public setJointBodyVisible(jointId: string, visible: boolean): void {
     this.getJoint(jointId).bodyVisible = visible;
+    this.notify();
+  }
+
+  public setJointColor(jointId: string, color: string): void {
+    if (!isHexColor(color)) return;
+    this.getJoint(jointId).color = color;
+    this.notify();
+  }
+
+  public clearJointColor(jointId: string): void {
+    delete this.getJoint(jointId).color;
+    this.notify();
+  }
+
+  public setJointRenderOrder(jointId: string, order: number): void {
+    if (!Number.isFinite(order)) return;
+    this.getJoint(jointId).renderOrder = clampLayerValue(order);
+    this.notify();
+  }
+
+  public setFaceOrderOffset(faceId: string, orderOffset: number): void {
+    if (!Number.isFinite(orderOffset)) return;
+    this.getFace(faceId).orderOffset = clampLayerValue(orderOffset);
+    this.notify();
+  }
+
+  public getFaceLayerOrder(faceId: string): number {
+    const face = this.getFace(faceId);
+    if (face.layerOrder !== undefined) return face.layerOrder;
+    const jointIds = [...new Set(face.vertices.map((vertex) => vertex.jointId))];
+    const total = jointIds.reduce((sum, jointId) => sum + this.getJoint(jointId).renderOrder, 0);
+    return Math.round(total / Math.max(jointIds.length, 1) + face.orderOffset);
+  }
+
+  public setFaceLayerOrder(faceId: string, layerOrder: number): void {
+    if (!Number.isFinite(layerOrder)) return;
+    this.getFace(faceId).layerOrder = clampLayerValue(layerOrder);
+    this.notify();
+  }
+
+  public addLayerGroup(name: string): string | null {
+    const trimmedName = name.trim();
+    if (!trimmedName) return null;
+    let index = this.rig.groups.length + 1;
+    let id = `group-${index}`;
+    while (this.rig.groups.some((group) => group.id === id)) {
+      index += 1;
+      id = `group-${index}`;
+    }
+    const highestOrder = this.rig.groups.reduce((highest, group) => Math.max(highest, group.order), 0);
+    this.rig.groups.push({ id, name: trimmedName, visible: true, order: highestOrder + 10 });
+    this.notify();
+    return id;
+  }
+
+  public setLayerGroupVisibility(groupId: string, visible: boolean): void {
+    const group = this.getLayerGroup(groupId);
+    group.visible = visible;
+    this.notify();
+  }
+
+  public setLayerGroupOrder(groupId: string, order: number): void {
+    if (!Number.isFinite(order)) return;
+    this.getLayerGroup(groupId).order = clampLayerValue(order);
+    this.notify();
+  }
+
+  public setJointGroup(jointId: string, groupId: string | null): void {
+    const joint = this.getJoint(jointId);
+    if (groupId) this.getLayerGroup(groupId);
+    joint.groupId = groupId ?? undefined;
+    this.notify();
+  }
+
+  public setFaceGroup(faceId: string, groupId: string | null): void {
+    const face = this.getFace(faceId);
+    if (groupId) this.getLayerGroup(groupId);
+    face.groupId = groupId ?? undefined;
     this.notify();
   }
 
@@ -304,6 +439,12 @@ export class RigState {
     for (const listener of this.listeners) listener();
   }
 
+  private getLayerGroup(groupId: string) {
+    const group = this.rig.groups.find((candidate) => candidate.id === groupId);
+    if (!group) throw new Error(`Unknown layer group: ${groupId}`);
+    return group;
+  }
+
   private setJointWorldPosition(joint: Rig["joints"][number], x: number, y: number): void {
     if (!joint.parentJointId) {
       joint.x = x;
@@ -331,22 +472,11 @@ export class RigState {
     | { type: "child"; parentJointId: string; childJointId: string }
     | { type: "peer"; peerGroupId: string; referenceJointId: string }
     | null {
-    this.getFace(faceId);
-    if (faceId === "neck") return { type: "child", parentJointId: "chest", childJointId: "head" };
-    if (faceId === "torso") return { type: "child", parentJointId: "waist", childJointId: "chest" };
-    if (faceId === "shoulder-band") return { type: "peer", peerGroupId: "shoulder-band", referenceJointId: "left-shoulder" };
-    if (faceId === "pelvis") return { type: "child", parentJointId: "waist", childJointId: "pelvis-pivot" };
-    const match = /^(left|right)-(upper-arm|lower-arm|upper-leg|lower-leg)$/.exec(faceId);
-    if (!match) return null;
-    const [, side, segment] = match;
-    const relation = {
-      "upper-arm": ["shoulder", "elbow"],
-      "lower-arm": ["elbow", "wrist"],
-      "upper-leg": ["hip", "knee"],
-      "lower-leg": ["knee", "ankle"],
-    }[segment];
-    return relation
-      ? { type: "child", parentJointId: `${side}-${relation[0]}`, childJointId: `${side}-${relation[1]}` }
+    const target = this.getFace(faceId).rotationTarget;
+    if (target.type === "peer") return target;
+    const child = this.getJoint(target.childJointId);
+    return child.parentJointId
+      ? { type: "child", parentJointId: child.parentJointId, childJointId: child.id }
       : null;
   }
 
@@ -381,4 +511,13 @@ export class RigState {
 
 function isHexColor(value: string): boolean {
   return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function clampLayerValue(value: number): number {
+  return Math.min(999, Math.max(-999, Math.round(value)));
+}
+
+function normalizeSignedAngle(angle: number): number {
+  const normalized = normalizeAngle(angle);
+  return normalized > 180 ? normalized - 360 : normalized;
 }

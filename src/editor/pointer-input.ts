@@ -13,6 +13,7 @@ type Interaction =
   | { type: "move"; jointId: string; offsetX: number; offsetY: number }
   | { type: "rotate-axis"; jointId: string; axisId: string; angleOffset: number }
   | { type: "rotate-child"; jointId: string }
+  | { type: "rotate-lower-body"; jointId: string; angleOffset: number }
   | { type: "rotate-peer"; peerGroupId: string };
 
 export function enablePointerInput(
@@ -41,6 +42,18 @@ export function enablePointerInput(
         axisId,
         angleOffset: getAxisWorldAngle(options.state.rig, joint, axis) - pointerAngle,
       };
+    } else if (target.hasAttribute("data-lower-body-rotation") && jointId) {
+      const joint = options.state.getJoint(jointId);
+      if (!joint.parentJointId) return;
+      const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
+      const current = getJointWorldTransform(options.state.rig, jointId);
+      interaction = {
+        type: "rotate-lower-body",
+        jointId,
+        angleOffset: getAngle(parent.x, parent.y, current.x, current.y)
+          - getAngle(parent.x, parent.y, point.x, point.y),
+      };
+      options.setSelectedFace("pelvis");
     } else if (target.hasAttribute("data-child-rotation") && jointId) {
       interaction = { type: "rotate-child", jointId };
     } else if (target.hasAttribute("data-peer-rotation") && peerGroupId) {
@@ -100,6 +113,14 @@ export function enablePointerInput(
       options.state.rotateChildAroundParent(
         interaction.jointId,
         getAngle(parent.x, parent.y, point.x, point.y),
+      );
+    } else if (interaction.type === "rotate-lower-body") {
+      const joint = options.state.getJoint(interaction.jointId);
+      if (!joint.parentJointId) return;
+      const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
+      options.state.rotateChildAroundParent(
+        interaction.jointId,
+        getAngle(parent.x, parent.y, point.x, point.y) + interaction.angleOffset,
       );
     } else {
       const pivot = getPeerGroupPivot(options.state.rig, interaction.peerGroupId);

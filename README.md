@@ -5,10 +5,15 @@ independently rotatable joint axes, and generated faces. Each joint currently
 supports up to two axes; the array-based model can be expanded for more general
 rigs later.
 
-The editor has one default body color with optional per-face color overrides,
+The editor has one default body color with optional per-face and per-joint color overrides,
 can toggle outlines for the complete body, and can show or hide the wrist and
-ankle joint shapes. Body joint circles are always rendered behind the connected
-faces.
+ankle joint shapes. Selected joints and faces can be assigned to named groups,
+groups can be shown or hidden together, and both group order and item layer
+values can be adjusted. Joints and faces share one ordering scale inside each
+group, so either type can be placed in front of the other when needed. The
+default left/right arms and legs are separate groups. The outline option can
+hide only face edges whose two endpoints belong to the same joint, while
+keeping the long limb edges and boundaries between overlapping groups visible.
 
 ## Export
 
@@ -16,6 +21,8 @@ Use the `PNG 저장` or `SVG 저장` button above the canvas to download the cur
 character as a tightly cropped image with a transparent background. SVG export
 keeps the body as editable vector shapes. The editor grid, reference image,
 joint guides, labels, axes, and rotation handle are excluded from both formats.
+Use `저장 미리보기` to inspect that exact cropped, transparent-background result
+before downloading it.
 
 ## License
 

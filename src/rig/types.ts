@@ -17,7 +17,10 @@ export interface Joint {
   /** Non-body transform control, such as a pelvis or scene pivot. */
   isVirtual?: boolean;
   radius: number;
+  /** Temporary preview output size; migrate to a joint-bound ArtShape. */
   bodyRadius?: number;
+  color?: string;
+  groupId?: string;
   axes: JointAxis[];
   renderOrder: number;
   guideVisible: boolean;
@@ -35,15 +38,31 @@ export interface JointPointRef {
   side: AxisPointSide;
 }
 
+export type FaceRotationTarget =
+  | { type: "child"; childJointId: string }
+  | { type: "peer"; peerGroupId: string; referenceJointId: string };
+
 export interface Face {
   id: string;
   vertices: JointPointRef[];
+  rotationTarget: FaceRotationTarget;
   color?: string;
+  groupId?: string;
+  /** Explicit order inside the assigned layer group. */
+  layerOrder?: number;
   orderOffset: number;
+}
+
+export interface LayerGroup {
+  id: string;
+  name: string;
+  visible: boolean;
+  order: number;
 }
 
 export interface Rig {
   defaultColor: string;
+  groups: LayerGroup[];
   joints: Joint[];
   peerGroups: PeerGroup[];
   faces: Face[];
