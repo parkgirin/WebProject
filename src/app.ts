@@ -8,29 +8,70 @@ import type { EditorSelection, EditorViewState } from "./editor/types";
 
 export function createApp(container: HTMLDivElement): void {
   const state = new RigState(createDefaultRig());
-  let selection: EditorSelection = { jointId: "right-elbow", axisId: "upper-arm" };
+  let selection: EditorSelection = {
+    jointId: "right-elbow",
+    axisId: "upper-arm",
+    jointIds: ["right-elbow"],
+  };
   const viewState: EditorViewState = {
     outlinesVisible: true,
     hideSameJointEdges: true,
     selectedFaceId: "torso",
+    inspectorTab: "selection",
+    preserveProportions: false,
+    activeTool: "select",
+    paintColor: state.rig.defaultColor,
   };
 
   container.innerHTML = `
     <main class="app-shell">
-      <header class="app-header">
-        <div>
+      <header class="app-header app-surface">
+        <div class="brand-block">
           <span class="eyebrow">2D RIG WORKSPACE</span>
           <h1>Pose Mesh Editor</h1>
         </div>
         <div class="header-tools">
-          <p><span class="status-dot"></span>다중 축선 편집 모드</p>
-          ${createPoseNavigatorMarkup()}
+          <div class="edit-tool-buttons" aria-label="편집 기록과 화면 배율">
+            <button type="button" data-undo title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↶</button>
+            <button type="button" data-redo title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행">↷</button>
+            <button type="button" data-zoom-out title="축소" aria-label="축소">−</button>
+            <button type="button" data-zoom-reset title="100%" aria-label="배율 초기화">100%</button>
+            <button type="button" data-zoom-in title="확대" aria-label="확대">＋</button>
+            <button type="button" data-fit-selection title="선택 항목 맞춤" aria-label="선택 항목 맞춤">선택 맞춤</button>
+          </div>
+          <div class="save-buttons">
+            <button class="save-image-button is-secondary" type="button" data-show-export-preview>미리보기</button>
+            <button class="save-image-button is-secondary" type="button" data-save-svg>SVG</button>
+            <button class="save-image-button" type="button" data-save-png>PNG 저장</button>
+          </div>
         </div>
       </header>
       <section class="workspace">
+        <nav class="toolbox app-surface" aria-label="편집 도구">
+          <span class="toolbox-title">TOOLS</span>
+          <button type="button" class="toolbox-button is-active" data-tool-select aria-label="선택과 직접 조작" title="선택과 직접 조작">
+            <span class="tool-icon tool-icon-select" aria-hidden="true">↖</span><small>선택</small>
+          </button>
+          <div class="toolbox-color-control">
+            <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
+              <span class="tool-icon tool-icon-color" aria-hidden="true"><i></i></span><small>색상</small>
+            </button>
+            <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="몸에 칠할 색상" title="몸에 칠할 색상" />
+          </div>
+          <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">
+            <span class="tool-icon" aria-hidden="true">⌕</span><small>확대</small>
+          </button>
+          <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">
+            <span class="tool-icon" aria-hidden="true">✋</span><small>화면</small>
+          </button>
+          <div class="toolbox-divider"></div>
+          <button type="button" class="toolbox-button is-toggle" data-tool-proportions aria-pressed="false" aria-label="몸 비율과 하위 각도 유지" title="부모와의 거리 및 하위 도형 각도 유지">
+            <span class="tool-icon" aria-hidden="true">⌁</span><small>비율</small>
+          </button>
+        </nav>
         <div class="canvas-panel">
           <div class="canvas-toolbar">
-            <span>5등신 가이드</span>
+            <span><span class="status-dot"></span> 직접 조작 · 5등신 가이드</span>
             <div class="canvas-actions">
               <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
               <label class="global-rotation-control">전체 회전
@@ -39,11 +80,6 @@ export function createApp(container: HTMLDivElement): void {
               </label>
               <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
               <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
-              <div class="save-buttons">
-                <button class="save-image-button is-secondary" type="button" data-show-export-preview>저장 미리보기</button>
-                <button class="save-image-button is-secondary" type="button" data-save-svg>SVG 저장</button>
-                <button class="save-image-button" type="button" data-save-png>PNG 저장</button>
-              </div>
             </div>
           </div>
           <svg class="rig-canvas" viewBox="0 0 600 780" role="img" aria-label="관절과 연결 면 편집 화면"></svg>
@@ -85,32 +121,45 @@ export function createApp(container: HTMLDivElement): void {
   const previewCloseButton = container.querySelector<HTMLButtonElement>("[data-close-export-preview]");
   const previewSavePngButton = container.querySelector<HTMLButtonElement>("[data-preview-save-png]");
   const previewSaveSvgButton = container.querySelector<HTMLButtonElement>("[data-preview-save-svg]");
-  const faceShortcut = container.querySelector<HTMLSelectElement>("[data-face-shortcut]");
   const globalAngleInput = container.querySelector<HTMLInputElement>("[data-global-angle]");
   const globalAngleNumber = container.querySelector<HTMLInputElement>("[data-global-angle-number]");
+  const undoButton = container.querySelector<HTMLButtonElement>("[data-undo]");
+  const redoButton = container.querySelector<HTMLButtonElement>("[data-redo]");
+  const zoomOutButton = container.querySelector<HTMLButtonElement>("[data-zoom-out]");
+  const zoomResetButton = container.querySelector<HTMLButtonElement>("[data-zoom-reset]");
+  const zoomInButton = container.querySelector<HTMLButtonElement>("[data-zoom-in]");
+  const fitSelectionButton = container.querySelector<HTMLButtonElement>("[data-fit-selection]");
+  const selectToolButton = container.querySelector<HTMLButtonElement>("[data-tool-select]");
+  const colorToolButton = container.querySelector<HTMLButtonElement>("[data-tool-color]");
+  const zoomToolButton = container.querySelector<HTMLButtonElement>("[data-tool-zoom]");
+  const panToolButton = container.querySelector<HTMLButtonElement>("[data-tool-pan]");
+  const proportionToolButton = container.querySelector<HTMLButtonElement>("[data-tool-proportions]");
+  const paintColorInput = container.querySelector<HTMLInputElement>("[data-paint-color]");
   if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !outlineToggle
     || !sameJointEdgeToggle || !previewButton || !previewDialog || !previewImage
-    || !previewSize || !previewCloseButton || !previewSavePngButton || !previewSaveSvgButton) {
+    || !previewSize || !previewCloseButton || !previewSavePngButton || !previewSaveSvgButton
+    || !undoButton || !redoButton || !zoomOutButton || !zoomResetButton || !zoomInButton
+    || !fitSelectionButton || !selectToolButton || !colorToolButton || !zoomToolButton
+    || !panToolButton || !proportionToolButton || !paintColorInput) {
     throw new Error("Editor hosts were not created");
   }
   let previewUrl: string | null = null;
   const inspector = createInspector();
   inspectorHost.append(inspector);
 
-  const updateNavigatorSelection = () => {
-    container.querySelectorAll<HTMLButtonElement>("[data-joint-shortcut]").forEach((button) => {
-      button.classList.toggle("is-selected", button.dataset.jointShortcut === selection.jointId);
-    });
-  };
-
   const setSelection = (next: EditorSelection) => {
-    selection = next;
-    updateNavigatorSelection();
+    const uniqueIds = [...new Set(next.jointIds)];
+    selection = {
+      ...next,
+      jointIds: uniqueIds,
+      jointId: next.jointId && uniqueIds.includes(next.jointId)
+        ? next.jointId
+        : uniqueIds.at(-1) ?? null,
+    };
     render();
   };
   const setViewState = (next: Partial<EditorViewState>) => {
     Object.assign(viewState, next);
-    if (faceShortcut) faceShortcut.value = viewState.selectedFaceId;
     render();
   };
   const render = () => {
@@ -118,6 +167,14 @@ export function createApp(container: HTMLDivElement): void {
       globalAngleInput.value = String(state.getGlobalRotation());
       globalAngleNumber.value = state.getGlobalRotation().toFixed(0);
     }
+    undoButton.disabled = !state.canUndo;
+    redoButton.disabled = !state.canRedo;
+    proportionToolButton.classList.toggle("is-active", viewState.preserveProportions);
+    proportionToolButton.setAttribute("aria-pressed", String(viewState.preserveProportions));
+    selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
+    colorToolButton.classList.toggle("is-active", viewState.activeTool === "color");
+    paintColorInput.value = viewState.paintColor;
+    svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
     renderSvgEditor(svg, state.rig, selection, viewState);
     if (inspector.dataset.liveRangeEditing !== "true") {
       renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
@@ -125,25 +182,55 @@ export function createApp(container: HTMLDivElement): void {
   };
 
   state.subscribe(render);
-  enablePointerInput(svg, {
+  const viewport = enablePointerInput(svg, {
     state,
     getSelection: () => selection,
+    getPreserveProportions: () => viewState.preserveProportions,
+    getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
     setSelection,
     setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId }),
   });
-  container.querySelectorAll<HTMLButtonElement>("[data-joint-shortcut]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const jointId = button.dataset.jointShortcut;
-      if (!jointId) return;
-      const joint = state.getJoint(jointId);
-      setSelection({ jointId, axisId: joint.axes[0]?.id ?? null });
-    });
+  undoButton.addEventListener("click", () => state.undo());
+  redoButton.addEventListener("click", () => state.redo());
+  zoomOutButton.addEventListener("click", () => viewport.zoomBy(1.25));
+  zoomResetButton.addEventListener("click", () => viewport.resetView());
+  zoomInButton.addEventListener("click", () => viewport.zoomBy(0.8));
+  fitSelectionButton.addEventListener("click", () => viewport.fitSelection());
+  const setPanMode = (enabled: boolean) => {
+    panToolButton.setAttribute("aria-pressed", String(enabled));
+    panToolButton.classList.toggle("is-active", enabled);
+    viewport.setPanMode(enabled);
+  };
+  selectToolButton.addEventListener("click", () => {
+    setPanMode(false);
+    setViewState({ activeTool: "select", inspectorTab: "selection" });
   });
-  faceShortcut?.addEventListener("change", () => {
-    setViewState({ selectedFaceId: faceShortcut.value });
+  colorToolButton.addEventListener("click", () => {
+    setPanMode(false);
+    setViewState({ activeTool: "color", inspectorTab: "color" });
+  });
+  paintColorInput.addEventListener("change", () => {
+    setPanMode(false);
+    setViewState({ activeTool: "color", inspectorTab: "color", paintColor: paintColorInput.value });
+  });
+  zoomToolButton.addEventListener("click", (event) => viewport.zoomBy(event.shiftKey ? 1.25 : 0.8));
+  panToolButton.addEventListener("click", () => {
+    const enabled = panToolButton.getAttribute("aria-pressed") !== "true";
+    setPanMode(enabled);
+  });
+  proportionToolButton.addEventListener("click", () => {
+    setViewState({ preserveProportions: !viewState.preserveProportions });
   });
   globalAngleInput?.addEventListener("input", () => {
+    if (globalAngleInput.dataset.historyActive !== "true") {
+      globalAngleInput.dataset.historyActive = "true";
+      state.beginHistoryTransaction();
+    }
     state.setGlobalRotation(Number(globalAngleInput.value));
+  });
+  globalAngleInput?.addEventListener("change", () => {
+    delete globalAngleInput.dataset.historyActive;
+    state.endHistoryTransaction();
   });
   globalAngleNumber?.addEventListener("change", () => {
     state.setGlobalRotation(globalAngleNumber.valueAsNumber);
@@ -207,44 +294,13 @@ export function createApp(container: HTMLDivElement): void {
       }, 1200);
     }
   });
+  window.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement | null;
+    const editingText = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
+    if (editingText || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+    event.preventDefault();
+    if (event.shiftKey) state.redo();
+    else state.undo();
+  });
   render();
-  updateNavigatorSelection();
-}
-
-function createPoseNavigatorMarkup(): string {
-  const points = [
-    ["head", 46, 9], ["chest", 46, 25], ["waist", 46, 43],
-    ["left-shoulder", 28, 25], ["right-shoulder", 64, 25],
-    ["left-elbow", 24, 39], ["right-elbow", 68, 39],
-    ["left-wrist", 21, 53], ["right-wrist", 71, 53],
-    ["left-hip", 38, 53], ["right-hip", 54, 53],
-    ["left-knee", 38, 70], ["right-knee", 54, 70],
-    ["left-ankle", 38, 87], ["right-ankle", 54, 87],
-  ] as const;
-  return `
-    <div class="pose-navigator" aria-label="기본 포즈 관절 선택기">
-      <span>관절 선택</span>
-      <div class="pose-navigator-map">
-        <svg viewBox="0 0 92 100" aria-hidden="true">
-          <path d="M46 9 L46 25 M28 25 L64 25 M28 25 L24 39 L21 53 M64 25 L68 39 L71 53 M46 25 L46 43 M46 43 L38 53 L38 70 L38 87 M46 43 L54 53 L54 70 L54 87" />
-        </svg>
-        ${points.map(([id, x, y]) => `<button type="button" class="pose-shortcut" style="--x:${x}px;--y:${y}px" data-joint-shortcut="${id}" aria-label="${id} 관절 선택" title="${id}"></button>`).join("")}
-      </div>
-      <select class="pose-face-shortcut" data-face-shortcut aria-label="면 선택">
-        <option value="torso">면: torso</option>
-        <option value="shoulder-band">면: shoulder-band</option>
-        <option value="neck">면: neck</option>
-        <option value="pelvis">면: pelvis</option>
-        <option value="left-pelvis-triangle">면: left pelvis triangle</option>
-        <option value="right-pelvis-triangle">면: right pelvis triangle</option>
-        <option value="left-upper-arm">면: left upper arm</option>
-        <option value="left-lower-arm">면: left lower arm</option>
-        <option value="right-upper-arm">면: right upper arm</option>
-        <option value="right-lower-arm">면: right lower arm</option>
-        <option value="left-upper-leg">면: left upper leg</option>
-        <option value="left-lower-leg">면: left lower leg</option>
-        <option value="right-upper-leg">면: right upper leg</option>
-        <option value="right-lower-leg">면: right lower leg</option>
-      </select>
-    </div>`;
 }

@@ -108,13 +108,14 @@ export function renderSvgEditor(
   const guides = rig.joints
     .filter((joint) => joint.guideVisible && isGroupVisible(rig, joint.groupId))
     .map((joint) => {
-      const selectedJoint = selection.jointId === joint.id;
+      const selectedJoint = selection.jointIds.includes(joint.id);
+      const primaryJoint = selection.jointId === joint.id;
       const world = getJointWorldTransform(rig, joint.id);
       const axes = joint.axes
         .map((axis, axisIndex) => {
           const start = getAxisPoint(rig, joint, axis, -1);
           const end = getAxisPoint(rig, joint, axis, 1);
-          const selectedAxis = selectedJoint && selection.axisId === axis.id;
+          const selectedAxis = primaryJoint && selection.axisId === axis.id;
           return `
             <g class="axis-guide axis-${axisIndex + 1}${selectedAxis ? " is-selected" : ""}">
               <line class="axis-hit" x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}"
@@ -135,7 +136,7 @@ export function renderSvgEditor(
            <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.radius}" />`;
 
       return `
-        <g class="joint-guide${selectedJoint ? " is-selected" : ""}">
+        <g class="joint-guide${selectedJoint ? " is-selected" : ""}" data-guide-joint-id="${escapeXml(joint.id)}">
           ${jointControl}
           ${axes}
           <circle class="joint-center" cx="${world.x}" cy="${world.y}" r="3" />
@@ -157,6 +158,29 @@ export function renderSvgEditor(
       <line class="rotation-guide" x1="${world.x}" y1="${world.y}" x2="${x}" y2="${y}" />
       <circle class="rotation-handle" cx="${x}" cy="${y}" r="9"
         data-rotation-handle data-joint-id="${escapeXml(selectedJoint.id)}" data-axis-id="${escapeXml(selectedAxis.id)}" />`;
+  }
+
+  const selectedJointBounds = selection.jointIds
+    .map((jointId) => rig.joints.find((joint) => joint.id === jointId))
+    .filter((joint): joint is Rig["joints"][number] => Boolean(joint))
+    .map((joint) => ({ joint, world: getJointWorldTransform(rig, joint.id) }));
+  let selectionTransform = "";
+  if (selectedJointBounds.length > 1) {
+    const left = Math.min(...selectedJointBounds.map(({ joint, world }) => world.x - joint.radius)) - 10;
+    const right = Math.max(...selectedJointBounds.map(({ joint, world }) => world.x + joint.radius)) + 10;
+    const top = Math.min(...selectedJointBounds.map(({ joint, world }) => world.y - joint.radius)) - 10;
+    const bottom = Math.max(...selectedJointBounds.map(({ joint, world }) => world.y + joint.radius)) + 10;
+    const pivotX = (left + right) / 2;
+    const pivotY = (top + bottom) / 2;
+    const handleY = top - 34;
+    selectionTransform = `
+      <g class="selection-transform">
+        <rect class="selection-bounds" x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" />
+        <line class="selection-rotation-guide" x1="${pivotX}" y1="${top}" x2="${pivotX}" y2="${handleY}" />
+        <circle class="selection-rotation-handle" cx="${pivotX}" cy="${handleY}" r="9"
+          data-selection-rotation data-pivot-x="${pivotX}" data-pivot-y="${pivotY}" />
+        <circle class="selection-pivot" cx="${pivotX}" cy="${pivotY}" r="4" />
+      </g>`;
   }
 
   const waist = getJointWorldTransform(rig, "waist");
@@ -188,7 +212,7 @@ export function renderSvgEditor(
       <g class="render-group" data-render-group="default">${ungroupedBody}</g>
       ${groupedBody}
     </g>
-    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${peerHandles}${lowerBodyRotationControl}</g>`;
+    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${selectionTransform}${peerHandles}${lowerBodyRotationControl}</g>`;
 }
 
 function getFaceOrder(rig: Rig, face: Rig["faces"][number]): number {

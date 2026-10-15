@@ -14,6 +14,11 @@ group, so either type can be placed in front of the other when needed. The
 default left/right arms and legs are separate groups. The outline option can
 hide only face edges whose two endpoints belong to the same joint, while
 keeping the long limb edges and boundaries between overlapping groups visible.
+The editor also supports undo/redo, Shift-click and marquee multi-selection,
+face-to-joint and layer-group selection, group movement and rotation, wheel zoom, Space-drag panning, and fitting the
+viewport to the current selection. Direct parent-child face axes stay
+perpendicular to their joint connection; rotating one of those axes rotates
+the connected child joint and its descendant subtree.
 
 ## Export
 

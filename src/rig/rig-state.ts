@@ -168,6 +168,11 @@ export function validateRig(
 
 export class RigState {
   private readonly listeners = new Set<() => void>();
+  private readonly undoStack: Rig[] = [];
+  private readonly redoStack: Rig[] = [];
+  private lastSnapshot: Rig;
+  private transactionStart: Rig | null = null;
+  private restoringHistory = false;
 
   public constructor(
     public readonly rig: Rig,
@@ -177,6 +182,43 @@ export class RigState {
     if (errors.length > 0) {
       throw new Error(`Invalid rig:\n${errors.join("\n")}`);
     }
+    this.lastSnapshot = cloneRig(rig);
+  }
+
+  public get canUndo(): boolean { return this.undoStack.length > 0; }
+  public get canRedo(): boolean { return this.redoStack.length > 0; }
+
+  public beginHistoryTransaction(): void {
+    if (!this.transactionStart) this.transactionStart = cloneRig(this.rig);
+  }
+
+  public endHistoryTransaction(): void {
+    if (!this.transactionStart) return;
+    const current = cloneRig(this.rig);
+    if (!sameRig(this.transactionStart, current)) {
+      this.undoStack.push(this.transactionStart);
+      this.redoStack.length = 0;
+      this.trimHistory();
+    }
+    this.transactionStart = null;
+    this.lastSnapshot = current;
+    this.emit();
+  }
+
+  public undo(): void {
+    this.endOpenTransactionWithoutEmit();
+    const previous = this.undoStack.pop();
+    if (!previous) return;
+    this.redoStack.push(cloneRig(this.rig));
+    this.restore(previous);
+  }
+
+  public redo(): void {
+    this.endOpenTransactionWithoutEmit();
+    const next = this.redoStack.pop();
+    if (!next) return;
+    this.undoStack.push(cloneRig(this.rig));
+    this.restore(next);
   }
 
   public getJoint(jointId: string) {
@@ -199,6 +241,42 @@ export class RigState {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const joint = this.getJoint(jointId);
     this.setJointWorldPosition(joint, x, y);
+    this.alignDirectConnectionAxes(jointId);
+    this.notify();
+  }
+
+  public moveJointsBy(jointIds: string[], deltaX: number, deltaY: number): void {
+    if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
+    const roots = this.getSelectionRoots(jointIds);
+    const snapshots = roots.map((jointId) => ({
+      joint: this.getJoint(jointId),
+      world: getJointWorldTransform(this.rig, jointId),
+    }));
+    for (const { joint, world } of snapshots) {
+      this.setJointWorldPosition(joint, world.x + deltaX, world.y + deltaY);
+      this.alignDirectConnectionAxes(joint.id);
+    }
+    this.notify();
+  }
+
+  public rotateJointsAround(jointIds: string[], pivotX: number, pivotY: number, delta: number): void {
+    if (!Number.isFinite(delta) || delta === 0) return;
+    const radians = delta * Math.PI / 180;
+    const snapshots = this.getSelectionRoots(jointIds).map((jointId) => ({
+      joint: this.getJoint(jointId),
+      world: getJointWorldTransform(this.rig, jointId),
+    }));
+    for (const { joint, world } of snapshots) {
+      const relativeX = world.x - pivotX;
+      const relativeY = world.y - pivotY;
+      this.setJointWorldPosition(
+        joint,
+        pivotX + Math.cos(radians) * relativeX - Math.sin(radians) * relativeY,
+        pivotY + Math.sin(radians) * relativeX + Math.cos(radians) * relativeY,
+      );
+      joint.localRotation = normalizeAngle(joint.localRotation + delta);
+    }
+    for (const { joint } of snapshots) this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -217,6 +295,7 @@ export class RigState {
       ? getJointWorldTransform(this.rig, parentJointId).rotation
       : 0;
     joint.localRotation = normalizeAngle(world.rotation - parentRotation);
+    this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -263,6 +342,7 @@ export class RigState {
       );
       joint.localRotation = normalizeAngle(joint.localRotation + delta);
     }
+    for (const { joint } of snapshots) this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -420,13 +500,26 @@ export class RigState {
 
   public setAxisAngle(jointId: string, axisId: string, angle: number): void {
     if (!Number.isFinite(angle)) return;
-    const axis = this.getJoint(jointId).axes.find(
+    const joint = this.getJoint(jointId);
+    const axis = joint.axes.find(
       (candidate) => candidate.id === axisId,
     );
     if (!axis) {
       throw new Error(`Unknown axis: ${jointId}.${axisId}`);
     }
-    axis.angle = normalizeAngle(angle);
+    const currentWorldAngle = normalizeAngle(
+      getJointWorldTransform(this.rig, jointId).rotation + axis.angle,
+    );
+    const delta = normalizeSignedAngle(angle - currentWorldAngle);
+    const connectionChild = this.findAxisConnectionChild(jointId, axisId);
+    if (connectionChild?.parentJointId) {
+      const parent = getJointWorldTransform(this.rig, connectionChild.parentJointId);
+      const child = getJointWorldTransform(this.rig, connectionChild.id);
+      const currentAngle = Math.atan2(child.y - parent.y, child.x - parent.x) * 180 / Math.PI;
+      this.rotateChildAroundParent(connectionChild.id, currentAngle + delta);
+      return;
+    }
+    axis.angle = normalizeAngle(angle - getJointWorldTransform(this.rig, jointId).rotation);
     this.notify();
   }
 
@@ -436,7 +529,44 @@ export class RigState {
   }
 
   private notify(): void {
+    if (!this.restoringHistory && !this.transactionStart) {
+      const current = cloneRig(this.rig);
+      if (!sameRig(this.lastSnapshot, current)) {
+        this.undoStack.push(this.lastSnapshot);
+        this.redoStack.length = 0;
+        this.trimHistory();
+        this.lastSnapshot = current;
+      }
+    }
+    this.emit();
+  }
+
+  private emit(): void {
     for (const listener of this.listeners) listener();
+  }
+
+  private restore(snapshot: Rig): void {
+    this.restoringHistory = true;
+    Object.assign(this.rig, cloneRig(snapshot));
+    this.lastSnapshot = cloneRig(this.rig);
+    this.restoringHistory = false;
+    this.emit();
+  }
+
+  private endOpenTransactionWithoutEmit(): void {
+    if (!this.transactionStart) return;
+    const current = cloneRig(this.rig);
+    if (!sameRig(this.transactionStart, current)) {
+      this.undoStack.push(this.transactionStart);
+      this.redoStack.length = 0;
+      this.trimHistory();
+    }
+    this.transactionStart = null;
+    this.lastSnapshot = current;
+  }
+
+  private trimHistory(): void {
+    if (this.undoStack.length > 100) this.undoStack.splice(0, this.undoStack.length - 100);
   }
 
   private getLayerGroup(groupId: string) {
@@ -466,6 +596,63 @@ export class RigState {
       currentId = this.getJoint(currentId).parentJointId;
     }
     return false;
+  }
+
+  private getSelectionRoots(jointIds: string[]): string[] {
+    const selected = new Set(jointIds);
+    return [...selected].filter((jointId) => {
+      let parentId = this.getJoint(jointId).parentJointId;
+      while (parentId) {
+        if (selected.has(parentId)) return false;
+        parentId = this.getJoint(parentId).parentJointId;
+      }
+      return true;
+    });
+  }
+
+  private findAxisConnectionChild(jointId: string, axisId: string) {
+    const matchesAxis = (face: Rig["faces"][number]) => face.vertices.some(
+      (vertex) => vertex.jointId === jointId && vertex.axisId === axisId,
+    );
+    const outgoing = this.rig.faces.find((face) => {
+      if (face.rotationTarget.type !== "child" || !matchesAxis(face)) return false;
+      return this.getJoint(face.rotationTarget.childJointId).parentJointId === jointId;
+    });
+    if (outgoing?.rotationTarget.type === "child") {
+      return this.getJoint(outgoing.rotationTarget.childJointId);
+    }
+    const incoming = this.rig.faces.find((face) => (
+      face.rotationTarget.type === "child"
+      && face.rotationTarget.childJointId === jointId
+      && matchesAxis(face)
+    ));
+    return incoming ? this.getJoint(jointId) : null;
+  }
+
+  private alignDirectConnectionAxes(childJointId: string): void {
+    const child = this.getJoint(childJointId);
+    if (!child.parentJointId) return;
+    const parent = this.getJoint(child.parentJointId);
+    const parentWorld = getJointWorldTransform(this.rig, parent.id);
+    const childWorld = getJointWorldTransform(this.rig, child.id);
+    const crossSectionWorldAngle = Math.atan2(
+      childWorld.y - parentWorld.y,
+      childWorld.x - parentWorld.x,
+    ) * 180 / Math.PI + 90;
+
+    for (const face of this.rig.faces) {
+      if (face.rotationTarget.type !== "child" || face.rotationTarget.childJointId !== child.id) continue;
+      const jointIds = new Set(face.vertices.map((vertex) => vertex.jointId));
+      if (!jointIds.has(parent.id) || !jointIds.has(child.id)) continue;
+      for (const vertex of face.vertices) {
+        if (vertex.jointId !== parent.id && vertex.jointId !== child.id) continue;
+        const endpoint = this.getJoint(vertex.jointId);
+        const axis = endpoint.axes.find((candidate) => candidate.id === vertex.axisId);
+        if (!axis) continue;
+        const endpointWorld = getJointWorldTransform(this.rig, endpoint.id);
+        axis.angle = normalizeAngle(crossSectionWorldAngle - endpointWorld.rotation);
+      }
+    }
   }
 
   private getFaceRotationTarget(faceId: string):
@@ -520,4 +707,12 @@ function clampLayerValue(value: number): number {
 function normalizeSignedAngle(angle: number): number {
   const normalized = normalizeAngle(angle);
   return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function cloneRig(rig: Rig): Rig {
+  return structuredClone(rig);
+}
+
+function sameRig(left: Rig, right: Rig): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

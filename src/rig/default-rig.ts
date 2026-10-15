@@ -4,12 +4,12 @@ export function createDefaultRig(): Rig {
   return {
     defaultColor: "#dca27b",
     groups: [
-      { id: "left-arm", name: "왼팔", visible: true, order: 10 },
-      { id: "left-leg", name: "왼다리", visible: true, order: 20 },
+      { id: "head", name: "머리", visible: true, order: 40 },
       { id: "torso", name: "몸통", visible: true, order: 30 },
-      { id: "right-leg", name: "오른다리", visible: true, order: 40 },
-      { id: "right-arm", name: "오른팔", visible: true, order: 50 },
-      { id: "head", name: "머리", visible: true, order: 60 },
+      { id: "left-arm", name: "왼팔", visible: true, order: 20 },
+      { id: "right-arm", name: "오른팔", visible: true, order: 20 },
+      { id: "left-leg", name: "왼다리", visible: true, order: 10 },
+      { id: "right-leg", name: "오른다리", visible: true, order: 10 },
     ],
     joints: [
       { id: "scene-root", groupId: "torso", x: 300, y: 320, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: false, bodyVisible: false },
