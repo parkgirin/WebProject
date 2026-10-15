@@ -16,9 +16,16 @@ export function validateRig(
   const jointIds = new Set<string>();
   const faceIds = new Set<string>();
   const groupIds = new Set<string>();
+  const paletteIds = new Set<string>();
 
   if (!isHexColor(rig.defaultColor)) {
     errors.push(`Invalid default color: ${rig.defaultColor}`);
+  }
+  for (const entry of rig.palette) {
+    if (!entry.id.trim()) errors.push("Palette id cannot be empty");
+    if (paletteIds.has(entry.id)) errors.push(`Duplicate palette id: ${entry.id}`);
+    if (!isHexColor(entry.color)) errors.push(`Invalid palette color: ${entry.id}.${entry.color}`);
+    paletteIds.add(entry.id);
   }
 
   for (const group of rig.groups) {
@@ -57,6 +64,7 @@ export function validateRig(
     if (joint.color !== undefined && !isHexColor(joint.color)) {
       errors.push(`Invalid joint color: ${joint.id}.${joint.color}`);
     }
+    if (joint.paletteId && !paletteIds.has(joint.paletteId)) errors.push(`Unknown joint palette: ${joint.id}.${joint.paletteId}`);
     if (joint.axes.length > limits.maxAxesPerJoint) {
       errors.push(
         `Joint ${joint.id} has ${joint.axes.length} axes; current limit is ${limits.maxAxesPerJoint}`,
@@ -120,6 +128,7 @@ export function validateRig(
     if (face.color !== undefined && !isHexColor(face.color)) {
       errors.push(`Invalid face color: ${face.id}.${face.color}`);
     }
+    if (face.paletteId && !paletteIds.has(face.paletteId)) errors.push(`Unknown face palette: ${face.id}.${face.paletteId}`);
     if (!Number.isFinite(face.orderOffset)) {
       errors.push(`Face order offset must be finite: ${face.id}`);
     }
@@ -398,6 +407,72 @@ export class RigState {
     this.notify();
   }
 
+  public applyJointPose(
+    jointId: string,
+    pose: { x: number; y: number; localRotation: number; axes: Record<string, number> },
+  ): void {
+    const joint = this.getJoint(jointId);
+    joint.x = pose.x;
+    joint.y = pose.y;
+    joint.localRotation = normalizeAngle(pose.localRotation);
+    for (const axis of joint.axes) {
+      const angle = pose.axes[axis.id];
+      if (Number.isFinite(angle)) axis.angle = normalizeAngle(angle);
+    }
+    this.notify();
+  }
+
+  public applyJointProportions(
+    jointId: string,
+    proportions: { x: number; y: number; radius: number; bodyRadius?: number },
+  ): void {
+    const joint = this.getJoint(jointId);
+    joint.x = proportions.x;
+    joint.y = proportions.y;
+    joint.radius = Math.min(80, Math.max(8, proportions.radius));
+    if (proportions.bodyRadius === undefined) delete joint.bodyRadius;
+    else if (proportions.bodyRadius > 0) joint.bodyRadius = proportions.bodyRadius;
+    this.notify();
+  }
+
+  public applyColors(colors: {
+    defaultColor: string;
+    palette: Rig["palette"];
+    joints: Record<string, { color?: string; paletteId?: string } | null>;
+    faces: Record<string, { color?: string; paletteId?: string } | null>;
+  }): void {
+    if (isHexColor(colors.defaultColor)) this.rig.defaultColor = colors.defaultColor;
+    const seenPaletteIds = new Set<string>();
+    const palette = colors.palette.filter((entry) => entry.id.trim()
+      && isHexColor(entry.color) && !seenPaletteIds.has(entry.id) && (seenPaletteIds.add(entry.id), true));
+    if (palette.length > 0) this.rig.palette = palette.map((entry) => ({ ...entry }));
+    for (const joint of this.rig.joints) {
+      const assignment = colors.joints[joint.id];
+      if (assignment === null) {
+        delete joint.color;
+        delete joint.paletteId;
+      } else if (assignment) {
+        if (isHexColor(assignment.color ?? "")) joint.color = assignment.color;
+        else delete joint.color;
+        if (assignment.paletteId && this.rig.palette.some((entry) => entry.id === assignment.paletteId)) joint.paletteId = assignment.paletteId;
+        else delete joint.paletteId;
+      }
+    }
+    for (const face of this.rig.faces) {
+      const assignment = colors.faces[face.id];
+      if (assignment === null) {
+        delete face.color;
+        delete face.paletteId;
+      } else if (assignment) {
+        if (isHexColor(assignment.color ?? "")) face.color = assignment.color;
+        else delete face.color;
+        if (assignment.paletteId && this.rig.palette.some((entry) => entry.id === assignment.paletteId)) face.paletteId = assignment.paletteId;
+        else delete face.paletteId;
+      }
+    }
+    this.notify();
+  }
+
   public setJointBodyVisible(jointId: string, visible: boolean): void {
     this.getJoint(jointId).bodyVisible = visible;
     this.notify();
@@ -405,12 +480,16 @@ export class RigState {
 
   public setJointColor(jointId: string, color: string): void {
     if (!isHexColor(color)) return;
-    this.getJoint(jointId).color = color;
+    const joint = this.getJoint(jointId);
+    joint.color = color;
+    delete joint.paletteId;
     this.notify();
   }
 
   public clearJointColor(jointId: string): void {
-    delete this.getJoint(jointId).color;
+    const joint = this.getJoint(jointId);
+    delete joint.color;
+    delete joint.paletteId;
     this.notify();
   }
 
@@ -483,13 +562,74 @@ export class RigState {
 
   public setFaceColor(faceId: string, color: string): void {
     if (!isHexColor(color)) return;
-    this.getFace(faceId).color = color;
+    const face = this.getFace(faceId);
+    face.color = color;
+    delete face.paletteId;
     this.notify();
   }
 
   public clearFaceColor(faceId: string): void {
-    delete this.getFace(faceId).color;
+    const face = this.getFace(faceId);
+    delete face.color;
+    delete face.paletteId;
     this.notify();
+  }
+
+  public setPaletteColor(paletteId: string, color: string): string | null {
+    if (!isHexColor(color)) return null;
+    const palette = this.rig.palette.find((entry) => entry.id === paletteId);
+    if (!palette) throw new Error(`Unknown palette: ${paletteId}`);
+    palette.color = color;
+    const matching = this.rig.palette.find((entry) => entry.id !== paletteId
+      && entry.color.toLowerCase() === color.toLowerCase());
+    if (matching) {
+      for (const joint of this.rig.joints) {
+        if (joint.paletteId === paletteId) joint.paletteId = matching.id;
+      }
+      for (const face of this.rig.faces) {
+        if (face.paletteId === paletteId) face.paletteId = matching.id;
+      }
+      this.rig.palette = this.rig.palette.filter((entry) => entry.id !== paletteId);
+    }
+    this.notify();
+    return matching?.id ?? paletteId;
+  }
+
+  public paintJointWithPalette(jointId: string, paletteId: string): void {
+    if (!this.rig.palette.some((entry) => entry.id === paletteId)) return;
+    const joint = this.getJoint(jointId);
+    joint.paletteId = paletteId;
+    delete joint.color;
+    this.notify();
+  }
+
+  public paintJointWithColor(jointId: string, color: string): void {
+    const paletteId = this.getOrCreatePaletteColor(color);
+    if (paletteId) this.paintJointWithPalette(jointId, paletteId);
+  }
+
+  public paintFaceWithPalette(faceId: string, paletteId: string): void {
+    if (!this.rig.palette.some((entry) => entry.id === paletteId)) return;
+    const face = this.getFace(faceId);
+    face.paletteId = paletteId;
+    delete face.color;
+    this.notify();
+  }
+
+  public paintFaceWithColor(faceId: string, color: string): void {
+    const paletteId = this.getOrCreatePaletteColor(color);
+    if (paletteId) this.paintFaceWithPalette(faceId, paletteId);
+  }
+
+  private getOrCreatePaletteColor(color: string): string | null {
+    if (!isHexColor(color)) return null;
+    const existing = this.rig.palette.find((entry) => entry.color.toLowerCase() === color.toLowerCase());
+    if (existing) return existing.id;
+    let index = this.rig.palette.length + 1;
+    let id = `color-${index}`;
+    while (this.rig.palette.some((entry) => entry.id === id)) id = `color-${++index}`;
+    this.rig.palette.push({ id, color });
+    return id;
   }
 
   public setDefaultColor(color: string): void {

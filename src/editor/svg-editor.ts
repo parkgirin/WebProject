@@ -22,7 +22,7 @@ export function renderSvgEditor(
         groupId: joint.groupId,
         order: joint.renderOrder,
         markup: `<g class="body-joint-item">
-          <circle class="body-joint" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(joint.color ?? rig.defaultColor)}" />
+          <circle class="body-joint" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />
           <circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" mask="url(#joint-outline-mask-${index})" />
         </g>`,
       };
@@ -43,7 +43,7 @@ export function renderSvgEditor(
         groupId: face.groupId,
         order: getFaceOrder(rig, face),
         markup: `<g class="body-face-item">
-          <polygon class="body-face${face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(face.color ?? rig.defaultColor)}" />
+          <polygon class="body-face${face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(resolveColor(rig, face.color, face.paletteId))}" />
           <path class="body-face-outline" d="${outlinePath}" />
         </g>`,
       };
@@ -228,6 +228,10 @@ function getFaceOrder(rig: Rig, face: Rig["faces"][number]): number {
 function isGroupVisible(rig: Rig, groupId: string | undefined): boolean {
   if (!groupId) return true;
   return rig.groups.find((group) => group.id === groupId)?.visible ?? true;
+}
+
+function resolveColor(rig: Rig, color: string | undefined, paletteId: string | undefined): string {
+  return paletteId ? rig.palette.find((entry) => entry.id === paletteId)?.color ?? color ?? rig.defaultColor : color ?? rig.defaultColor;
 }
 
 function escapeXml(value: string): string {

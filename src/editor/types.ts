@@ -12,4 +12,5 @@ export interface EditorViewState {
   preserveProportions: boolean;
   activeTool: "select" | "color";
   paintColor: string;
+  paintPaletteId: string | null;
 }

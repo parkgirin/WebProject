@@ -3,6 +3,7 @@ import type { Rig } from "./types";
 export function createDefaultRig(): Rig {
   return {
     defaultColor: "#dca27b",
+    palette: [],
     groups: [
       { id: "head", name: "머리", visible: true, order: 40 },
       { id: "torso", name: "몸통", visible: true, order: 30 },

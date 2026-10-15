@@ -20,6 +20,8 @@ export interface Joint {
   /** Temporary preview output size; migrate to a joint-bound ArtShape. */
   bodyRadius?: number;
   color?: string;
+  /** Palette-linked paint remains live when its palette swatch changes. */
+  paletteId?: string;
   groupId?: string;
   axes: JointAxis[];
   renderOrder: number;
@@ -47,6 +49,7 @@ export interface Face {
   vertices: JointPointRef[];
   rotationTarget: FaceRotationTarget;
   color?: string;
+  paletteId?: string;
   groupId?: string;
   /** Explicit order inside the assigned layer group. */
   layerOrder?: number;
@@ -60,8 +63,14 @@ export interface LayerGroup {
   order: number;
 }
 
+export interface ColorPaletteEntry {
+  id: string;
+  color: string;
+}
+
 export interface Rig {
   defaultColor: string;
+  palette: ColorPaletteEntry[];
   groups: LayerGroup[];
   joints: Joint[];
   peerGroups: PeerGroup[];

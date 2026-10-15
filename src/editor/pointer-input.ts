@@ -82,7 +82,7 @@ export function enablePointerInput(
     } else if (target.hasAttribute("data-drag-joint") && jointId && options.getPaintColor()) {
       const joint = options.state.getJoint(jointId);
       if (joint.bodyVisible && !joint.isVirtual) {
-        options.state.setJointColor(jointId, options.getPaintColor()!);
+        options.state.paintJointWithColor(jointId, options.getPaintColor()!);
       }
     } else if (target.hasAttribute("data-selection-rotation")) {
       const selected = options.getSelection().jointIds;
@@ -169,7 +169,7 @@ export function enablePointerInput(
       }
     } else if (faceId && options.getPaintColor()) {
       options.setSelectedFace(faceId);
-      options.state.setFaceColor(faceId, options.getPaintColor()!);
+      options.state.paintFaceWithColor(faceId, options.getPaintColor()!);
     } else if (faceId) {
       options.setSelectedFace(faceId);
       if (event.shiftKey) {

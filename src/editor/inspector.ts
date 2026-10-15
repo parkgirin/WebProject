@@ -265,7 +265,11 @@ export function renderInspector(
     state.setDefaultColor((event.target as HTMLInputElement).value);
   });
   element.querySelector<HTMLInputElement>("[data-paint-color-panel]")?.addEventListener("change", (event) => {
-    setViewState({ activeTool: "color", paintColor: (event.target as HTMLInputElement).value });
+    const color = (event.target as HTMLInputElement).value;
+    const mergedPaletteId = viewState.paintPaletteId
+      ? state.setPaletteColor(viewState.paintPaletteId, color)
+      : null;
+    setViewState({ activeTool: "color", paintColor: color, paintPaletteId: mergedPaletteId ?? viewState.paintPaletteId });
   });
   element.querySelector<HTMLInputElement>("[data-joint-color]")?.addEventListener("change", (event) => {
     if (joint) state.setJointColor(joint.id, (event.target as HTMLInputElement).value);
