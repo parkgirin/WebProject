@@ -18,6 +18,7 @@ export function createApp(container: HTMLDivElement): void {
     outlinesVisible: true,
     hideSameJointEdges: true,
     selectedFaceId: "torso",
+    selectedTarget: "joint",
     inspectorTab: "selection",
     preserveProportions: false,
     activeTool: "select",
@@ -202,6 +203,7 @@ export function createApp(container: HTMLDivElement): void {
         ? next.jointId
         : uniqueIds.at(-1) ?? null,
     };
+    viewState.selectedTarget = "joint";
     render();
   };
   const setViewState = (next: Partial<EditorViewState>) => {
@@ -238,7 +240,7 @@ export function createApp(container: HTMLDivElement): void {
     getPreserveProportions: () => viewState.preserveProportions,
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
     setSelection,
-    setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId }),
+    setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId, selectedTarget: "face" }),
   });
   undoButton.addEventListener("click", () => state.undo());
   redoButton.addEventListener("click", () => state.redo());
@@ -402,10 +404,23 @@ export function createApp(container: HTMLDivElement): void {
   window.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement | null;
     const editingText = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
-    if (editingText || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
-    event.preventDefault();
-    if (event.shiftKey) state.redo();
-    else state.undo();
+    if (editingText) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) state.redo();
+      else state.undo();
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "[") {
+      event.preventDefault();
+      if (viewState.selectedTarget === "face") state.moveFaceInLayerStack(viewState.selectedFaceId, -1);
+      else if (selection.jointIds.length > 0) state.moveJointsInLayerStack(selection.jointIds, -1);
+    } else if (event.key === "]") {
+      event.preventDefault();
+      if (viewState.selectedTarget === "face") state.moveFaceInLayerStack(viewState.selectedFaceId, 1);
+      else if (selection.jointIds.length > 0) state.moveJointsInLayerStack(selection.jointIds, 1);
+    }
   });
   render();
 }

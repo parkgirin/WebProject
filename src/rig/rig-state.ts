@@ -191,6 +191,7 @@ export class RigState {
     if (errors.length > 0) {
       throw new Error(`Invalid rig:\n${errors.join("\n")}`);
     }
+    for (const joint of rig.joints) this.alignDirectConnectionAxes(joint.id);
     this.lastSnapshot = cloneRig(rig);
   }
 
@@ -330,6 +331,7 @@ export class RigState {
     this.setJointWorldPosition(joint, x, y);
     joint.localRotation = normalizeAngle(joint.localRotation + delta);
     this.rotateSharedParentAxes(joint.parentJointId, jointId, delta);
+    this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -378,19 +380,6 @@ export class RigState {
     }
   }
 
-  public getLowerBodyRotation(): number {
-    const pivot = this.getJoint("pelvis-pivot");
-    return normalizeSignedAngle(Math.atan2(pivot.y, pivot.x) * 180 / Math.PI - 90);
-  }
-
-  public setLowerBodyRotation(angle: number): void {
-    if (!Number.isFinite(angle)) return;
-    const pivot = this.getJoint("pelvis-pivot");
-    if (!pivot.parentJointId) return;
-    const parent = getJointWorldTransform(this.rig, pivot.parentJointId);
-    this.rotateChildAroundParent(pivot.id, parent.rotation + 90 + angle);
-  }
-
   public getGlobalRotation(): number {
     return this.getJoint("scene-root").localRotation;
   }
@@ -419,6 +408,7 @@ export class RigState {
       const angle = pose.axes[axis.id];
       if (Number.isFinite(angle)) axis.angle = normalizeAngle(angle);
     }
+    this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -432,6 +422,7 @@ export class RigState {
     joint.radius = Math.min(80, Math.max(8, proportions.radius));
     if (proportions.bodyRadius === undefined) delete joint.bodyRadius;
     else if (proportions.bodyRadius > 0) joint.bodyRadius = proportions.bodyRadius;
+    this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -546,6 +537,57 @@ export class RigState {
     this.notify();
   }
 
+  public bringJointsToFront(jointIds: string[]): void {
+    const ids = new Set(jointIds);
+    const selected = [...ids].map((jointId) => this.getJoint(jointId));
+    if (selected.length === 0) return;
+    const highestOtherOrder = Math.max(0, ...this.getBodyStackEntries()
+      .filter((entry) => entry.type !== "joint" || !ids.has(entry.id))
+      .map((entry) => entry.order));
+    if (selected.every((joint) => this.getJointStackOrder(joint) > highestOtherOrder)) return;
+    selected
+      .sort((first, second) => this.getJointStackOrder(first) - this.getJointStackOrder(second))
+      .forEach((joint, index) => this.setJointStackOrder(joint, highestOtherOrder + index + 1));
+    this.notify();
+  }
+
+  public moveJointsInLayerStack(jointIds: string[], direction: -1 | 1): void {
+    const ids = new Set(jointIds);
+    const selected = [...ids].map((jointId) => this.getJoint(jointId));
+    if (selected.length === 0) return;
+    const others = this.getBodyStackEntries()
+      .filter((entry) => entry.type !== "joint" || !ids.has(entry.id));
+    const selectedOrders = selected.map((joint) => this.getJointStackOrder(joint));
+    const boundary = direction > 0 ? Math.max(...selectedOrders) : Math.min(...selectedOrders);
+    const adjacentOrders = others.map((entry) => entry.order).filter((order) => (
+      direction > 0 ? order > boundary : order < boundary
+    ));
+    const adjacent = direction > 0
+      ? Math.min(...adjacentOrders)
+      : Math.max(...adjacentOrders);
+    const target = Number.isFinite(adjacent) ? adjacent + direction : boundary + direction;
+    const ordered = selected.sort((first, second) => this.getJointStackOrder(first) - this.getJointStackOrder(second));
+    ordered.forEach((joint, index) => {
+      const offset = direction > 0 ? index : index - ordered.length + 1;
+      this.setJointStackOrder(joint, target + offset);
+    });
+    this.notify();
+  }
+
+  public moveFaceInLayerStack(faceId: string, direction: -1 | 1): void {
+    const face = this.getFace(faceId);
+    const current = this.getFaceStackOrder(face);
+    const adjacentOrders = this.getBodyStackEntries()
+      .filter((entry) => entry.type !== "face" || entry.id !== faceId)
+      .map((entry) => entry.order)
+      .filter((order) => direction > 0 ? order > current : order < current);
+    const adjacent = direction > 0
+      ? Math.min(...adjacentOrders)
+      : Math.max(...adjacentOrders);
+    this.setFaceStackOrder(face, Number.isFinite(adjacent) ? adjacent + direction : current + direction);
+    this.notify();
+  }
+
   public setJointGroup(jointId: string, groupId: string | null): void {
     const joint = this.getJoint(jointId);
     if (groupId) this.getLayerGroup(groupId);
@@ -647,6 +689,7 @@ export class RigState {
     if (!axis) {
       throw new Error(`Unknown axis: ${jointId}.${axisId}`);
     }
+    if (axis.alignment) return;
     const currentWorldAngle = normalizeAngle(
       getJointWorldTransform(this.rig, jointId).rotation + axis.angle,
     );
@@ -715,6 +758,36 @@ export class RigState {
     return group;
   }
 
+  private getGroupStackOrder(groupId: string | undefined): number {
+    return groupId ? this.getLayerGroup(groupId).order : 0;
+  }
+
+  private getJointStackOrder(joint: Rig["joints"][number]): number {
+    return this.getGroupStackOrder(joint.groupId) + joint.renderOrder;
+  }
+
+  private getFaceStackOrder(face: Rig["faces"][number]): number {
+    return this.getGroupStackOrder(face.groupId) + this.getFaceLayerOrder(face.id);
+  }
+
+  private setJointStackOrder(joint: Rig["joints"][number], stackOrder: number): void {
+    joint.renderOrder = clampLayerValue(stackOrder - this.getGroupStackOrder(joint.groupId));
+  }
+
+  private setFaceStackOrder(face: Rig["faces"][number], stackOrder: number): void {
+    face.layerOrder = clampLayerValue(stackOrder - this.getGroupStackOrder(face.groupId));
+  }
+
+  private getBodyStackEntries(): Array<{ type: "joint" | "face"; id: string; order: number }> {
+    return [
+      ...this.rig.joints
+        .filter((joint) => joint.bodyVisible)
+        .map((joint) => ({ type: "joint" as const, id: joint.id, order: this.getJointStackOrder(joint) })),
+      ...this.rig.faces
+        .map((face) => ({ type: "face" as const, id: face.id, order: this.getFaceStackOrder(face) })),
+    ];
+  }
+
   private setJointWorldPosition(joint: Rig["joints"][number], x: number, y: number): void {
     if (!joint.parentJointId) {
       joint.x = x;
@@ -775,10 +848,47 @@ export class RigState {
     const parent = this.getJoint(child.parentJointId);
     const parentWorld = getJointWorldTransform(this.rig, parent.id);
     const childWorld = getJointWorldTransform(this.rig, child.id);
-    const crossSectionWorldAngle = Math.atan2(
+    const connectionWorldAngle = Math.atan2(
       childWorld.y - parentWorld.y,
       childWorld.x - parentWorld.x,
-    ) * 180 / Math.PI + 90;
+    ) * 180 / Math.PI;
+    const crossSectionWorldAngle = connectionWorldAngle - 90;
+
+    for (const axis of child.axes) {
+      const alignedWorldAngle = axis.alignment === "parent-perpendicular"
+        ? crossSectionWorldAngle
+        : axis.alignment === "parent-parallel"
+          ? connectionWorldAngle
+          : null;
+      if (alignedWorldAngle !== null) axis.angle = normalizeAngle(alignedWorldAngle - childWorld.rotation);
+    }
+
+    const peerGroup = this.rig.peerGroups.find((group) => group.jointIds.includes(child.id));
+    if (peerGroup) {
+      const peerPivot = getPeerGroupPivot(this.rig, peerGroup.id);
+      const parentToPeerAngle = Math.atan2(
+        peerPivot.y - parentWorld.y,
+        peerPivot.x - parentWorld.x,
+      ) * 180 / Math.PI;
+
+      // Peer-aligned axes share the parent-to-group-center reference. Updating
+      // every member keeps paired joints (the two hips) parallel when either
+      // member moves independently.
+      for (const memberId of peerGroup.jointIds) {
+        const member = this.getJoint(memberId);
+        const memberWorld = getJointWorldTransform(this.rig, member.id);
+        for (const axis of member.axes) {
+          const alignedWorldAngle = axis.alignment === "parent-peer-perpendicular"
+            ? parentToPeerAngle - 90
+            : axis.alignment === "parent-peer-parallel"
+              ? parentToPeerAngle
+              : null;
+          if (alignedWorldAngle !== null) {
+            axis.angle = normalizeAngle(alignedWorldAngle - memberWorld.rotation);
+          }
+        }
+      }
+    }
 
     for (const face of this.rig.faces) {
       if (face.rotationTarget.type !== "child" || face.rotationTarget.childJointId !== child.id) continue;

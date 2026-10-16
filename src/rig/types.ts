@@ -4,6 +4,8 @@ export interface JointAxis {
   id: string;
   angle: number;
   pointSides: AxisPointSide[];
+  /** Derives the axis from the parent connection, optionally through a peer-group center. */
+  alignment?: "parent-perpendicular" | "parent-parallel" | "parent-peer-perpendicular" | "parent-peer-parallel";
 }
 
 export interface Joint {
@@ -83,5 +85,5 @@ export interface RigLimits {
 
 // The schema uses an array so this policy can be raised without another data migration.
 export const DEFAULT_RIG_LIMITS: Readonly<RigLimits> = {
-  maxAxesPerJoint: 2,
+  maxAxesPerJoint: 3,
 };

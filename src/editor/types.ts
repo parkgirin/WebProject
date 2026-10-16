@@ -8,6 +8,7 @@ export interface EditorViewState {
   outlinesVisible: boolean;
   hideSameJointEdges: boolean;
   selectedFaceId: string;
+  selectedTarget: "joint" | "face";
   inspectorTab: "selection" | "layers" | "color";
   preserveProportions: boolean;
   activeTool: "select" | "color";

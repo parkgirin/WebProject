@@ -29,8 +29,23 @@ export function renderInspector(
   const selectedJointColor = joint?.color ?? state.rig.defaultColor;
   const hasJointColorOverride = joint?.color !== undefined;
   const faceRotation = state.getFaceRotationAngle(viewState.selectedFaceId);
-  const lowerBodyRotation = state.getLowerBodyRotation();
   const jointWorld = joint ? getJointWorldTransform(state.rig, joint.id) : null;
+  const groupOrder = (groupId: string | undefined) => (
+    groupId ? state.rig.groups.find((group) => group.id === groupId)?.order ?? 0 : 0
+  );
+  const jointLayerOrder = joint?.renderOrder ?? 0;
+  const jointFinalOrder = joint ? groupOrder(joint.groupId) + jointLayerOrder : 0;
+  const faceLayerOrder = state.getFaceLayerOrder(selectedFace.id);
+  const faceFinalOrder = groupOrder(selectedFace.groupId) + faceLayerOrder;
+  const selectedTargetName = viewState.selectedTarget === "joint"
+    ? joint?.id ?? "선택 없음"
+    : selectedFace.id;
+
+  const targetSummary = `
+    <div class="selection-target-summary is-${viewState.selectedTarget}">
+      <span class="target-kind">${viewState.selectedTarget === "joint" ? "관절" : "면"}</span>
+      <div><small>현재 편집 대상</small><strong>${escapeHtml(selectedTargetName)}</strong></div>
+    </div>`;
 
   const jointMarkup = joint ? `
     <h2>관절 속성</h2>
@@ -41,6 +56,13 @@ export function renderInspector(
       <div class="numeric-field-grid">
         <label for="joint-world-x"><span>월드 X</span><input id="joint-world-x" type="number" step="1" value="${jointWorld!.x.toFixed(1)}" /></label>
         <label for="joint-world-y"><span>월드 Y</span><input id="joint-world-y" type="number" step="1" value="${jointWorld!.y.toFixed(1)}" /></label>
+      </div>
+      <div class="joint-layer-actions">
+        <span>겹침 순서</span>
+        <div>
+          <button type="button" data-send-joint-back title="선택 관절을 뒤로 ([)">← 뒤로</button>
+          <button type="button" data-bring-joint-forward title="선택 관절을 앞으로 (])">앞으로 →</button>
+        </div>
       </div>
     </div>
     <label class="field-label" for="parent-joint">부모 관절</label>
@@ -57,23 +79,25 @@ export function renderInspector(
     <div class="axis-section">
       <div class="section-heading">
         <h3>축선</h3>
-        <span>${joint.axes.length}/2</span>
+        <span>${joint.axes.length}/${state.limits.maxAxesPerJoint}</span>
       </div>
       ${joint.axes.length === 0 ? `<p class="muted">이 관절에는 연결 축선이 없습니다.</p>` : `
         <div class="axis-tabs">
-          ${joint.axes.map((axis, index) => `
-            <button type="button" class="axis-tab${axis.id === selection.axisId ? " is-active" : ""}"
+          ${joint.axes.map((axis) => `
+            <button type="button" class="axis-tab ${axis.alignment ? "is-derived" : "is-editable"}${axis.id === selection.axisId ? " is-active" : ""}"
               data-inspector-axis="${escapeHtml(axis.id)}">
-              <i class="axis-swatch axis-${index + 1}"></i>${escapeHtml(axis.id)}
+              <i class="axis-swatch"></i><span>${escapeHtml(axis.id)}</span><small>${axis.alignment ? "자동 고정" : "직접 회전"}</small>
             </button>`).join("")}
         </div>`}
       ${selectedAxis ? `
         <label class="field-label" for="axis-angle">선택 축 각도</label>
         <div class="range-number-control angle-control">
-          <input id="axis-angle" type="range" min="0" max="359" step="1" value="${selectedAxisWorldAngle}" />
-          <span><input id="axis-angle-number" type="number" min="0" max="359" step="1" value="${selectedAxisWorldAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력" />°</span>
+          <input id="axis-angle" type="range" min="0" max="359" step="1" value="${selectedAxisWorldAngle}"${selectedAxis.alignment ? " disabled" : ""} />
+          <span><input id="axis-angle-number" type="number" min="0" max="359" step="1" value="${selectedAxisWorldAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment ? " disabled" : ""} />°</span>
         </div>
-        <p class="hint">연결 축은 관절 연결선과 직교합니다. 회전하면 연결된 하위 관절과 도형도 함께 회전합니다.</p>` : ""}
+        <p class="hint">${selectedAxis.alignment
+          ? `이 축은 부모 관절${selectedAxis.alignment.includes("peer") ? "과 동등 관절 중심의" : ""} 연결선과 항상 ${selectedAxis.alignment.includes("perpendicular") ? "직교" : "평행"}하도록 자동 계산됩니다.`
+          : "연결 축은 관절 연결선과 직교합니다. 회전하면 연결된 하위 관절과 도형도 함께 회전합니다."}</p>` : ""}
     </div>` : `
       <h2>관절 속성</h2>
       <div class="empty-state">
@@ -81,35 +105,88 @@ export function renderInspector(
         <p>Shift+클릭이나 빈 공간 드래그로 여러 관절을 선택할 수 있습니다. 축선을 회전하면 연결된 하위 트리가 함께 움직입니다.</p>
       </div>`;
 
-  const selectionPanel = `
-    ${renderPoseNavigator(state, selection, viewState.selectedFaceId)}
-    ${jointMarkup}
-    <div class="lower-body-section">
-      <div class="section-heading"><h3>하체 회전</h3><span>상체 고정</span></div>
-      <label class="field-label" for="lower-body-angle">골반 기준 각도</label>
-      <div class="range-number-control angle-control">
-        <input id="lower-body-angle" type="range" min="-180" max="180" step="1" value="${lowerBodyRotation}" />
-        <span><input id="lower-body-angle-number" type="number" min="-180" max="180" step="1" value="${lowerBodyRotation.toFixed(0)}" aria-label="하체 회전 각도 숫자 입력" />°</span>
+  const faceMarkup = `
+    <h2>면 속성</h2>
+    <div class="property-group">
+      <span class="eyebrow">선택 면</span>
+      <strong class="selection-name">${escapeHtml(selectedFace.id)}</strong>
+      <div class="selection-order-summary">
+        <span>그룹 ${groupOrder(selectedFace.groupId)}</span>
+        <span>+</span>
+        <span>면 ${faceLayerOrder}</span>
+        <strong>= 최종 ${faceFinalOrder}</strong>
       </div>
-      <p class="hint">허리를 중심으로 골반과 양다리만 회전합니다. 캔버스의 보라색 하체 회전 핸들로도 조작할 수 있습니다.</p>
-    </div>`;
+      <div class="joint-layer-actions">
+        <span>겹침 순서</span>
+        <div>
+          <button type="button" data-send-face-back title="선택 면을 뒤로 ([)">← 뒤로</button>
+          <button type="button" data-bring-face-forward title="선택 면을 앞으로 (])">앞으로 →</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint">면을 선택한 상태에서는 순서 변경과 색상 설정이 이 면에 적용됩니다.</p>`;
+
+  const selectionPanel = `
+    ${targetSummary}
+    ${renderPoseNavigator(state, selection, viewState.selectedFaceId, viewState.selectedTarget)}
+    ${viewState.selectedTarget === "joint" ? jointMarkup : faceMarkup}`;
+
+  const stackEntries = [
+    ...state.rig.joints
+      .filter((candidate) => candidate.bodyVisible)
+      .map((candidate) => ({
+        type: "joint" as const,
+        id: candidate.id,
+        order: groupOrder(candidate.groupId) + candidate.renderOrder,
+      })),
+    ...state.rig.faces.map((face) => ({
+      type: "face" as const,
+      id: face.id,
+      order: groupOrder(face.groupId) + state.getFaceLayerOrder(face.id),
+    })),
+  ].sort((first, second) => second.order - first.order || first.id.localeCompare(second.id));
 
   const layerPanel = `
     <div class="layer-section is-tab-root">
+      ${targetSummary}
       <div class="section-heading">
         <h2>레이어와 그룹</h2>
         <button type="button" class="add-group-button" data-add-layer-group>그룹 추가</button>
       </div>
       ${joint ? `
-        <div class="layer-editor-row">
-          <span>선택 관절</span>
+        <div class="layer-editor-row${viewState.selectedTarget === "joint" ? " is-active-target" : ""}">
+          <div class="layer-editor-heading"><span class="target-kind is-joint">관절</span><strong>${escapeHtml(joint.id)}</strong>${viewState.selectedTarget === "joint" ? "<em>현재 선택</em>" : ""}</div>
           <select aria-label="선택 관절 그룹" data-joint-group>${renderGroupOptions(state, joint.groupId)}</select>
           <label>레이어 <input type="number" min="-999" max="999" step="1" value="${joint.renderOrder}" data-joint-layer /></label>
+          <div class="layer-order-equation"><span>그룹 ${groupOrder(joint.groupId)}</span><b>+</b><span>관절 ${jointLayerOrder}</span><strong>= 최종 ${jointFinalOrder}</strong></div>
+          <div class="layer-item-actions">
+            <button type="button" data-send-joint-back title="선택 관절을 뒤로">← 뒤로</button>
+            <button type="button" data-bring-joint-forward title="선택 관절을 앞으로">앞으로 →</button>
+          </div>
         </div>` : ""}
-      <div class="layer-editor-row">
-        <span>선택 면</span>
+      <div class="layer-editor-row${viewState.selectedTarget === "face" ? " is-active-target" : ""}">
+        <div class="layer-editor-heading"><span class="target-kind is-face">면</span><strong>${escapeHtml(selectedFace.id)}</strong>${viewState.selectedTarget === "face" ? "<em>현재 선택</em>" : ""}</div>
         <select aria-label="선택 면 그룹" data-face-group>${renderGroupOptions(state, selectedFace.groupId)}</select>
-        <label>레이어 <input type="number" min="-999" max="999" step="1" value="${state.getFaceLayerOrder(selectedFace.id)}" data-face-layer /></label>
+        <label>레이어 <input type="number" min="-999" max="999" step="1" value="${faceLayerOrder}" data-face-layer /></label>
+        <div class="layer-order-equation"><span>그룹 ${groupOrder(selectedFace.groupId)}</span><b>+</b><span>면 ${faceLayerOrder}</span><strong>= 최종 ${faceFinalOrder}</strong></div>
+        <div class="layer-item-actions">
+          <button type="button" data-send-face-back title="선택 면을 뒤로">← 뒤로</button>
+          <button type="button" data-bring-face-forward title="선택 면을 앞으로">앞으로 →</button>
+        </div>
+      </div>
+      <div class="render-stack-section">
+        <div class="section-heading"><h3>관절·면 렌더 순서</h3><span>앞 → 뒤</span></div>
+        <div class="render-stack-list">
+          ${stackEntries.map((entry) => {
+            const active = entry.type === viewState.selectedTarget
+              && (entry.type === "joint" ? entry.id === joint?.id : entry.id === selectedFace.id);
+            return `<button type="button" class="render-stack-item${active ? " is-active" : ""}" data-stack-${entry.type}="${escapeHtml(entry.id)}">
+              <span class="target-kind is-${entry.type}">${entry.type === "joint" ? "관절" : "면"}</span>
+              <strong>${escapeHtml(entry.id)}</strong>
+              <small>최종 ${entry.order}</small>
+            </button>`;
+          }).join("")}
+        </div>
       </div>
       ${state.rig.groups.length > 0 ? `
         <div class="group-visibility-list">
@@ -121,7 +198,7 @@ export function renderInspector(
             </div>
           `).join("")}
         </div>` : `<p class="hint">그룹을 추가하면 여러 관절과 면의 표시를 함께 전환할 수 있습니다.</p>`}
-      <p class="hint">그룹의 선택 버튼은 포함된 모든 관절을 선택합니다. 캔버스에서 Shift+면 클릭을 하면 그 면을 구성하는 관절이 현재 선택에 추가됩니다.</p>
+      <p class="hint">그룹 순서와 관절·면의 레이어 값을 합산해 최종 순서를 정합니다. 따라서 같은 그룹 안은 물론 다른 그룹의 항목보다도 앞이나 뒤에 배치할 수 있습니다.</p>
     </div>`;
 
   const colorPanel = `
@@ -217,17 +294,11 @@ export function renderInspector(
     });
   });
   element.querySelector<HTMLSelectElement>("[data-face-shortcut]")?.addEventListener("change", (event) => {
-    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value });
+    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face" });
   });
 
   bindLiveRange(element, state, "#joint-radius", "#joint-radius-number", (value) => {
     if (joint) state.setJointRadius(joint.id, value);
-  });
-  bindLiveRange(element, state, "#lower-body-angle", "#lower-body-angle-number", (value) => {
-    state.setLowerBodyRotation(value);
-  });
-  element.querySelector<HTMLInputElement>("#lower-body-angle-number")?.addEventListener("change", (event) => {
-    state.setLowerBodyRotation((event.target as HTMLInputElement).valueAsNumber);
   });
   element.querySelector<HTMLInputElement>("#joint-radius-number")?.addEventListener("change", (event) => {
     if (!joint) return;
@@ -240,6 +311,12 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("#joint-world-y")?.addEventListener("change", (event) => {
     if (!joint || !jointWorld) return;
     state.moveJoint(joint.id, jointWorld.x, (event.target as HTMLInputElement).valueAsNumber);
+  });
+  element.querySelector<HTMLButtonElement>("[data-send-joint-back]")?.addEventListener("click", () => {
+    state.moveJointsInLayerStack(selection.jointIds, -1);
+  });
+  element.querySelector<HTMLButtonElement>("[data-bring-joint-forward]")?.addEventListener("click", () => {
+    state.moveJointsInLayerStack(selection.jointIds, 1);
   });
   element.querySelector<HTMLSelectElement>("#parent-joint")?.addEventListener("change", (event) => {
     if (!joint) return;
@@ -259,7 +336,7 @@ export function renderInspector(
     });
   });
   element.querySelector<HTMLSelectElement>("[data-face-select]")?.addEventListener("change", (event) => {
-    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value });
+    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face" });
   });
   element.querySelector<HTMLInputElement>("[data-default-color]")?.addEventListener("change", (event) => {
     state.setDefaultColor((event.target as HTMLInputElement).value);
@@ -318,6 +395,12 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("[data-face-layer]")?.addEventListener("change", (event) => {
     state.setFaceLayerOrder(selectedFace.id, (event.target as HTMLInputElement).valueAsNumber);
   });
+  element.querySelector<HTMLButtonElement>("[data-send-face-back]")?.addEventListener("click", () => {
+    state.moveFaceInLayerStack(selectedFace.id, -1);
+  });
+  element.querySelector<HTMLButtonElement>("[data-bring-face-forward]")?.addEventListener("click", () => {
+    state.moveFaceInLayerStack(selectedFace.id, 1);
+  });
   element.querySelectorAll<HTMLInputElement>("[data-layer-group-visible]").forEach((input) => {
     input.addEventListener("change", () => {
       const groupId = input.dataset.layerGroupVisible;
@@ -345,6 +428,23 @@ export function renderInspector(
       });
     });
   });
+  element.querySelectorAll<HTMLButtonElement>("[data-stack-joint]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const jointId = button.dataset.stackJoint;
+      if (!jointId) return;
+      setSelection({
+        jointId,
+        axisId: state.getJoint(jointId).axes[0]?.id ?? null,
+        jointIds: [jointId],
+      });
+    });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-stack-face]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const faceId = button.dataset.stackFace;
+      if (faceId) setViewState({ selectedFaceId: faceId, selectedTarget: "face" });
+    });
+  });
 }
 
 function renderGroupOptions(state: RigState, selectedGroupId: string | undefined): string {
@@ -357,6 +457,7 @@ function renderPoseNavigator(
   state: RigState,
   selection: EditorSelection,
   selectedFaceId: string,
+  selectedTarget: EditorViewState["selectedTarget"],
 ): string {
   const points = [
     ["head", 46, 9], ["chest", 46, 25], ["waist", 46, 43],
@@ -378,12 +479,12 @@ function renderPoseNavigator(
           <svg viewBox="0 0 92 100" aria-hidden="true">
             <path d="M46 9 L46 25 M28 25 L64 25 M28 25 L24 39 L21 53 M64 25 L68 39 L71 53 M46 25 L46 43 M46 43 L38 53 L38 70 L38 87 M46 43 L54 53 L54 70 L54 87" />
           </svg>
-          ${points.map(([id, x, y]) => `<button type="button" class="pose-shortcut${selection.jointIds.includes(id) ? " is-selected" : ""}" style="--x:${x}px;--y:${y}px" data-joint-shortcut="${id}" aria-label="${id} 관절 선택" title="${id}"></button>`).join("")}
+          ${points.map(([id, x, y]) => `<button type="button" class="pose-shortcut${selectedTarget === "joint" && selection.jointIds.includes(id) ? " is-selected" : ""}" style="--x:${x}px;--y:${y}px" data-joint-shortcut="${id}" aria-label="${id} 관절 선택" title="${id}"></button>`).join("")}
         </div>
         <div class="pose-picker-current">
           <span class="eyebrow">CURRENT</span>
-          <strong>${escapeHtml(selection.jointId ?? "선택 없음")}</strong>
-          <select class="pose-face-shortcut" data-face-shortcut aria-label="면 선택">
+          <strong>${selectedTarget === "joint" ? `관절: ${escapeHtml(selection.jointId ?? "선택 없음")}` : `면: ${escapeHtml(selectedFaceId)}`}</strong>
+          <select class="pose-face-shortcut${selectedTarget === "face" ? " is-selected" : ""}" data-face-shortcut aria-label="면 선택">
             ${state.rig.faces.map((face) => `<option value="${escapeHtml(face.id)}"${face.id === selectedFaceId ? " selected" : ""}>면: ${escapeHtml(face.id)}</option>`).join("")}
           </select>
           <small>Shift+클릭으로 다중 선택</small>

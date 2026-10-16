@@ -93,17 +93,29 @@ export function parseRigPreset(text: string): RigPreset {
 
 export function applyRigPreset(state: RigState, preset: RigPreset, parts: PresetParts): string[] {
   const applied: string[] = [];
+  const legacyPelvisPose = preset.pose?.joints["pelvis-pivot"];
+  const legacyPelvisProportions = preset.proportions?.joints["pelvis-pivot"];
+  const usesHipPeerRig = !hasJoint(state.rig, "pelvis-pivot")
+    && hasJoint(state.rig, "left-hip") && hasJoint(state.rig, "right-hip");
   state.beginHistoryTransaction();
   try {
     if (parts.proportions && preset.proportions?.joints) {
       for (const [jointId, value] of Object.entries(preset.proportions.joints)) {
-        if (isProportions(value) && hasJoint(state.rig, jointId)) state.applyJointProportions(jointId, value);
+        if (!isProportions(value) || !hasJoint(state.rig, jointId)) continue;
+        const migrated = usesHipPeerRig && isHipJoint(jointId) && isProportions(legacyPelvisProportions)
+          ? { ...value, x: legacyPelvisProportions.x + value.x, y: legacyPelvisProportions.y + value.y }
+          : value;
+        state.applyJointProportions(jointId, migrated);
       }
       applied.push("비율");
     }
     if (parts.pose && preset.pose?.joints) {
       for (const [jointId, value] of Object.entries(preset.pose.joints)) {
-        if (isPose(value) && hasJoint(state.rig, jointId)) state.applyJointPose(jointId, value);
+        if (!isPose(value) || !hasJoint(state.rig, jointId)) continue;
+        const migrated = usesHipPeerRig && isHipJoint(jointId) && isPose(legacyPelvisPose)
+          ? migrateLegacyHipPose(value, legacyPelvisPose)
+          : value;
+        state.applyJointPose(jointId, migrated);
       }
       applied.push("포즈");
     }
@@ -115,6 +127,20 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
     state.endHistoryTransaction();
   }
   return applied;
+}
+
+function isHipJoint(jointId: string): boolean {
+  return jointId === "left-hip" || jointId === "right-hip";
+}
+
+function migrateLegacyHipPose(hip: SavedJointPose, pivot: SavedJointPose): SavedJointPose {
+  const radians = pivot.localRotation * Math.PI / 180;
+  return {
+    ...hip,
+    x: pivot.x + Math.cos(radians) * hip.x - Math.sin(radians) * hip.y,
+    y: pivot.y + Math.sin(radians) * hip.x + Math.cos(radians) * hip.y,
+    localRotation: pivot.localRotation + hip.localRotation,
+  };
 }
 
 function hasJoint(rig: Rig, jointId: string): boolean {

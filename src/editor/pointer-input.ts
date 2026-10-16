@@ -25,7 +25,6 @@ type Interaction =
   | { type: "move-joint-constrained"; jointId: string; parentX: number; parentY: number; length: number; angleOffset: number }
   | { type: "rotate-axis"; jointId: string; axisId: string; angleOffset: number }
   | { type: "rotate-child"; jointId: string; angleOffset: number }
-  | { type: "rotate-lower-body"; jointId: string; angleOffset: number }
   | { type: "rotate-peer"; peerGroupId: string }
   | { type: "rotate-selection"; jointIds: string[]; pivotX: number; pivotY: number; lastAngle: number }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
@@ -109,19 +108,6 @@ export function enablePointerInput(
         angleOffset: getAxisWorldAngle(options.state.rig, joint, axis) - pointerAngle,
       };
       options.state.beginHistoryTransaction();
-    } else if (target.hasAttribute("data-lower-body-rotation") && jointId) {
-      const joint = options.state.getJoint(jointId);
-      if (!joint.parentJointId) return;
-      const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
-      const current = getJointWorldTransform(options.state.rig, jointId);
-      interaction = {
-        type: "rotate-lower-body",
-        jointId,
-        angleOffset: getAngle(parent.x, parent.y, current.x, current.y)
-          - getAngle(parent.x, parent.y, point.x, point.y),
-      };
-      options.setSelectedFace("pelvis");
-      options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-child-rotation") && jointId) {
       interaction = { type: "rotate-child", jointId, angleOffset: 0 };
       options.state.beginHistoryTransaction();
@@ -166,6 +152,7 @@ export function enablePointerInput(
           interaction = { type: "move-selection", jointIds, lastX: point.x, lastY: point.y };
         }
         options.state.beginHistoryTransaction();
+        options.state.bringJointsToFront(jointIds);
       }
     } else if (faceId && options.getPaintColor()) {
       options.setSelectedFace(faceId);
@@ -231,14 +218,6 @@ export function enablePointerInput(
       const pointerAngle = getAngle(world.x, world.y, point.x, point.y);
       options.state.setAxisAngle(interaction.jointId, interaction.axisId, pointerAngle + interaction.angleOffset);
     } else if (interaction.type === "rotate-child") {
-      const joint = options.state.getJoint(interaction.jointId);
-      if (!joint.parentJointId) return;
-      const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
-      options.state.rotateChildAroundParent(
-        interaction.jointId,
-        getAngle(parent.x, parent.y, point.x, point.y) + interaction.angleOffset,
-      );
-    } else if (interaction.type === "rotate-lower-body") {
       const joint = options.state.getJoint(interaction.jointId);
       if (!joint.parentJointId) return;
       const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
