@@ -23,6 +23,7 @@ export function renderInspector(
   const selectedAxisWorldAngle = joint && selectedAxis
     ? getAxisWorldAngle(state.rig, joint, selectedAxis)
     : null;
+  const selectedAxisDisplayAngle = selectedAxisWorldAngle === null ? null : toSignedAngle(selectedAxisWorldAngle);
   const selectedFace = state.getFace(viewState.selectedFaceId);
   const selectedFaceColor = selectedFace.color ?? state.rig.defaultColor;
   const hasFaceColorOverride = selectedFace.color !== undefined;
@@ -92,8 +93,8 @@ export function renderInspector(
       ${selectedAxis ? `
         <label class="field-label" for="axis-angle">선택 축 각도</label>
         <div class="range-number-control angle-control">
-          <input id="axis-angle" type="range" min="0" max="359" step="1" value="${selectedAxisWorldAngle}"${selectedAxis.alignment ? " disabled" : ""} />
-          <span><input id="axis-angle-number" type="number" min="0" max="359" step="1" value="${selectedAxisWorldAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment ? " disabled" : ""} />°</span>
+          <input id="axis-angle" type="range" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle}"${selectedAxis.alignment ? " disabled" : ""} />
+          <span><input id="axis-angle-number" type="number" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment ? " disabled" : ""} />°</span>
         </div>
         <p class="hint">${selectedAxis.alignment
           ? `이 축은 부모 관절${selectedAxis.alignment.includes("peer") ? "과 동등 관절 중심의" : ""} 연결선과 항상 ${selectedAxis.alignment.includes("perpendicular") ? "직교" : "평행"}하도록 자동 계산됩니다.`
@@ -242,8 +243,8 @@ export function renderInspector(
           ? `<p class="hint">골반 면의 가상 피벗 회전은 준비 중입니다.</p>`
           : `<label class="field-label" for="face-angle">회전 각도</label>
              <div class="range-number-control angle-control">
-               <input id="face-angle" type="range" min="0" max="359" step="1" value="${faceRotation}" />
-               <span><input id="face-angle-number" type="number" min="0" max="359" step="1" value="${faceRotation.toFixed(0)}" aria-label="선택 면 회전 각도 숫자 입력" />°</span>
+               <input id="face-angle" type="range" min="-180" max="180" step="1" value="${toSignedAngle(faceRotation)}" />
+               <span><input id="face-angle-number" type="number" min="-180" max="180" step="1" value="${toSignedAngle(faceRotation).toFixed(0)}" aria-label="선택 면 회전 각도 숫자 입력" />°</span>
              </div>
              <p class="hint">연결선을 드래그하는 것과 같은 회전 조작입니다.</p>`}
       </div>
@@ -533,4 +534,9 @@ function escapeHtml(value: string): string {
     '"': "&quot;",
     "'": "&#39;",
   })[character] ?? character);
+}
+
+function toSignedAngle(angle: number): number {
+  const normalized = ((angle % 360) + 360) % 360;
+  return normalized > 180 ? normalized - 360 : normalized;
 }

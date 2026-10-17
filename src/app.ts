@@ -83,8 +83,8 @@ export function createApp(container: HTMLDivElement): void {
             <div class="canvas-actions">
               <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
               <label class="global-rotation-control">전체 회전
-                <input type="range" min="0" max="359" step="1" value="${state.getGlobalRotation()}" data-global-angle />
-                <span><input type="number" min="0" max="359" step="1" value="${state.getGlobalRotation().toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
+                <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
+                <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
               </label>
               <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
               <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
@@ -212,8 +212,9 @@ export function createApp(container: HTMLDivElement): void {
   };
   const render = () => {
     if (globalAngleInput && globalAngleNumber) {
-      globalAngleInput.value = String(state.getGlobalRotation());
-      globalAngleNumber.value = state.getGlobalRotation().toFixed(0);
+      const globalAngle = toSignedAngle(state.getGlobalRotation());
+      globalAngleInput.value = String(globalAngle);
+      globalAngleNumber.value = globalAngle.toFixed(0);
     }
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
@@ -423,4 +424,9 @@ export function createApp(container: HTMLDivElement): void {
     }
   });
   render();
+}
+
+function toSignedAngle(angle: number): number {
+  const normalized = ((angle % 360) + 360) % 360;
+  return normalized > 180 ? normalized - 360 : normalized;
 }
