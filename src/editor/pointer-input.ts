@@ -1,6 +1,6 @@
-import type { RigState } from "../rig/rig-state";
-import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry";
-import type { EditorSelection } from "./types";
+import type { RigState } from "../rig/rig-state.ts";
+import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry.ts";
+import type { EditorSelection } from "./types.ts";
 
 interface PointerInputOptions {
   state: RigState;

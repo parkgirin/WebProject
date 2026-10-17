@@ -2,7 +2,7 @@
 
 A browser-based editor for building poseable 2D character meshes from joints,
 independently rotatable joint axes, and generated faces. Each joint currently
-supports up to two axes; the array-based model can be expanded for more general
+supports up to three axes; the array-based model can be expanded for more general
 rigs later.
 
 The editor has one default body color with optional per-face and per-joint color overrides,
@@ -20,6 +20,11 @@ viewport to the current selection. Direct parent-child face axes stay
 perpendicular to their joint connection; rotating one of those axes rotates
 the connected child joint and its descendant subtree.
 
+Pose, proportions, and colors can be saved to a versioned JSON preset and
+loaded selectively. The repository also includes a GitHub Pages deployment
+workflow and automated coverage for rig validation, hierarchy transforms,
+history, and preset round-trips.
+
 ## Export
 
 Use the `PNG 저장` or `SVG 저장` button above the canvas to download the current
@@ -28,6 +33,18 @@ keeps the body as editable vector shapes. The editor grid, reference image,
 joint guides, labels, axes, and rotation handle are excluded from both formats.
 Use `저장 미리보기` to inspect that exact cropped, transparent-background result
 before downloading it.
+
+## Development
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+npm.cmd test
+npm.cmd run build
+```
+
+The test suite uses the Node.js built-in test runner. Node.js 24 or newer is
+recommended because the tests execute the TypeScript sources directly.
 
 ## License
 

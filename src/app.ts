@@ -1,11 +1,11 @@
-import { createDefaultRig } from "./rig/default-rig";
-import { RigState } from "./rig/rig-state";
-import { renderSvgEditor } from "./editor/svg-editor";
-import { enablePointerInput } from "./editor/pointer-input";
-import { createInspector, renderInspector } from "./editor/inspector";
-import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image";
-import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset";
-import type { EditorSelection, EditorViewState } from "./editor/types";
+import { createDefaultRig } from "./rig/default-rig.ts";
+import { RigState } from "./rig/rig-state.ts";
+import { renderSvgEditor } from "./editor/svg-editor.ts";
+import { enablePointerInput } from "./editor/pointer-input.ts";
+import { createInspector, renderInspector } from "./editor/inspector.ts";
+import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image.ts";
+import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
+import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
 export function createApp(container: HTMLDivElement): void {
   const state = new RigState(createDefaultRig());

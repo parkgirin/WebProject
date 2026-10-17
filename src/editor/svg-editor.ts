@@ -1,6 +1,6 @@
-import type { Rig } from "../rig/types";
-import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry";
-import type { EditorSelection, EditorViewState } from "./types";
+import type { Rig } from "../rig/types.ts";
+import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry.ts";
+import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
   host: SVGSVGElement,

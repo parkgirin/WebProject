@@ -5,7 +5,7 @@ import type {
   JointAxis,
   JointPointRef,
   Rig,
-} from "./types";
+} from "./types.ts";
 
 export interface Point {
   x: number;

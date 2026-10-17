@@ -1,5 +1,5 @@
 import "./styles.css";
-import { createApp } from "./app";
+import { createApp } from "./app.ts";
 
 const mountPoint = document.querySelector<HTMLDivElement>("#app");
 

@@ -1,5 +1,5 @@
-import type { RigState } from "../rig/rig-state";
-import type { Rig } from "../rig/types";
+import type { RigState } from "../rig/rig-state.ts";
+import type { Rig } from "../rig/types.ts";
 
 export interface PresetParts {
   pose: boolean;

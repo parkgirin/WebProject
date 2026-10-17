@@ -1,6 +1,6 @@
-import type { RigState } from "../rig/rig-state";
-import { getAxisWorldAngle, getJointWorldTransform } from "../rig/geometry";
-import type { EditorSelection, EditorViewState } from "./types";
+import type { RigState } from "../rig/rig-state.ts";
+import { getAxisWorldAngle, getJointWorldTransform } from "../rig/geometry.ts";
+import type { EditorSelection, EditorViewState } from "./types.ts";
 
 const END_JOINT_IDS = ["left-wrist", "right-wrist", "left-ankle", "right-ankle"];
 

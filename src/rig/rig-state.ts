@@ -3,8 +3,8 @@ import {
   type AxisPointSide,
   type Rig,
   type RigLimits,
-} from "./types";
-import { getJointWorldTransform, getPeerGroupPivot, normalizeAngle } from "./geometry";
+} from "./types.ts";
+import { getJointWorldTransform, getPeerGroupPivot, normalizeAngle } from "./geometry.ts";
 
 const VALID_SIDES = new Set<AxisPointSide>([-1, 1]);
 

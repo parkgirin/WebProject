@@ -1,4 +1,4 @@
-import type { Rig } from "./types";
+import type { Rig } from "./types.ts";
 
 export function createDefaultRig(): Rig {
   return {
