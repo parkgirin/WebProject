@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { getJointWorldTransform } from "../src/rig/geometry.ts";
+import { getAxisWorldAngle, getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const closeTo = (actual: number, expected: number, message?: string) => {
@@ -75,3 +75,86 @@ test("history restores an edited radius", () => {
   state.redo();
   assert.equal(state.getJoint("head").radius, original + 10);
 });
+
+test("constrained multi-selection applies the same angle to each connection, including descendants", () => {
+  const state = new RigState(createDefaultRig());
+  const ids = ["left-wrist", "right-elbow", "left-elbow"];
+  const before = new Map(ids.map((id) => {
+    const joint = state.getJoint(id);
+    const parent = getJointWorldTransform(state.rig, joint.parentJointId!);
+    const world = getJointWorldTransform(state.rig, id);
+    return [id, { dx: world.x - parent.x, dy: world.y - parent.y }];
+  }));
+  const original = structuredClone(state.rig);
+  state.beginHistoryTransaction();
+  state.moveJointsConstrainedBy(ids, 90, 0, 0);
+  state.endHistoryTransaction();
+  for (const id of ids) {
+    const parent = getJointWorldTransform(state.rig, state.getJoint(id).parentJointId!);
+    const world = getJointWorldTransform(state.rig, id);
+    const vector = before.get(id)!;
+    closeTo(world.x - parent.x, -vector.dy, id);
+    closeTo(world.y - parent.y, vector.dx, id);
+  }
+  state.undo();
+  assert.deepEqual(state.rig, original);
+  state.redo();
+  const elbow = getJointWorldTransform(state.rig, "left-elbow");
+  const shoulder = getJointWorldTransform(state.rig, "left-shoulder");
+  closeTo(elbow.x - shoulder.x, -before.get("left-elbow")!.dy);
+});
+
+test("constrained multi-selection moves a selected root once and preserves child distance", () => {
+  const state = new RigState(createDefaultRig());
+  const root = state.rig.joints.find((joint) => !joint.parentJointId)!;
+  const child = state.rig.joints.find((joint) => joint.parentJointId === root.id)!;
+  const rootBefore = getJointWorldTransform(state.rig, root.id);
+  const childBefore = getJointWorldTransform(state.rig, child.id);
+  state.moveJointsConstrainedBy([child.id, root.id, root.id], 45, 12, -8);
+  const rootAfter = getJointWorldTransform(state.rig, root.id);
+  const childAfter = getJointWorldTransform(state.rig, child.id);
+  closeTo(rootAfter.x, rootBefore.x + 12);
+  closeTo(rootAfter.y, rootBefore.y - 8);
+  closeTo(Math.hypot(childAfter.x - rootAfter.x, childAfter.y - rootAfter.y),
+    Math.hypot(childBefore.x - rootBefore.x, childBefore.y - rootBefore.y));
+});
+
+function assertShoulderBandPerpendicular(state: RigState) {
+  const left = getJointWorldTransform(state.rig, "left-shoulder");
+  const right = getJointWorldTransform(state.rig, "right-shoulder");
+  const dx = right.x - left.x;
+  const dy = right.y - left.y;
+  for (const id of ["left-shoulder", "right-shoulder"]) {
+    const joint = state.getJoint(id);
+    const axis = joint.axes.find((candidate) => candidate.id === "torso")!;
+    const radians = getAxisWorldAngle(state.rig, joint, axis) * Math.PI / 180;
+    closeTo(dx * Math.cos(radians) + dy * Math.sin(radians), 0, id);
+  }
+}
+
+test("shoulder-band axes remain perpendicular after joint and multi-selection movement", () => {
+  const state = new RigState(createDefaultRig());
+  state.moveJoint("left-shoulder", 200, 170);
+  assertShoulderBandPerpendicular(state);
+  state.beginHistoryTransaction();
+  state.moveJointsConstrainedBy(["left-shoulder", "right-shoulder", "left-elbow"], 35, 0, 0);
+  state.endHistoryTransaction();
+  assertShoulderBandPerpendicular(state);
+  state.undo();
+  assertShoulderBandPerpendicular(state);
+  state.redo();
+  assertShoulderBandPerpendicular(state);
+  state.rotateJointsAround(["chest"], 300, 320, 25);
+  assertShoulderBandPerpendicular(state);
+});
+
+test("rotating a shoulder-band axis rotates its peer group and keeps both axes perpendicular", () => {
+  const state = new RigState(createDefaultRig());
+  const initialAngle = state.getFaceRotationAngle("shoulder-band")!;
+  const joint = state.getJoint("left-shoulder");
+  const axis = joint.axes.find((candidate) => candidate.id === "torso")!;
+  state.setAxisAngle(joint.id, axis.id, getAxisWorldAngle(state.rig, joint, axis) + 30);
+  closeTo(state.getFaceRotationAngle("shoulder-band")!, (initialAngle + 30) % 360);
+  assertShoulderBandPerpendicular(state);
+});
+

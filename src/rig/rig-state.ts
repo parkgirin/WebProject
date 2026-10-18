@@ -192,6 +192,7 @@ export class RigState {
       throw new Error(`Invalid rig:\n${errors.join("\n")}`);
     }
     for (const joint of rig.joints) this.alignDirectConnectionAxes(joint.id);
+    this.alignShoulderBandAxes();
     this.lastSnapshot = cloneRig(rig);
   }
 
@@ -266,6 +267,27 @@ export class RigState {
       this.setJointWorldPosition(joint, world.x + deltaX, world.y + deltaY);
       this.alignDirectConnectionAxes(joint.id);
     }
+    this.notify();
+  }
+
+  public moveJointsConstrainedBy(jointIds: string[], angleDelta: number, deltaX: number, deltaY: number): void {
+    if (![angleDelta, deltaX, deltaY].every(Number.isFinite)) return;
+    const radians = angleDelta * Math.PI / 180;
+    const cosine = Math.cos(radians);
+    const sine = Math.sin(radians);
+    const joints = [...new Set(jointIds)].map((jointId) => this.getJoint(jointId));
+    for (const joint of joints) {
+      if (!joint.parentJointId) {
+        joint.x += deltaX;
+        joint.y += deltaY;
+      } else {
+        const x = joint.x;
+        const y = joint.y;
+        joint.x = cosine * x - sine * y;
+        joint.y = sine * x + cosine * y;
+      }
+    }
+    for (const joint of joints) this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -694,6 +716,13 @@ export class RigState {
       getJointWorldTransform(this.rig, jointId).rotation + axis.angle,
     );
     const delta = normalizeSignedAngle(angle - currentWorldAngle);
+    const shoulderBand = this.rig.faces.find((face) => face.id === "shoulder-band" && face.rotationTarget.type === "peer");
+    if (shoulderBand?.rotationTarget.type === "peer"
+      && shoulderBand.vertices.some((vertex) => vertex.jointId === jointId && vertex.axisId === axisId)) {
+      const currentAngle = this.getFaceRotationAngle(shoulderBand.id);
+      if (currentAngle !== null) this.rotatePeerGroup(shoulderBand.rotationTarget.peerGroupId, currentAngle + delta);
+      return;
+    }
     const connectionChild = this.findAxisConnectionChild(jointId, axisId);
     if (connectionChild?.parentJointId) {
       const parent = getJointWorldTransform(this.rig, connectionChild.parentJointId);
@@ -712,6 +741,7 @@ export class RigState {
   }
 
   private notify(): void {
+    this.alignShoulderBandAxes();
     if (!this.restoringHistory && !this.transactionStart) {
       const current = cloneRig(this.rig);
       if (!sameRig(this.lastSnapshot, current)) {
@@ -901,6 +931,29 @@ export class RigState {
         if (!axis) continue;
         const endpointWorld = getJointWorldTransform(this.rig, endpoint.id);
         axis.angle = normalizeAngle(crossSectionWorldAngle - endpointWorld.rotation);
+      }
+    }
+  }
+
+  private alignShoulderBandAxes(): void {
+    const face = this.rig.faces.find((candidate) => candidate.id === "shoulder-band");
+    if (!face || face.rotationTarget.type !== "peer") return;
+    const peerGroupId = face.rotationTarget.peerGroupId;
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group || group.jointIds.length !== 2) return;
+    const first = getJointWorldTransform(this.rig, group.jointIds[0]);
+    const second = getJointWorldTransform(this.rig, group.jointIds[1]);
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    if (Math.hypot(dx, dy) < 1e-8) return;
+    const axisWorldAngle = Math.atan2(dy, dx) * 180 / Math.PI - 90;
+    for (const jointId of group.jointIds) {
+      const joint = this.getJoint(jointId);
+      const world = getJointWorldTransform(this.rig, jointId);
+      for (const vertex of face.vertices) {
+        if (vertex.jointId !== jointId) continue;
+        const axis = joint.axes.find((candidate) => candidate.id === vertex.axisId);
+        if (axis) axis.angle = normalizeAngle(axisWorldAngle - world.rotation);
       }
     }
   }

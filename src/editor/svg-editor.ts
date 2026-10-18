@@ -1,5 +1,5 @@
 import type { Rig } from "../rig/types.ts";
-import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry.ts";
+import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot, type Point } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -73,7 +73,31 @@ export function renderSvgEditor(
     </mask>`;
   }).join("");
 
-  const bodyItems = [...jointItems, ...faceItems];
+  // Complete the exposed boundary of a hidden joint using only endpoints
+  // referenced by visible faces. The convex hull avoids self-intersections.
+  const bridgeItems = rig.joints.flatMap((joint) => {
+    if (joint.isVirtual || joint.bodyVisible || !isGroupVisible(rig, joint.groupId)) return [];
+    const connected = visibleFaces.filter(({ face }) => face.vertices.some((vertex) => vertex.jointId === joint.id));
+    const points = getOuterPoints(connected.flatMap(({ face }) => face.vertices
+      .filter((vertex) => vertex.jointId === joint.id)
+      .map((vertex) => getAxisPoint(rig, joint, joint.axes.find((axis) => axis.id === vertex.axisId)!, vertex.side))));
+    if (points.length < 2) return [];
+    const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
+    const groupOrder = joint.groupId ? rig.groups.find((group) => group.id === joint.groupId)?.order ?? 0 : 0;
+    const order = Math.min(...connected.map(({ face }) => getItemStackOrder(rig, {
+      groupId: face.groupId, order: getFaceOrder(rig, face),
+    }))) - groupOrder - 0.001;
+    const outline = points.length === 2
+      ? `<polyline class="body-face-outline" points="${pointList}" />`
+      : `<polygon class="body-face-outline" points="${pointList}" />`;
+    const fill = points.length > 2
+      ? `<polygon points="${pointList}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />`
+      : "";
+    return [{ id: `bridge:${joint.id}`, groupId: joint.groupId, order,
+      markup: `<g class="joint-bridge" data-bridge-joint-id="${escapeXml(joint.id)}">${fill}${outline}</g>` }];
+  });
+
+  const bodyItems = [...jointItems, ...faceItems, ...bridgeItems];
   const renderedBody = bodyItems
     .sort((a, b) => getItemStackOrder(rig, a) - getItemStackOrder(rig, b) || a.id.localeCompare(b.id))
     .map((item) => item.markup)
@@ -196,6 +220,25 @@ export function renderSvgEditor(
       ${renderedBody}
     </g>
     <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${selectionTransform}${peerHandles}</g>`;
+}
+
+function getOuterPoints(points: Point[]): Point[] {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  const unique = sorted.filter((point, index) => index === 0
+    || Math.hypot(point.x - sorted[index - 1].x, point.y - sorted[index - 1].y) > 1e-7);
+  if (unique.length <= 2) return unique;
+  const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const half = (values: Point[]) => {
+    const result: Point[] = [];
+    for (const point of values) {
+      while (result.length >= 2 && cross(result[result.length - 2], result[result.length - 1], point) <= 1e-7) result.pop();
+      result.push(point);
+    }
+    return result;
+  };
+  const lower = half(unique);
+  const upper = half([...unique].reverse());
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
 }
 
 function getItemStackOrder(

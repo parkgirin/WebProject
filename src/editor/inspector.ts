@@ -2,8 +2,6 @@ import type { RigState } from "../rig/rig-state.ts";
 import { getAxisWorldAngle, getJointWorldTransform } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
-const END_JOINT_IDS = ["left-wrist", "right-wrist", "left-ankle", "right-ankle"];
-
 export function createInspector(): HTMLElement {
   const element = document.createElement("aside");
   element.className = "inspector";
@@ -54,6 +52,7 @@ export function renderInspector(
       <span class="eyebrow">선택 관절</span>
       <strong class="selection-name">${escapeHtml(joint.id)}</strong>
       ${selection.jointIds.length > 1 ? `<span class="multi-selection-count">${selection.jointIds.length}개 관절 선택됨</span>` : ""}
+      ${!joint.isVirtual ? `<label class="face-override-toggle"><input type="checkbox" data-body-visible="${escapeHtml(joint.id)}"${joint.bodyVisible ? " checked" : ""} />선택 관절을 그림에 표시</label><p class="hint">관절 원만 표시하거나 숨깁니다. 편집 가이드와 연결 면은 유지됩니다.${selection.jointIds.length > 1 ? " 현재 선택된 관절 하나에 적용됩니다." : ""}</p>` : ""}
       <div class="numeric-field-grid">
         <label for="joint-world-x"><span>월드 X</span><input id="joint-world-x" type="number" step="1" value="${jointWorld!.x.toFixed(1)}" /></label>
         <label for="joint-world-y"><span>월드 Y</span><input id="joint-world-y" type="number" step="1" value="${jointWorld!.y.toFixed(1)}" /></label>
@@ -247,13 +246,6 @@ export function renderInspector(
                <span><input id="face-angle-number" type="number" min="-180" max="180" step="1" value="${toSignedAngle(faceRotation).toFixed(0)}" aria-label="선택 면 회전 각도 숫자 입력" />°</span>
              </div>
              <p class="hint">연결선을 드래그하는 것과 같은 회전 조작입니다.</p>`}
-      </div>
-      <div class="section-heading end-joint-heading"><h3>손목·발목 표시</h3></div>
-      <div class="visibility-list">
-        ${END_JOINT_IDS.map((jointId) => {
-          const endJoint = state.getJoint(jointId);
-          return `<label><input type="checkbox" data-body-visible="${escapeHtml(jointId)}"${endJoint.bodyVisible ? " checked" : ""} />${escapeHtml(jointId)}</label>`;
-        }).join("")}
       </div>
     </div>`;
 

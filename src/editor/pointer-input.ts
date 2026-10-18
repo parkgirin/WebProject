@@ -23,6 +23,7 @@ type ViewBox = { x: number; y: number; width: number; height: number };
 type Interaction =
   | { type: "move-selection"; jointIds: string[]; lastX: number; lastY: number }
   | { type: "move-joint-constrained"; jointId: string; parentX: number; parentY: number; length: number; angleOffset: number }
+  | { type: "move-selection-constrained"; jointIds: string[]; parentX: number; parentY: number; pointerOffsetX: number; pointerOffsetY: number; lastAngle: number; lastX: number; lastY: number }
   | { type: "rotate-axis"; jointId: string; axisId: string; angleOffset: number }
   | { type: "rotate-child"; jointId: string; angleOffset: number }
   | { type: "rotate-peer"; peerGroupId: string }
@@ -136,7 +137,19 @@ export function enablePointerInput(
         jointIds,
       });
       if (selected.has(jointId)) {
-        if (options.getPreserveProportions() && jointIds.length === 1 && joint.parentJointId) {
+        if (options.getPreserveProportions() && jointIds.length > 1 && jointIds.some((id) => options.state.getJoint(id).parentJointId)) {
+          const reference = joint.parentJointId ? joint : options.state.getJoint(jointIds.find((id) => options.state.getJoint(id).parentJointId)!);
+          const parent = getJointWorldTransform(options.state.rig, reference.parentJointId!);
+          const current = getJointWorldTransform(options.state.rig, reference.id);
+          const pointerOffsetX = reference.id === jointId ? 0 : current.x - point.x;
+          const pointerOffsetY = reference.id === jointId ? 0 : current.y - point.y;
+          interaction = {
+            type: "move-selection-constrained", jointIds, parentX: parent.x, parentY: parent.y,
+            pointerOffsetX, pointerOffsetY,
+            lastAngle: getAngle(parent.x, parent.y, point.x + pointerOffsetX, point.y + pointerOffsetY),
+            lastX: point.x, lastY: point.y,
+          };
+        } else if (options.getPreserveProportions() && jointIds.length === 1 && joint.parentJointId) {
           const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
           const current = getJointWorldTransform(options.state.rig, jointId);
           interaction = {
@@ -202,6 +215,14 @@ export function enablePointerInput(
     const point = toSvgPoint(element, event);
     if (interaction.type === "move-selection") {
       options.state.moveJointsBy(interaction.jointIds, point.x - interaction.lastX, point.y - interaction.lastY);
+      interaction.lastX = point.x;
+      interaction.lastY = point.y;
+    } else if (interaction.type === "move-selection-constrained") {
+      const angle = getAngle(interaction.parentX, interaction.parentY,
+        point.x + interaction.pointerOffsetX, point.y + interaction.pointerOffsetY);
+      const delta = ((angle - interaction.lastAngle + 540) % 360) - 180;
+      options.state.moveJointsConstrainedBy(interaction.jointIds, delta, point.x - interaction.lastX, point.y - interaction.lastY);
+      interaction.lastAngle = angle;
       interaction.lastX = point.x;
       interaction.lastY = point.y;
     } else if (interaction.type === "move-joint-constrained") {
