@@ -22,7 +22,7 @@ export function renderSvgEditor(
         groupId: joint.groupId,
         order: joint.renderOrder,
         markup: `<g class="body-joint-item">
-          <circle class="body-joint" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />
+          <circle class="body-joint" data-body-joint data-joint-id="${escapeXml(joint.id)}" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />
           <circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" mask="url(#joint-outline-mask-${index})" />
         </g>`,
       };
@@ -125,8 +125,17 @@ export function renderSvgEditor(
   }).join("");
   const peerHandles = visiblePeerGroups.map((group) => {
     const pivot = getPeerGroupPivot(rig, group.id);
-    return `<rect class="peer-pivot" x="${pivot.x - 6}" y="${pivot.y - 6}" width="12" height="12"
-      data-peer-rotation data-peer-group-id="${escapeXml(group.id)}" />`;
+    const reference = getJointWorldTransform(rig, group.jointIds[0]);
+    const dx = reference.x - pivot.x;
+    const dy = reference.y - pivot.y;
+    const distance = Math.hypot(dx, dy);
+    const handleDistance = Math.max(55, Math.min(90, distance));
+    const handleX = pivot.x + (distance > 1e-8 ? -dy / distance : 0) * handleDistance;
+    const handleY = pivot.y + (distance > 1e-8 ? dx / distance : -1) * handleDistance;
+    return `<line class="peer-handle-guide" x1="${pivot.x}" y1="${pivot.y}" x2="${handleX}" y2="${handleY}" />
+      <circle class="peer-center" cx="${pivot.x}" cy="${pivot.y}" r="3" />
+      <rect class="peer-pivot" x="${handleX - 6}" y="${handleY - 6}" width="12" height="12"
+        data-peer-rotation data-peer-group-id="${escapeXml(group.id)}" />`;
   }).join("");
 
   const guides = rig.joints
@@ -159,7 +168,7 @@ export function renderSvgEditor(
               data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
            <rect class="virtual-joint-outline" x="${world.x - 5}" y="${world.y - 5}" width="10" height="10" />`
         : `<circle class="joint-hit" cx="${world.x}" cy="${world.y}" r="${joint.radius}"
-              data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
+              data-drag-joint data-joint-id="${escapeXml(joint.id)}"${joint.bodyVisible ? "" : " data-hidden-joint"} />
            <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.radius}" />`;
 
       return `

@@ -14,7 +14,8 @@ export function createDefaultRig(): Rig {
     ],
     joints: [
       { id: "scene-root", groupId: "torso", x: 300, y: 320, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: false, bodyVisible: false },
-      { id: "waist", groupId: "torso", parentJointId: "scene-root", x: 0, y: 0, localRotation: 0, radius: 48, axes: [{ id: "upper-torso", angle: 0, pointSides: [-1, 1] }, { id: "pelvis", angle: 0, pointSides: [-1, 1] }], renderOrder: 10, guideVisible: true, bodyVisible: true },
+      { id: "pelvis-pivot", groupId: "torso", parentJointId: "scene-root", x: 0, y: 60, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: true, bodyVisible: false },
+      { id: "waist", groupId: "torso", parentJointId: "pelvis-pivot", x: 0, y: -60, localRotation: 0, radius: 48, axes: [{ id: "upper-torso", angle: 0, pointSides: [-1, 1] }, { id: "pelvis", angle: 0, pointSides: [-1, 1] }], renderOrder: 10, guideVisible: true, bodyVisible: true },
       { id: "chest", groupId: "torso", parentJointId: "waist", x: 0, y: -96, localRotation: 0, radius: 18, axes: [{ id: "neck", angle: 0, pointSides: [-1, 1] }], renderOrder: 10, guideVisible: true, bodyVisible: false },
       { id: "head", groupId: "head", parentJointId: "chest", x: 0, y: -84, localRotation: 0, radius: 18, bodyRadius: 60, axes: [{ id: "neck", angle: 0, pointSides: [-1, 1] }], renderOrder: 30, guideVisible: true, bodyVisible: true },
       { id: "left-shoulder", groupId: "left-arm", parentJointId: "chest", x: -78, y: 0, localRotation: 0, radius: 24, axes: [{ id: "torso", angle: -90, pointSides: [-1, 1] }, { id: "upper-arm", angle: 0, pointSides: [-1, 1] }], renderOrder: 18, guideVisible: true, bodyVisible: true },
@@ -23,8 +24,8 @@ export function createDefaultRig(): Rig {
       { id: "right-elbow", groupId: "right-arm", parentJointId: "right-shoulder", x: 0, y: 96, localRotation: 0, radius: 24, axes: [{ id: "upper-arm", angle: 0, pointSides: [-1, 1] }, { id: "lower-arm", angle: 0, pointSides: [-1, 1] }], renderOrder: 22, guideVisible: true, bodyVisible: true },
       { id: "left-wrist", groupId: "left-arm", parentJointId: "left-elbow", x: 0, y: 96, localRotation: 0, radius: 24, axes: [{ id: "lower-arm", angle: 0, pointSides: [-1, 1] }], renderOrder: 18, guideVisible: true, bodyVisible: true },
       { id: "right-wrist", groupId: "right-arm", parentJointId: "right-elbow", x: 0, y: 96, localRotation: 0, radius: 24, axes: [{ id: "lower-arm", angle: 0, pointSides: [-1, 1] }], renderOrder: 22, guideVisible: true, bodyVisible: true },
-      { id: "left-hip", groupId: "left-leg", parentJointId: "waist", x: -38, y: 60, localRotation: 0, radius: 30, axes: [{ id: "pelvis-horizontal", angle: 0, pointSides: [-1], alignment: "parent-perpendicular" }, { id: "pelvis-vertical", angle: 90, pointSides: [-1, 1], alignment: "parent-parallel" }, { id: "upper-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 14, guideVisible: true, bodyVisible: true },
-      { id: "right-hip", groupId: "right-leg", parentJointId: "waist", x: 38, y: 60, localRotation: 0, radius: 30, axes: [{ id: "pelvis-horizontal", angle: 0, pointSides: [1], alignment: "parent-perpendicular" }, { id: "pelvis-vertical", angle: 90, pointSides: [-1, 1], alignment: "parent-parallel" }, { id: "upper-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 16, guideVisible: true, bodyVisible: true },
+      { id: "left-hip", groupId: "left-leg", parentJointId: "pelvis-pivot", axisReferenceJointId: "waist", x: -38, y: 0, localRotation: 0, radius: 30, axes: [{ id: "pelvis-horizontal", angle: 0, pointSides: [-1], alignment: "parent-perpendicular" }, { id: "pelvis-vertical", angle: 90, pointSides: [-1, 1], alignment: "parent-parallel" }, { id: "upper-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 14, guideVisible: true, bodyVisible: true },
+      { id: "right-hip", groupId: "right-leg", parentJointId: "pelvis-pivot", axisReferenceJointId: "waist", x: 38, y: 0, localRotation: 0, radius: 30, axes: [{ id: "pelvis-horizontal", angle: 0, pointSides: [1], alignment: "parent-perpendicular" }, { id: "pelvis-vertical", angle: 90, pointSides: [-1, 1], alignment: "parent-parallel" }, { id: "upper-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 16, guideVisible: true, bodyVisible: true },
       { id: "left-knee", groupId: "left-leg", parentJointId: "left-hip", x: 0, y: 120, localRotation: 0, radius: 30, axes: [{ id: "upper-leg", angle: 0, pointSides: [-1, 1] }, { id: "lower-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 14, guideVisible: true, bodyVisible: true },
       { id: "right-knee", groupId: "right-leg", parentJointId: "right-hip", x: 0, y: 120, localRotation: 0, radius: 30, axes: [{ id: "upper-leg", angle: 0, pointSides: [-1, 1] }, { id: "lower-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 16, guideVisible: true, bodyVisible: true },
       { id: "left-ankle", groupId: "left-leg", parentJointId: "left-knee", x: 0, y: 150, localRotation: 0, radius: 30, axes: [{ id: "lower-leg", angle: 0, pointSides: [-1, 1] }], renderOrder: 14, guideVisible: true, bodyVisible: true },
@@ -32,7 +33,7 @@ export function createDefaultRig(): Rig {
     ],
     peerGroups: [
       { id: "shoulder-band", jointIds: ["left-shoulder", "right-shoulder"] },
-      { id: "hip-band", jointIds: ["left-hip", "right-hip"] },
+      { id: "hip-band", jointIds: ["left-hip", "right-hip"], centerJointId: "pelvis-pivot" },
     ],
     faces: [
       {

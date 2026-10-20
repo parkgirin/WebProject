@@ -39,6 +39,24 @@ export function renderInspector(
   const selectedTargetName = viewState.selectedTarget === "joint"
     ? joint?.id ?? "선택 없음"
     : selectedFace.id;
+  const isAncestorOf = (ancestorId: string, descendantId: string) => {
+    let parentId = state.getJoint(descendantId).parentJointId;
+    while (parentId) {
+      if (parentId === ancestorId) return true;
+      parentId = state.getJoint(parentId).parentJointId;
+    }
+    return false;
+  };
+  const relations = joint ? [
+    ...(joint.parentJointId ? [{ label: `부모 ${joint.parentJointId}`, movingId: joint.id, anchorId: joint.parentJointId }] : []),
+    ...state.rig.joints.filter((candidate) => candidate.parentJointId === joint.id)
+      .map((child) => ({ label: `자식 ${child.id}`, movingId: child.id, anchorId: joint.id })),
+    ...state.rig.peerGroups.filter((group) => group.jointIds.includes(joint.id)).flatMap((group) =>
+      group.jointIds.filter((id) => id !== joint.id).map((id) => ({ label: `동등 ${id} (${group.id})`,
+        movingId: isAncestorOf(joint.id, id) ? id : joint.id, anchorId: isAncestorOf(joint.id, id) ? joint.id : id }))),
+  ] : [];
+  const selectedPeerGroups = state.rig.peerGroups.filter((group) => group.jointIds.length === 2
+    && group.jointIds.every((id) => selection.jointIds.includes(id)));
 
   const targetSummary = `
     <div class="selection-target-summary is-${viewState.selectedTarget}">
@@ -71,6 +89,23 @@ export function renderInspector(
       ${state.getValidParents(joint.id).map((candidateId) => `<option value="${escapeHtml(candidateId)}"${candidateId === joint.parentJointId ? " selected" : ""}>${escapeHtml(candidateId)}</option>`).join("")}
     </select>
     <p class="hint">부모를 변경해도 현재 화면 포즈는 유지됩니다.</p>
+    ${selectedPeerGroups.map((group) => `
+      <div class="joint-distance-section">
+        <strong>${escapeHtml(group.id)} 동등 관계</strong>
+        ${group.centerJointId ? `<p class="hint">가상 부모: ${escapeHtml(group.centerJointId)}</p>`
+          : `<button type="button" data-add-peer-center="${escapeHtml(group.id)}"${state.getJoint(group.jointIds[0]).parentJointId !== state.getJoint(group.jointIds[1]).parentJointId ? " disabled" : ""}>가상 부모 관절 추가</button><p class="hint">두 관절이 같은 부모를 가질 때 추가할 수 있습니다. 현재 포즈는 유지됩니다.</p>`}
+      </div>`).join("")}
+    ${relations.length ? `
+      <div class="joint-distance-section">
+        <div class="section-heading"><h3>관절 간 거리</h3></div>
+        ${relations.map((relation) => {
+          const moving = getJointWorldTransform(state.rig, relation.movingId);
+          const anchor = getJointWorldTransform(state.rig, relation.anchorId);
+          const distance = Math.hypot(moving.x - anchor.x, moving.y - anchor.y);
+          return `<label class="joint-distance-field"><span>${escapeHtml(relation.label)}<small>${escapeHtml(relation.movingId)} 이동 · ${escapeHtml(relation.anchorId)} 고정</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-distance-moving="${escapeHtml(relation.movingId)}" data-distance-anchor="${escapeHtml(relation.anchorId)}" aria-label="${escapeHtml(relation.label)} 관절 간 거리" /></label>`;
+        }).join("")}
+        <p class="hint">거리를 바꾸면 이동 관절과 그 하위 관절이 함께 이동합니다. 거리가 0이면 다시 늘릴 때 오른쪽 방향을 사용합니다.</p>
+      </div>` : ""}
     <label class="field-label" for="joint-radius">반지름</label>
     <div class="range-number-control">
       <input id="joint-radius" type="range" min="8" max="80" step="1" value="${joint.radius}" />
@@ -129,6 +164,8 @@ export function renderInspector(
   const selectionPanel = `
     ${targetSummary}
     ${renderPoseNavigator(state, selection, viewState.selectedFaceId, viewState.selectedTarget)}
+    <label class="face-override-toggle"><input type="checkbox" data-preserve-proportions${viewState.preserveProportions ? " checked" : ""} />비율 유지</label>
+    <p class="hint">선택 도구에서 Alt(Option)를 누른 채 관절을 드래그하면 일시적으로 비율을 유지합니다.</p>
     ${viewState.selectedTarget === "joint" ? jointMarkup : faceMarkup}`;
 
   const stackEntries = [
@@ -190,15 +227,17 @@ export function renderInspector(
       </div>
       ${state.rig.groups.length > 0 ? `
         <div class="group-visibility-list">
-          ${state.rig.groups.map((group) => `
+          ${[...state.rig.groups].sort((a, b) => b.order - a.order || b.id.localeCompare(a.id)).map((group) => `
             <div class="group-order-row">
               <label><input type="checkbox" data-layer-group-visible="${escapeHtml(group.id)}"${group.visible ? " checked" : ""} />${escapeHtml(group.name)}</label>
-              <input type="number" min="-999" max="999" step="1" value="${group.order}" data-layer-group-order="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.name)} 그룹 렌더 순서" />
+              <input type="number" min="-999" max="999" step="any" value="${group.order}" data-layer-group-order="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.name)} 그룹 렌더 순서" />
+              <button type="button" data-move-group-back="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.name)} 그룹 뒤로" title="뒤로 한 단계 · Shift: 맨 뒤">←</button>
+              <button type="button" data-move-group-forward="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.name)} 그룹 앞으로" title="앞으로 한 단계 · Shift: 맨 앞">→</button>
               <button type="button" data-select-layer-group="${escapeHtml(group.id)}">선택</button>
             </div>
           `).join("")}
         </div>` : `<p class="hint">그룹을 추가하면 여러 관절과 면의 표시를 함께 전환할 수 있습니다.</p>`}
-      <p class="hint">그룹 순서와 관절·면의 레이어 값을 합산해 최종 순서를 정합니다. 따라서 같은 그룹 안은 물론 다른 그룹의 항목보다도 앞이나 뒤에 배치할 수 있습니다.</p>
+      <p class="hint">그룹 화살표는 한 단계씩 이동하며 Shift를 누르면 맨 앞이나 뒤로 이동합니다. 그룹 순서와 관절·면의 레이어 값을 합산하므로, 그룹 순서가 앞이어도 개별 레이어 값에 따라 항목이 겹칠 수 있습니다.</p>
     </div>`;
 
   const colorPanel = `
@@ -265,6 +304,9 @@ export function renderInspector(
       setViewState({ inspectorTab });
     });
   });
+  element.querySelector<HTMLInputElement>("[data-preserve-proportions]")?.addEventListener("change", (event) => {
+    setViewState({ preserveProportions: (event.target as HTMLInputElement).checked });
+  });
   element.querySelectorAll<HTMLButtonElement>("[data-joint-shortcut]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const jointId = button.dataset.jointShortcut;
@@ -284,6 +326,12 @@ export function renderInspector(
         axisId: primaryId ? state.getJoint(primaryId).axes[0]?.id ?? null : null,
         jointIds,
       });
+    });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-add-peer-center]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const groupId = button.dataset.addPeerCenter;
+      if (groupId) state.addPeerCenter(groupId);
     });
   });
   element.querySelector<HTMLSelectElement>("[data-face-shortcut]")?.addEventListener("change", (event) => {
@@ -314,6 +362,18 @@ export function renderInspector(
   element.querySelector<HTMLSelectElement>("#parent-joint")?.addEventListener("change", (event) => {
     if (!joint) return;
     state.setParentJoint(joint.id, (event.target as HTMLSelectElement).value || null);
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-distance-moving]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const movingId = input.dataset.distanceMoving;
+      const anchorId = input.dataset.distanceAnchor;
+      if (!movingId || !anchorId) return;
+      const distance = input.valueAsNumber;
+      if (Number.isFinite(distance) && distance >= 0) state.setJointDistance(movingId, anchorId, distance);
+      const moving = getJointWorldTransform(state.rig, movingId);
+      const anchor = getJointWorldTransform(state.rig, anchorId);
+      input.value = Math.hypot(moving.x - anchor.x, moving.y - anchor.y).toFixed(2);
+    });
   });
   bindLiveRange(element, state, "#axis-angle", "#axis-angle-number", (value) => {
     if (joint && selection.axisId) state.setAxisAngle(joint.id, selection.axisId, value);
@@ -404,6 +464,12 @@ export function renderInspector(
     input.addEventListener("change", () => {
       const groupId = input.dataset.layerGroupOrder;
       if (groupId) state.setLayerGroupOrder(groupId, input.valueAsNumber);
+    });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-move-group-back], [data-move-group-forward]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const groupId = button.dataset.moveGroupBack ?? button.dataset.moveGroupForward;
+      if (groupId) state.moveLayerGroupInStack(groupId, button.dataset.moveGroupBack ? -1 : 1, event.shiftKey);
     });
   });
   element.querySelectorAll<HTMLButtonElement>("[data-select-layer-group]").forEach((button) => {

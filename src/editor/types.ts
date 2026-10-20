@@ -11,7 +11,7 @@ export interface EditorViewState {
   selectedTarget: "joint" | "face";
   inspectorTab: "selection" | "layers" | "color";
   preserveProportions: boolean;
-  activeTool: "select" | "color";
+  activeTool: "select" | "color" | "layer-order";
   paintColor: string;
   paintPaletteId: string | null;
 }

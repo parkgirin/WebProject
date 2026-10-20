@@ -16,6 +16,8 @@ export interface Joint {
   /** Rotation inherited by children, in degrees. */
   localRotation: number;
   parentJointId?: string;
+  /** Optional reference for automatically aligned axes, independent of the transform parent. */
+  axisReferenceJointId?: string;
   /** Non-body transform control, such as a pelvis or scene pivot. */
   isVirtual?: boolean;
   radius: number;
@@ -34,6 +36,8 @@ export interface Joint {
 export interface PeerGroup {
   id: string;
   jointIds: string[];
+  /** Optional virtual parent used as the group's rotation center. */
+  centerJointId?: string;
 }
 
 export interface JointPointRef {

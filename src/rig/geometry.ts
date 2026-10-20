@@ -91,6 +91,7 @@ export function getFacePoints(rig: Rig, face: Face): Point[] {
 export function getPeerGroupPivot(rig: Rig, peerGroupId: string): Point {
   const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
   if (!group) throw new Error(`Unknown peer group: ${peerGroupId}`);
+  if (group.centerJointId) return getJointWorldPoint(rig, group.centerJointId);
   const points = group.jointIds.map((jointId) => getJointWorldPoint(rig, jointId));
   const total = points.reduce(
     (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),

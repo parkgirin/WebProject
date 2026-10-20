@@ -7,6 +7,7 @@ interface PointerInputOptions {
   getSelection: () => EditorSelection;
   getPreserveProportions: () => boolean;
   getPaintColor: () => string | null;
+  getLayerToolActive: () => boolean;
   setSelection: (selection: EditorSelection) => void;
   setSelectedFace: (faceId: string) => void;
 }
@@ -21,12 +22,13 @@ export interface ViewportController {
 
 type ViewBox = { x: number; y: number; width: number; height: number };
 type Interaction =
+  | { type: "pending-shift-joint"; jointId: string; jointIds: string[]; startX: number; startY: number; clientX: number; clientY: number }
   | { type: "move-selection"; jointIds: string[]; lastX: number; lastY: number }
   | { type: "move-joint-constrained"; jointId: string; parentX: number; parentY: number; length: number; angleOffset: number }
   | { type: "move-selection-constrained"; jointIds: string[]; parentX: number; parentY: number; pointerOffsetX: number; pointerOffsetY: number; lastAngle: number; lastX: number; lastY: number }
   | { type: "rotate-axis"; jointId: string; axisId: string; angleOffset: number }
   | { type: "rotate-child"; jointId: string; angleOffset: number }
-  | { type: "rotate-peer"; peerGroupId: string }
+  | { type: "rotate-peer"; peerGroupId: string; pivotX: number; pivotY: number; angleOffset: number }
   | { type: "rotate-selection"; jointIds: string[]; pivotX: number; pivotY: number; lastAngle: number }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
   | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement };
@@ -38,6 +40,7 @@ export function enablePointerInput(
   options: PointerInputOptions,
 ): ViewportController {
   let interaction: Interaction | null = null;
+  let jointDrag: { jointId: string; jointIds: string[]; constrained: boolean; lastX: number; lastY: number } | null = null;
   let spacePressed = false;
   let panMode = false;
 
@@ -63,8 +66,36 @@ export function enablePointerInput(
     });
   };
 
+  const startJointMove = (jointId: string, jointIds: string[], point: { x: number; y: number }, constrained: boolean) => {
+    const joint = options.state.getJoint(jointId);
+    jointDrag = { jointId, jointIds, constrained, lastX: point.x, lastY: point.y };
+    if (constrained && jointIds.length > 1 && jointIds.some((id) => options.state.getJoint(id).parentJointId)) {
+      const reference = joint.parentJointId ? joint : options.state.getJoint(jointIds.find((id) => options.state.getJoint(id).parentJointId)!);
+      const parent = getJointWorldTransform(options.state.rig, reference.parentJointId!);
+      const current = getJointWorldTransform(options.state.rig, reference.id);
+      const pointerOffsetX = reference.id === jointId ? 0 : current.x - point.x;
+      const pointerOffsetY = reference.id === jointId ? 0 : current.y - point.y;
+      interaction = {
+        type: "move-selection-constrained", jointIds, parentX: parent.x, parentY: parent.y,
+        pointerOffsetX, pointerOffsetY,
+        lastAngle: getAngle(parent.x, parent.y, point.x + pointerOffsetX, point.y + pointerOffsetY),
+        lastX: point.x, lastY: point.y,
+      };
+    } else if (constrained && jointIds.length === 1 && joint.parentJointId) {
+      const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
+      const current = getJointWorldTransform(options.state.rig, jointId);
+      interaction = {
+        type: "move-joint-constrained", jointId, parentX: parent.x, parentY: parent.y,
+        length: Math.hypot(current.x - parent.x, current.y - parent.y),
+        angleOffset: getAngle(parent.x, parent.y, current.x, current.y) - getAngle(parent.x, parent.y, point.x, point.y),
+      };
+    } else {
+      interaction = { type: "move-selection", jointIds, lastX: point.x, lastY: point.y };
+    }
+  };
+
   const onPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 && event.button !== 1) return;
+    if (event.button !== 0 && event.button !== 1 && !(event.button === 2 && options.getLayerToolActive())) return;
     const target = event.target as SVGElement;
     const point = toSvgPoint(element, event);
     const jointId = target.dataset.jointId;
@@ -79,6 +110,20 @@ export function enablePointerInput(
         startClientY: event.clientY,
         viewBox: readViewBox(),
       };
+    } else if (options.getLayerToolActive()) {
+      const direction = event.button === 2 ? -1 : 1;
+      if (jointId && (target.hasAttribute("data-drag-joint") || target.hasAttribute("data-body-joint"))) {
+        const joint = options.state.getJoint(jointId);
+        if (joint.bodyVisible && !joint.isVirtual) {
+          options.setSelection({ jointId, axisId: joint.axes[0]?.id ?? null, jointIds: [jointId] });
+          options.state.moveBodyItemInStack("joint", jointId, direction, event.shiftKey);
+        }
+      } else if (faceId) {
+        options.setSelectedFace(faceId);
+        options.state.moveBodyItemInStack("face", faceId, direction, event.shiftKey);
+      }
+      event.preventDefault();
+      return;
     } else if (target.hasAttribute("data-drag-joint") && jointId && options.getPaintColor()) {
       const joint = options.state.getJoint(jointId);
       if (joint.bodyVisible && !joint.isVirtual) {
@@ -113,59 +158,35 @@ export function enablePointerInput(
       interaction = { type: "rotate-child", jointId, angleOffset: 0 };
       options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-peer-rotation") && peerGroupId) {
-      interaction = { type: "rotate-peer", peerGroupId };
+      const group = options.state.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+      if (!group?.jointIds.length) return;
+      const pivot = getPeerGroupPivot(options.state.rig, peerGroupId);
+      const reference = getJointWorldTransform(options.state.rig, group.jointIds[0]);
+      interaction = {
+        type: "rotate-peer", peerGroupId, pivotX: pivot.x, pivotY: pivot.y,
+        angleOffset: getAngle(pivot.x, pivot.y, reference.x, reference.y) - getAngle(pivot.x, pivot.y, point.x, point.y),
+      };
       options.state.beginHistoryTransaction();
-    } else if (target.hasAttribute("data-select-axis") && jointId && axisId) {
+    } else if (target.hasAttribute("data-select-axis") && jointId && axisId && !event.shiftKey) {
       options.setSelection({ jointId, axisId, jointIds: [jointId] });
-    } else if (target.hasAttribute("data-drag-joint") && jointId) {
+    } else if ((target.hasAttribute("data-drag-joint") || (event.shiftKey && target.hasAttribute("data-select-axis"))) && jointId) {
       const joint = options.state.getJoint(jointId);
       const previous = options.getSelection();
       const selected = new Set(previous.jointIds);
-      if (event.shiftKey) {
-        if (selected.has(jointId)) selected.delete(jointId);
-        else selected.add(jointId);
-      } else if (!selected.has(jointId)) {
-        selected.clear();
+      if (event.shiftKey && selected.has(jointId)) {
+        interaction = { type: "pending-shift-joint", jointId, jointIds: [...selected], startX: point.x, startY: point.y,
+          clientX: event.clientX, clientY: event.clientY };
+      } else {
+        if (!event.shiftKey && !selected.has(jointId)) selected.clear();
         selected.add(jointId);
-      }
-      const jointIds = [...selected];
-      options.setSelection({
-        jointId: selected.has(jointId) ? jointId : jointIds.at(-1) ?? null,
-        axisId: selected.has(jointId)
-          ? (previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null)
-          : null,
-        jointIds,
-      });
-      if (selected.has(jointId)) {
-        if (options.getPreserveProportions() && jointIds.length > 1 && jointIds.some((id) => options.state.getJoint(id).parentJointId)) {
-          const reference = joint.parentJointId ? joint : options.state.getJoint(jointIds.find((id) => options.state.getJoint(id).parentJointId)!);
-          const parent = getJointWorldTransform(options.state.rig, reference.parentJointId!);
-          const current = getJointWorldTransform(options.state.rig, reference.id);
-          const pointerOffsetX = reference.id === jointId ? 0 : current.x - point.x;
-          const pointerOffsetY = reference.id === jointId ? 0 : current.y - point.y;
-          interaction = {
-            type: "move-selection-constrained", jointIds, parentX: parent.x, parentY: parent.y,
-            pointerOffsetX, pointerOffsetY,
-            lastAngle: getAngle(parent.x, parent.y, point.x + pointerOffsetX, point.y + pointerOffsetY),
-            lastX: point.x, lastY: point.y,
-          };
-        } else if (options.getPreserveProportions() && jointIds.length === 1 && joint.parentJointId) {
-          const parent = getJointWorldTransform(options.state.rig, joint.parentJointId);
-          const current = getJointWorldTransform(options.state.rig, jointId);
-          interaction = {
-            type: "move-joint-constrained",
-            jointId,
-            parentX: parent.x,
-            parentY: parent.y,
-            length: Math.hypot(current.x - parent.x, current.y - parent.y),
-            angleOffset: getAngle(parent.x, parent.y, current.x, current.y)
-              - getAngle(parent.x, parent.y, point.x, point.y),
-          };
-        } else {
-          interaction = { type: "move-selection", jointIds, lastX: point.x, lastY: point.y };
-        }
+        const jointIds = [...selected];
+        options.setSelection({
+          jointId,
+          axisId: axisId ?? (previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null),
+          jointIds,
+        });
+        startJointMove(jointId, jointIds, point, options.getPreserveProportions() || event.altKey);
         options.state.beginHistoryTransaction();
-        options.state.bringJointsToFront(jointIds);
       }
     } else if (faceId && options.getPaintColor()) {
       options.setSelectedFace(faceId);
@@ -204,6 +225,15 @@ export function enablePointerInput(
 
   const onPointerMove = (event: PointerEvent) => {
     if (!interaction) return;
+    if (interaction.type === "pending-shift-joint") {
+      if (Math.hypot(event.clientX - interaction.clientX, event.clientY - interaction.clientY) < 3) return;
+      const { jointId, jointIds, startX, startY } = interaction;
+      const previous = options.getSelection();
+      const joint = options.state.getJoint(jointId);
+      options.setSelection({ jointId, jointIds, axisId: previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null });
+      startJointMove(jointId, jointIds, { x: startX, y: startY }, options.getPreserveProportions() || event.altKey);
+      options.state.beginHistoryTransaction();
+    }
     if (interaction.type === "pan") {
       const bounds = element.getBoundingClientRect();
       const dx = (event.clientX - interaction.startClientX) * interaction.viewBox.width / bounds.width;
@@ -213,6 +243,9 @@ export function enablePointerInput(
     }
 
     const point = toSvgPoint(element, event);
+    if (jointDrag && jointDrag.constrained !== (options.getPreserveProportions() || event.altKey)) {
+      startJointMove(jointDrag.jointId, jointDrag.jointIds, { x: jointDrag.lastX, y: jointDrag.lastY }, options.getPreserveProportions() || event.altKey);
+    }
     if (interaction.type === "move-selection") {
       options.state.moveJointsBy(interaction.jointIds, point.x - interaction.lastX, point.y - interaction.lastY);
       interaction.lastX = point.x;
@@ -247,8 +280,9 @@ export function enablePointerInput(
         getAngle(parent.x, parent.y, point.x, point.y) + interaction.angleOffset,
       );
     } else if (interaction.type === "rotate-peer") {
-      const pivot = getPeerGroupPivot(options.state.rig, interaction.peerGroupId);
-      options.state.rotatePeerGroup(interaction.peerGroupId, getAngle(pivot.x, pivot.y, point.x, point.y));
+      if (Math.hypot(point.x - interaction.pivotX, point.y - interaction.pivotY) < 12) return;
+      options.state.rotatePeerGroup(interaction.peerGroupId,
+        getAngle(interaction.pivotX, interaction.pivotY, point.x, point.y) + interaction.angleOffset);
     } else if (interaction.type === "rotate-selection") {
       const angle = getAngle(interaction.pivotX, interaction.pivotY, point.x, point.y);
       let delta = angle - interaction.lastAngle;
@@ -263,11 +297,19 @@ export function enablePointerInput(
       interaction.rectangle.setAttribute("width", String(Math.abs(point.x - interaction.startX)));
       interaction.rectangle.setAttribute("height", String(Math.abs(point.y - interaction.startY)));
     }
+    if (jointDrag) { jointDrag.lastX = point.x; jointDrag.lastY = point.y; }
   };
 
   const endInteraction = (event?: PointerEvent) => {
     if (!interaction) return;
-    if (interaction.type === "marquee") {
+    if (interaction.type === "pending-shift-joint") {
+      if (event?.type === "pointerup") {
+        const removedId = interaction.jointId;
+        const jointIds = interaction.jointIds.filter((id) => id !== removedId);
+        const jointId = jointIds.at(-1) ?? null;
+        options.setSelection({ jointId, jointIds, axisId: jointId ? options.state.getJoint(jointId).axes[0]?.id ?? null : null });
+      }
+    } else if (interaction.type === "marquee") {
       const point = event ? toSvgPoint(element, event) : { x: interaction.startX, y: interaction.startY };
       const left = Math.min(interaction.startX, point.x);
       const right = Math.max(interaction.startX, point.x);
@@ -288,6 +330,7 @@ export function enablePointerInput(
       options.state.endHistoryTransaction();
     }
     interaction = null;
+    jointDrag = null;
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", endInteraction);
     window.removeEventListener("pointercancel", endInteraction);
@@ -297,8 +340,14 @@ export function enablePointerInput(
     event.preventDefault();
     zoomAt(event.deltaY > 0 ? 1.12 : 0.89, toSvgPoint(element, event));
   };
+  const onContextMenu = (event: MouseEvent) => {
+    if (options.getLayerToolActive()) event.preventDefault();
+  };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.code === "Space" && !(event.target instanceof HTMLInputElement)) {
+    const target = event.target;
+    const editingOrDialog = target instanceof HTMLElement
+      && (target.matches("input, select, textarea, button, [contenteditable='true']") || !!target.closest("dialog"));
+    if (event.code === "Space" && !editingOrDialog) {
       spacePressed = true;
       element.classList.add("is-pannable");
       event.preventDefault();
@@ -312,6 +361,7 @@ export function enablePointerInput(
   };
 
   element.addEventListener("pointerdown", onPointerDown);
+  element.addEventListener("contextmenu", onContextMenu);
   element.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
@@ -344,6 +394,7 @@ export function enablePointerInput(
     },
     destroy: () => {
       element.removeEventListener("pointerdown", onPointerDown);
+      element.removeEventListener("contextmenu", onContextMenu);
       element.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);

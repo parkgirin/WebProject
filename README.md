@@ -25,6 +25,10 @@ loaded selectively. The repository also includes a GitHub Pages deployment
 workflow and automated coverage for rig validation, hierarchy transforms,
 history, and preset round-trips.
 
+The [general-purpose editor feature overview](docs/GENERAL_EDITOR_FEATURES.md)
+describes the intended reusable joint, peer-relationship, and virtual-parent
+tools, distinguishing implemented capabilities from future work.
+
 ## Export
 
 Use the `PNG 저장` or `SVG 저장` button above the canvas to download the current

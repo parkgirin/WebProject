@@ -94,6 +94,7 @@ export function validateRig(
     if (joint.parentJointId && !jointIds.has(joint.parentJointId)) {
       errors.push(`Unknown parent joint: ${joint.id}.${joint.parentJointId}`);
     }
+    if (joint.axisReferenceJointId && !jointIds.has(joint.axisReferenceJointId)) errors.push(`Unknown axis reference joint: ${joint.id}.${joint.axisReferenceJointId}`);
     const ancestors = new Set<string>([joint.id]);
     let parentId = joint.parentJointId;
     while (parentId) {
@@ -116,6 +117,11 @@ export function validateRig(
       if (!jointIds.has(jointId)) errors.push(`Unknown peer joint: ${group.id}.${jointId}`);
       if (members.has(jointId)) errors.push(`Duplicate peer joint: ${group.id}.${jointId}`);
       members.add(jointId);
+    }
+    if (group.centerJointId) {
+      const center = rig.joints.find((joint) => joint.id === group.centerJointId);
+      if (!center?.isVirtual) errors.push(`Peer center must be a virtual joint: ${group.id}.${group.centerJointId}`);
+      if (members.has(group.centerJointId)) errors.push(`Peer center cannot be a member: ${group.id}`);
     }
   }
 
@@ -256,6 +262,24 @@ export class RigState {
     this.notify();
   }
 
+  public setJointDistance(movingJointId: string, anchorJointId: string, distance: number): void {
+    if (!Number.isFinite(distance) || distance < 0 || movingJointId === anchorJointId) return;
+    const moving = this.getJoint(movingJointId);
+    const anchor = this.getJoint(anchorJointId);
+    const related = moving.parentJointId === anchor.id || anchor.parentJointId === moving.id
+      || this.rig.peerGroups.some((group) => group.jointIds.includes(moving.id) && group.jointIds.includes(anchor.id));
+    // A descendant anchor would move along with its ancestor and cannot remain fixed.
+    if (!related || this.isDescendant(anchor.id, moving.id)) return;
+    const movingWorld = getJointWorldTransform(this.rig, moving.id);
+    const anchorWorld = getJointWorldTransform(this.rig, anchor.id);
+    const dx = movingWorld.x - anchorWorld.x;
+    const dy = movingWorld.y - anchorWorld.y;
+    const current = Math.hypot(dx, dy);
+    const directionX = current > 1e-9 ? dx / current : 1;
+    const directionY = current > 1e-9 ? dy / current : 0;
+    this.moveJoint(moving.id, anchorWorld.x + directionX * distance, anchorWorld.y + directionY * distance);
+  }
+
   public moveJointsBy(jointIds: string[], deltaX: number, deltaY: number): void {
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
     const roots = this.getSelectionRoots(jointIds);
@@ -338,6 +362,41 @@ export class RigState {
       .map((candidate) => candidate.id);
   }
 
+  /** Insert a virtual parent for two peer joints without changing their world pose. */
+  public addPeerCenter(peerGroupId: string): string | null {
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group || group.centerJointId || group.jointIds.length !== 2) return null;
+    const members = group.jointIds.map((id) => this.getJoint(id));
+    if (members[0].parentJointId !== members[1].parentJointId) return null;
+    const parentId = members[0].parentJointId;
+    const snapshots = members.map((joint) => ({ joint, world: getJointWorldTransform(this.rig, joint.id) }));
+    const baseId = `${group.id}-center`;
+    let id = baseId;
+    let suffix = 2;
+    while (this.rig.joints.some((joint) => joint.id === id)) id = `${baseId}-${suffix++}`;
+    const center: Rig["joints"][number] = {
+      id, parentJointId: parentId, groupId: members[0].groupId, x: 0, y: 0,
+      localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0,
+      guideVisible: true, bodyVisible: false,
+    };
+    this.rig.joints.push(center);
+    this.setJointWorldPosition(center, (snapshots[0].world.x + snapshots[1].world.x) / 2,
+      (snapshots[0].world.y + snapshots[1].world.y) / 2);
+    const rotation = getJointWorldTransform(this.rig, center.id).rotation;
+    for (const { joint, world } of snapshots) {
+      if (parentId && !joint.axisReferenceJointId && joint.axes.some((axis) => axis.alignment)) {
+        joint.axisReferenceJointId = parentId;
+      }
+      joint.parentJointId = id;
+      this.setJointWorldPosition(joint, world.x, world.y);
+      joint.localRotation = normalizeAngle(world.rotation - rotation);
+    }
+    group.centerJointId = id;
+    for (const joint of members) this.alignDirectConnectionAxes(joint.id);
+    this.notify();
+    return id;
+  }
+
   public rotateChildAroundParent(jointId: string, worldAngle: number): void {
     const joint = this.getJoint(jointId);
     if (!joint.parentJointId) return;
@@ -363,7 +422,15 @@ export class RigState {
     const pivot = getPeerGroupPivot(this.rig, peerGroupId);
     const first = getJointWorldTransform(this.rig, group.jointIds[0]);
     const currentAngle = Math.atan2(first.y - pivot.y, first.x - pivot.x) * 180 / Math.PI;
-    const delta = worldAngle - currentAngle;
+    const delta = normalizeSignedAngle(worldAngle - currentAngle);
+    if (Math.abs(delta) < 1e-9) return;
+    if (group.centerJointId && group.jointIds.every((id) => this.isDescendant(id, group.centerJointId!))) {
+      const center = this.getJoint(group.centerJointId);
+      center.localRotation = normalizeAngle(center.localRotation + delta);
+      for (const id of group.jointIds) this.alignDirectConnectionAxes(id);
+      this.notify();
+      return;
+    }
     const radians = (delta * Math.PI) / 180;
     const snapshots = group.jointIds.map((id) => ({ joint: this.getJoint(id), world: getJointWorldTransform(this.rig, id) }));
     for (const { joint, world } of snapshots) {
@@ -523,7 +590,7 @@ export class RigState {
     if (face.layerOrder !== undefined) return face.layerOrder;
     const jointIds = [...new Set(face.vertices.map((vertex) => vertex.jointId))];
     const total = jointIds.reduce((sum, jointId) => sum + this.getJoint(jointId).renderOrder, 0);
-    return Math.round(total / Math.max(jointIds.length, 1) + face.orderOffset);
+    return total / Math.max(jointIds.length, 1) + face.orderOffset;
   }
 
   public setFaceLayerOrder(faceId: string, layerOrder: number): void {
@@ -559,6 +626,35 @@ export class RigState {
     this.notify();
   }
 
+  /** Reorder group offsets without changing the individual item layers. */
+  public moveLayerGroupInStack(groupId: string, direction: -1 | 1, toEnd: boolean): void {
+    const groups = [...this.rig.groups].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    const index = groups.findIndex((group) => group.id === groupId);
+    if (index < 0 || (direction > 0 ? index === groups.length - 1 : index === 0)) return;
+    const [target] = groups.splice(index, 1);
+    const insertion = toEnd ? (direction > 0 ? groups.length : 0) : index + direction;
+    const previous = groups[insertion - 1];
+    const next = groups[insertion];
+    const boundaryBlocked = (!previous && next.order <= -999) || (!next && previous.order >= 999);
+    if ((!previous || !next || previous.order < next.order) && !boundaryBlocked) {
+      const order = !previous ? Math.max(-999, next.order - 1) : !next ? Math.min(999, previous.order + 1) : (previous.order + next.order) / 2;
+      target.order = order;
+    } else {
+      const tiedOrder = previous?.order ?? next.order;
+      let first = insertion;
+      let last = insertion - 1;
+      while (first > 0 && groups[first - 1].order === tiedOrder) first--;
+      while (last + 1 < groups.length && groups[last + 1].order === tiedOrder) last++;
+      const tied = groups.slice(first, last + 1);
+      tied.splice(insertion - first, 0, target);
+      const lower = Math.max(-999, groups[first - 1]?.order ?? -999, tiedOrder - 0.5);
+      const upper = Math.min(999, groups[last + 1]?.order ?? 999, tiedOrder + 0.5);
+      if (upper - lower < 1e-8) return;
+      tied.forEach((group, position) => { group.order = lower + (upper - lower) * (position + 1) / (tied.length + 1); });
+    }
+    this.notify();
+  }
+
   public bringJointsToFront(jointIds: string[]): void {
     const ids = new Set(jointIds);
     const selected = [...ids].map((jointId) => this.getJoint(jointId));
@@ -570,6 +666,61 @@ export class RigState {
     selected
       .sort((first, second) => this.getJointStackOrder(first) - this.getJointStackOrder(second))
       .forEach((joint, index) => this.setJointStackOrder(joint, highestOtherOrder + index + 1));
+    this.notify();
+  }
+
+  /** Move one visible item to an exact position in the rendered body stack. */
+  public moveBodyItemInStack(type: "joint" | "face", id: string, direction: -1 | 1, toEnd: boolean): void {
+    const visible = (groupId: string | undefined) => !groupId || this.getLayerGroup(groupId).visible;
+    const entries = this.getBodyStackEntries().filter((entry) => visible(
+      entry.type === "joint" ? this.getJoint(entry.id).groupId : this.getFace(entry.id).groupId,
+    )).sort((a, b) => a.order - b.order || `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+    const index = entries.findIndex((entry) => entry.type === type && entry.id === id);
+    if (index < 0 || (direction > 0 ? index === entries.length - 1 : index === 0)) return;
+    const [target] = entries.splice(index, 1);
+    const insertion = toEnd ? (direction > 0 ? entries.length : 0) : index + direction;
+    const previous = entries[insertion - 1];
+    const next = entries[insertion];
+    const groupOrder = (entry: typeof target) => this.getGroupStackOrder(
+      entry.type === "joint" ? this.getJoint(entry.id).groupId : this.getFace(entry.id).groupId,
+    );
+    const assignments: Array<{ entry: typeof target; order: number }> = [];
+    const assign = (entry: typeof target, order: number) => {
+      assignments.push({ entry, order });
+    };
+    if (!previous || !next || previous.order < next.order) {
+      const order = !previous ? next.order - 1 : !next ? previous.order + 1 : (previous.order + next.order) / 2;
+      if (order - groupOrder(target) < -999 || order - groupOrder(target) > 999) return;
+      assign(target, order);
+    } else {
+      // Break only the tied run around the insertion point, preserving its order.
+      const order = previous.order;
+      let first = insertion - 1;
+      let last = insertion;
+      while (first > 0 && entries[first - 1].order === order) first--;
+      while (last + 1 < entries.length && entries[last + 1].order === order) last++;
+      const run = entries.slice(first, last + 1);
+      run.splice(insertion - first, 0, target);
+      const lower = Math.max(entries[first - 1]?.order ?? -Infinity, ...run.map((entry) => groupOrder(entry) - 999));
+      const upper = Math.min(entries[last + 1]?.order ?? Infinity, ...run.map((entry) => groupOrder(entry) + 999));
+      const start = Math.max(lower, order - 0.5);
+      const end = Math.min(upper, order + 0.5);
+      if (end - start < 1e-8) return;
+      run.forEach((entry, position) => assign(entry, start + (end - start) * (position + 1) / (run.length + 1)));
+    }
+    const movedJoints = new Set(assignments.filter(({ entry }) => entry.type === "joint").map(({ entry }) => entry.id));
+    const assignedFaces = new Set(assignments.filter(({ entry }) => entry.type === "face").map(({ entry }) => entry.id));
+    for (const face of this.rig.faces) {
+      if (face.layerOrder === undefined && !assignedFaces.has(face.id)
+        && face.vertices.some((vertex) => movedJoints.has(vertex.jointId))) {
+        face.layerOrder = this.getFaceLayerOrder(face.id);
+      }
+    }
+    for (const { entry, order } of assignments) {
+      const local = order - groupOrder(entry);
+      if (entry.type === "joint") this.getJoint(entry.id).renderOrder = local;
+      else this.getFace(entry.id).layerOrder = local;
+    }
     this.notify();
   }
 
@@ -741,6 +892,9 @@ export class RigState {
   }
 
   private notify(): void {
+    for (const joint of this.rig.joints) {
+      if (joint.axisReferenceJointId) this.alignDirectConnectionAxes(joint.id);
+    }
     this.alignShoulderBandAxes();
     if (!this.restoringHistory && !this.transactionStart) {
       const current = cloneRig(this.rig);
@@ -876,7 +1030,7 @@ export class RigState {
     const child = this.getJoint(childJointId);
     if (!child.parentJointId) return;
     const parent = this.getJoint(child.parentJointId);
-    const parentWorld = getJointWorldTransform(this.rig, parent.id);
+    const parentWorld = getJointWorldTransform(this.rig, child.axisReferenceJointId ?? parent.id);
     const childWorld = getJointWorldTransform(this.rig, child.id);
     const connectionWorldAngle = Math.atan2(
       childWorld.y - parentWorld.y,

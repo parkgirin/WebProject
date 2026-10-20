@@ -43,6 +43,7 @@ export function createApp(container: HTMLDivElement): void {
             <button type="button" data-fit-selection title="선택 항목 맞춤" aria-label="선택 항목 맞춤">선택 맞춤</button>
           </div>
           <div class="save-buttons">
+            <button class="save-image-button is-secondary" type="button" data-open-controls>조작 안내</button>
             <button class="save-image-button is-secondary" type="button" data-open-preset>저장/불러오기</button>
             <button class="save-image-button is-secondary" type="button" data-show-export-preview>미리보기</button>
             <button class="save-image-button is-secondary" type="button" data-save-svg>SVG</button>
@@ -72,10 +73,7 @@ export function createApp(container: HTMLDivElement): void {
           <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">
             화면
           </button>
-          <div class="toolbox-divider"></div>
-          <button type="button" class="toolbox-button is-toggle" data-tool-proportions aria-pressed="false" aria-label="몸 비율과 하위 각도 유지" title="부모와의 거리 및 하위 도형 각도 유지">
-            비율
-          </button>
+          <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
         </nav>
         <div class="canvas-panel">
           <div class="canvas-toolbar">
@@ -94,6 +92,33 @@ export function createApp(container: HTMLDivElement): void {
         </div>
         <div data-inspector-host></div>
       </section>
+      <dialog class="preset-dialog controls-dialog" data-controls-dialog aria-labelledby="controls-title">
+        <div class="preset-dialog-header">
+          <div><span class="eyebrow">CONTROLS</span><h2 id="controls-title">조작 안내</h2></div>
+          <button type="button" class="preview-close-button" data-close-controls aria-label="조작 안내 닫기">×</button>
+        </div>
+        <div class="controls-dialog-content">
+          <section><h3>선택과 관절</h3><dl>
+            <dt>클릭 / 드래그</dt><dd>관절이나 면을 선택 / 관절을 이동합니다.</dd>
+            <dt>Shift + 클릭</dt><dd>관절 선택을 추가하거나 해제합니다. 면을 클릭하면 면의 관절을 추가합니다.</dd>
+            <dt>빈 공간 드래그</dt><dd>사각형 안의 관절을 선택합니다. Shift를 누르면 기존 선택에 추가합니다.</dd>
+            <dt>Alt(Option) + 관절 드래그</dt><dd>누르고 있는 동안 부모와의 거리를 유지합니다. 선택 패널의 비율 유지 체크박스로 항상 켤 수도 있습니다.</dd>
+            <dt>회전 핸들 드래그</dt><dd>선택 축 또는 여러 관절을 회전합니다. 여러 관절 회전 중 Shift는 15° 단위입니다.</dd>
+            <dt>동등 관계 회전 핸들</dt><dd>중심에서 떨어진 보라색 핸들을 중심 주위로 드래그해 어깨 또는 골반을 함께 회전합니다.</dd>
+          </dl></section>
+          <section><h3>순서 도구</h3><dl>
+            <dt>좌클릭 / 우클릭</dt><dd>면이나 관절을 한 단계 앞으로 / 뒤로 이동합니다.</dd>
+            <dt>Shift + 좌클릭 / 우클릭</dt><dd>맨 앞으로 / 맨 뒤로 이동합니다.</dd>
+          </dl></section>
+          <section><h3>화면과 편집</h3><dl>
+            <dt>휠 / 확대 도구</dt><dd>화면을 확대·축소합니다. 확대 도구는 Shift 클릭으로 축소합니다.</dd>
+            <dt>Space + 드래그 / 휠 버튼 드래그</dt><dd>화면을 이동합니다.</dd>
+            <dt>Ctrl(⌘) + Z / Ctrl(⌘) + Shift + Z</dt><dd>실행 취소 / 다시 실행합니다.</dd>
+            <dt>[ / ]</dt><dd>선택한 관절이나 면의 순서를 뒤로 / 앞으로 이동합니다.</dd>
+          </dl></section>
+          <p>운영체제나 브라우저가 Alt 드래그를 가로채는 경우 비율 유지 체크박스를 사용하세요.</p>
+        </div>
+      </dialog>
       <dialog class="export-preview-dialog" data-export-preview-dialog>
         <div class="export-preview-header">
           <div>
@@ -146,6 +171,9 @@ export function createApp(container: HTMLDivElement): void {
   const savePngButton = container.querySelector<HTMLButtonElement>("[data-save-png]");
   const saveSvgButton = container.querySelector<HTMLButtonElement>("[data-save-svg]");
   const openPresetButton = container.querySelector<HTMLButtonElement>("[data-open-preset]");
+  const openControlsButton = container.querySelector<HTMLButtonElement>("[data-open-controls]");
+  const controlsDialog = container.querySelector<HTMLDialogElement>("[data-controls-dialog]");
+  const closeControlsButton = container.querySelector<HTMLButtonElement>("[data-close-controls]");
   const outlineToggle = container.querySelector<HTMLInputElement>("[data-show-outlines]");
   const sameJointEdgeToggle = container.querySelector<HTMLInputElement>("[data-hide-same-joint-edges]");
   const previewButton = container.querySelector<HTMLButtonElement>("[data-show-export-preview]");
@@ -173,15 +201,15 @@ export function createApp(container: HTMLDivElement): void {
   const colorToolButton = container.querySelector<HTMLButtonElement>("[data-tool-color]");
   const zoomToolButton = container.querySelector<HTMLButtonElement>("[data-tool-zoom]");
   const panToolButton = container.querySelector<HTMLButtonElement>("[data-tool-pan]");
-  const proportionToolButton = container.querySelector<HTMLButtonElement>("[data-tool-proportions]");
+  const layerOrderToolButton = container.querySelector<HTMLButtonElement>("[data-tool-layer-order]");
   const paintColorInput = container.querySelector<HTMLInputElement>("[data-paint-color]");
   const paletteGrid = container.querySelector<HTMLElement>(".palette-grid");
-  if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !openPresetButton || !outlineToggle
+  if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !openPresetButton || !openControlsButton || !controlsDialog || !closeControlsButton || !outlineToggle
     || !sameJointEdgeToggle || !previewButton || !previewDialog || !previewImage
     || !previewSize || !previewCloseButton || !previewSavePngButton || !previewSaveSvgButton
     || !undoButton || !redoButton || !zoomOutButton || !zoomResetButton || !zoomInButton
     || !fitSelectionButton || !selectToolButton || !colorToolButton || !zoomToolButton
-    || !panToolButton || !proportionToolButton || !paintColorInput || !paletteGrid || !presetDialog || !closePresetButton
+    || !panToolButton || !layerOrderToolButton || !paintColorInput || !paletteGrid || !presetDialog || !closePresetButton
     || !savePresetButton || !loadPresetButton || !presetFileInput || !presetStatus) {
     throw new Error("Editor hosts were not created");
   }
@@ -218,16 +246,17 @@ export function createApp(container: HTMLDivElement): void {
     }
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
-    proportionToolButton.classList.toggle("is-active", viewState.preserveProportions);
-    proportionToolButton.setAttribute("aria-pressed", String(viewState.preserveProportions));
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
     colorToolButton.classList.toggle("is-active", viewState.activeTool === "color");
+    layerOrderToolButton.classList.toggle("is-active", viewState.activeTool === "layer-order");
+    layerOrderToolButton.setAttribute("aria-pressed", String(viewState.activeTool === "layer-order"));
     const activePalette = viewState.paintPaletteId
       ? state.rig.palette.find((entry) => entry.id === viewState.paintPaletteId)
       : undefined;
     paintColorInput.value = activePalette?.color ?? viewState.paintColor;
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
+    svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
     renderSvgEditor(svg, state.rig, selection, viewState);
     if (inspector.dataset.liveRangeEditing !== "true") {
       renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
@@ -240,6 +269,7 @@ export function createApp(container: HTMLDivElement): void {
     getSelection: () => selection,
     getPreserveProportions: () => viewState.preserveProportions,
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
+    getLayerToolActive: () => viewState.activeTool === "layer-order",
     setSelection,
     setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId, selectedTarget: "face" }),
   });
@@ -261,6 +291,10 @@ export function createApp(container: HTMLDivElement): void {
   colorToolButton.addEventListener("click", () => {
     setPanMode(false);
     setViewState({ activeTool: "color", inspectorTab: "color" });
+  });
+  layerOrderToolButton.addEventListener("click", () => {
+    setPanMode(false);
+    setViewState({ activeTool: "layer-order", inspectorTab: "layers" });
   });
   paletteGrid.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-palette-id]");
@@ -291,9 +325,6 @@ export function createApp(container: HTMLDivElement): void {
     const enabled = panToolButton.getAttribute("aria-pressed") !== "true";
     setPanMode(enabled);
   });
-  proportionToolButton.addEventListener("click", () => {
-    setViewState({ preserveProportions: !viewState.preserveProportions });
-  });
   globalAngleInput?.addEventListener("input", () => {
     if (globalAngleInput.dataset.historyActive !== "true") {
       globalAngleInput.dataset.historyActive = "true";
@@ -313,6 +344,11 @@ export function createApp(container: HTMLDivElement): void {
   });
   sameJointEdgeToggle.addEventListener("change", () => {
     setViewState({ hideSameJointEdges: sameJointEdgeToggle.checked });
+  });
+  openControlsButton.addEventListener("click", () => controlsDialog.showModal());
+  closeControlsButton.addEventListener("click", () => controlsDialog.close());
+  controlsDialog.addEventListener("click", (event) => {
+    if (event.target === controlsDialog) controlsDialog.close();
   });
   openPresetButton.addEventListener("click", () => {
     presetStatus.textContent = "";
@@ -403,6 +439,7 @@ export function createApp(container: HTMLDivElement): void {
     }
   });
   window.addEventListener("keydown", (event) => {
+    if (controlsDialog.open || presetDialog.open || previewDialog.open) return;
     const target = event.target as HTMLElement | null;
     const editingText = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
     if (editingText) return;
