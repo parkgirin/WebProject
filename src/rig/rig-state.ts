@@ -4,7 +4,14 @@ import {
   type Rig,
   type RigLimits,
 } from "./types.ts";
-import { getJointWorldTransform, getPeerGroupPivot, normalizeAngle } from "./geometry.ts";
+import {
+  getAxisPoint,
+  getCircleTangentPoints,
+  getJointWorldTransform,
+  getPeerGroupCentroid,
+  getPeerGroupPivot,
+  normalizeAngle,
+} from "./geometry.ts";
 
 const VALID_SIDES = new Set<AxisPointSide>([-1, 1]);
 
@@ -95,6 +102,25 @@ export function validateRig(
       errors.push(`Unknown parent joint: ${joint.id}.${joint.parentJointId}`);
     }
     if (joint.axisReferenceJointId && !jointIds.has(joint.axisReferenceJointId)) errors.push(`Unknown axis reference joint: ${joint.id}.${joint.axisReferenceJointId}`);
+    for (const axis of joint.axes) {
+      if (axis.alignment !== "reference-axis-outer-tangent") continue;
+      const referenceJointId = joint.axisReferenceJointId ?? joint.parentJointId;
+      const referenceJoint = rig.joints.find((candidate) => candidate.id === referenceJointId);
+      const referenceAxis = referenceJoint?.axes.find((candidate) => candidate.id === axis.referenceAxisId);
+      if (!referenceJointId) errors.push(`Tangent axis needs a reference joint: ${joint.id}.${axis.id}`);
+      else if (referenceJoint && !referenceAxis) errors.push(`Unknown tangent reference axis: ${joint.id}.${axis.id}.${axis.referenceAxisId ?? ""}`);
+      if (!VALID_SIDES.has(axis.referenceAxisSide as AxisPointSide)
+        || (referenceAxis && !referenceAxis.pointSides.includes(axis.referenceAxisSide!))) {
+        errors.push(`Invalid tangent reference side: ${joint.id}.${axis.id}`);
+      }
+      if (!VALID_SIDES.has(axis.alignedPointSide as AxisPointSide)
+        || !axis.pointSides.includes(axis.alignedPointSide!)) {
+        errors.push(`Invalid tangent aligned side: ${joint.id}.${axis.id}`);
+      }
+      if (!rig.peerGroups.some((group) => group.jointIds.includes(joint.id))) {
+        errors.push(`Tangent axis needs a peer group: ${joint.id}.${axis.id}`);
+      }
+    }
     const ancestors = new Set<string>([joint.id]);
     let parentId = joint.parentJointId;
     while (parentId) {
@@ -278,6 +304,88 @@ export class RigState {
     const directionX = current > 1e-9 ? dx / current : 1;
     const directionY = current > 1e-9 ? dy / current : 0;
     this.moveJoint(moving.id, anchorWorld.x + directionX * distance, anchorWorld.y + directionY * distance);
+  }
+
+  public getPeerGroupDistance(peerGroupId: string): number | null {
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group || group.jointIds.length !== 2) return null;
+    const first = getJointWorldTransform(this.rig, group.jointIds[0]);
+    const second = getJointWorldTransform(this.rig, group.jointIds[1]);
+    return Math.hypot(second.x - first.x, second.y - first.y);
+  }
+
+  /** Set a two-member peer distance symmetrically, preserving its midpoint and pivot offset. */
+  public setPeerGroupDistance(peerGroupId: string, distance: number): void {
+    if (!Number.isFinite(distance) || distance < 0) return;
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group || group.jointIds.length !== 2) return;
+    const first = this.getJoint(group.jointIds[0]);
+    const second = this.getJoint(group.jointIds[1]);
+    const firstWorld = getJointWorldTransform(this.rig, first.id);
+    const secondWorld = getJointWorldTransform(this.rig, second.id);
+    const midpoint = { x: (firstWorld.x + secondWorld.x) / 2, y: (firstWorld.y + secondWorld.y) / 2 };
+    const dx = secondWorld.x - firstWorld.x;
+    const dy = secondWorld.y - firstWorld.y;
+    const current = Math.hypot(dx, dy);
+    const directionX = current > 1e-9 ? dx / current : 1;
+    const directionY = current > 1e-9 ? dy / current : 0;
+    const half = distance / 2;
+    this.setJointWorldPosition(first, midpoint.x - directionX * half, midpoint.y - directionY * half);
+    this.setJointWorldPosition(second, midpoint.x + directionX * half, midpoint.y + directionY * half);
+    this.alignDirectConnectionAxes(first.id);
+    this.alignDirectConnectionAxes(second.id);
+    this.notify();
+  }
+
+  /** Return the virtual pivot offset in peer-axis coordinates: X along first-to-second, Y perpendicular. */
+  public getPeerCenterOffset(peerGroupId: string): { x: number; y: number } | null {
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group?.centerJointId || group.jointIds.length !== 2) return null;
+    const first = getJointWorldTransform(this.rig, group.jointIds[0]);
+    const second = getJointWorldTransform(this.rig, group.jointIds[1]);
+    const center = getJointWorldTransform(this.rig, group.centerJointId);
+    const midpoint = getPeerGroupCentroid(this.rig, peerGroupId);
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    const length = Math.hypot(dx, dy);
+    const axisX = length > 1e-9 ? dx / length : 1;
+    const axisY = length > 1e-9 ? dy / length : 0;
+    const offsetX = center.x - midpoint.x;
+    const offsetY = center.y - midpoint.y;
+    return {
+      x: offsetX * axisX + offsetY * axisY,
+      y: -offsetX * axisY + offsetY * axisX,
+    };
+  }
+
+  /** Rebase a virtual peer pivot without changing the current pose of its direct children. */
+  public setPeerCenterOffset(peerGroupId: string, offsetX: number, offsetY: number): void {
+    if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) return;
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group?.centerJointId || group.jointIds.length !== 2) return;
+    const center = this.getJoint(group.centerJointId);
+    const first = getJointWorldTransform(this.rig, group.jointIds[0]);
+    const second = getJointWorldTransform(this.rig, group.jointIds[1]);
+    const midpoint = getPeerGroupCentroid(this.rig, peerGroupId);
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    const length = Math.hypot(dx, dy);
+    const axisX = length > 1e-9 ? dx / length : 1;
+    const axisY = length > 1e-9 ? dy / length : 0;
+    const children = this.rig.joints
+      .filter((joint) => joint.parentJointId === center.id)
+      .map((joint) => ({ joint, world: getJointWorldTransform(this.rig, joint.id) }));
+    this.setJointWorldPosition(center,
+      midpoint.x + axisX * offsetX - axisY * offsetY,
+      midpoint.y + axisY * offsetX + axisX * offsetY,
+    );
+    const centerRotation = getJointWorldTransform(this.rig, center.id).rotation;
+    for (const { joint, world } of children) {
+      this.setJointWorldPosition(joint, world.x, world.y);
+      joint.localRotation = normalizeAngle(world.rotation - centerRotation);
+    }
+    for (const { joint } of children) this.alignDirectConnectionAxes(joint.id);
+    this.notify();
   }
 
   public moveJointsBy(jointIds: string[], deltaX: number, deltaY: number): void {
@@ -1048,16 +1156,16 @@ export class RigState {
     }
 
     const peerGroup = this.rig.peerGroups.find((group) => group.jointIds.includes(child.id));
+    const peerCenter = peerGroup ? getPeerGroupCentroid(this.rig, peerGroup.id) : null;
     if (peerGroup) {
-      const peerPivot = getPeerGroupPivot(this.rig, peerGroup.id);
       const parentToPeerAngle = Math.atan2(
-        peerPivot.y - parentWorld.y,
-        peerPivot.x - parentWorld.x,
+        peerCenter!.y - parentWorld.y,
+        peerCenter!.x - parentWorld.x,
       ) * 180 / Math.PI;
 
-      // Peer-aligned axes share the parent-to-group-center reference. Updating
-      // every member keeps paired joints (the two hips) parallel when either
-      // member moves independently.
+      // Peer-aligned axes share the parent-to-geometric-center reference rather
+      // than each member's diagonal. The virtual rotation pivot may be offset
+      // independently without changing these structural face boundaries.
       for (const memberId of peerGroup.jointIds) {
         const member = this.getJoint(memberId);
         const memberWorld = getJointWorldTransform(this.rig, member.id);
@@ -1071,6 +1179,30 @@ export class RigState {
             axis.angle = normalizeAngle(alignedWorldAngle - memberWorld.rotation);
           }
         }
+      }
+    }
+
+    // The outer pelvis boundary touches the hip circle exactly. Of the two
+    // possible tangents, use the point farther from the hip-pair centroid.
+    const tangentReferenceJointId = child.axisReferenceJointId ?? child.parentJointId;
+    if (peerCenter && tangentReferenceJointId) {
+      const referenceJoint = this.getJoint(tangentReferenceJointId);
+      for (const axis of child.axes) {
+        if (axis.alignment !== "reference-axis-outer-tangent") continue;
+        if (!axis.referenceAxisId || axis.referenceAxisSide === undefined
+          || axis.alignedPointSide === undefined) continue;
+        const referenceAxis = referenceJoint.axes.find((candidate) => candidate.id === axis.referenceAxisId);
+        if (!referenceAxis) continue;
+        const referencePoint = getAxisPoint(this.rig, referenceJoint, referenceAxis, axis.referenceAxisSide);
+        const tangentPoints = getCircleTangentPoints(referencePoint, childWorld, child.radius);
+        if (!tangentPoints) continue;
+        const distanceToPeer = (point: { x: number; y: number }) => (
+          (point.x - peerCenter.x) ** 2 + (point.y - peerCenter.y) ** 2
+        );
+        const target = tangentPoints[distanceToPeer(tangentPoints[0]) > distanceToPeer(tangentPoints[1]) ? 0 : 1];
+        let alignedWorldAngle = Math.atan2(target.y - childWorld.y, target.x - childWorld.x) * 180 / Math.PI;
+        if (axis.alignedPointSide === -1) alignedWorldAngle += 180;
+        axis.angle = normalizeAngle(alignedWorldAngle - childWorld.rotation);
       }
     }
 

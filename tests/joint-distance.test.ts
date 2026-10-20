@@ -55,6 +55,27 @@ test("peer distance holds the other joint fixed; invalid and unrelated distances
   close(position(state, "left-shoulder").y, fixed.y);
 });
 
+test("peer group distance moves both joints symmetrically and preserves their midpoint", () => {
+  const state = new RigState(createDefaultRig());
+  const left = position(state, "left-shoulder");
+  const right = position(state, "right-shoulder");
+  const leftWrist = position(state, "left-wrist");
+  const rightWrist = position(state, "right-wrist");
+  const midpoint = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
+  state.setPeerGroupDistance("shoulder-band", 200);
+  const nextLeft = position(state, "left-shoulder");
+  const nextRight = position(state, "right-shoulder");
+  close(distance(state, "left-shoulder", "right-shoulder"), 200);
+  close((nextLeft.x + nextRight.x) / 2, midpoint.x);
+  close((nextLeft.y + nextRight.y) / 2, midpoint.y);
+  close(position(state, "left-wrist").x - leftWrist.x, nextLeft.x - left.x);
+  close(position(state, "right-wrist").x - rightWrist.x, nextRight.x - right.x);
+  state.undo();
+  close(distance(state, "left-shoulder", "right-shoulder"), 156);
+  state.redo();
+  close(distance(state, "left-shoulder", "right-shoulder"), 200);
+});
+
 test("distance fields appear only for actual parent, child or peer relationships", () => {
   const rig = createDefaultRig();
   const isolated = structuredClone(rig.joints.find((joint) => joint.id === "head")!);
@@ -70,8 +91,12 @@ test("distance fields appear only for actual parent, child or peer relationships
   render("left-shoulder");
   assert.match(element.innerHTML, /부모 chest/);
   assert.match(element.innerHTML, /자식 left-elbow/);
-  assert.match(element.innerHTML, /동등 right-shoulder \(shoulder-band\)/);
+  assert.match(element.innerHTML, /shoulder-band 동등 관계/);
+  assert.match(element.innerHTML, /data-peer-distance="shoulder-band"/);
   assert.match(element.innerHTML, /data-distance-moving="left-elbow" data-distance-anchor="left-shoulder"/);
+  render("left-hip");
+  assert.match(element.innerHTML, /data-peer-center-offset-x="hip-band"/);
+  assert.match(element.innerHTML, /data-peer-center-offset-y="hip-band"/);
   render("isolated");
   assert.doesNotMatch(element.innerHTML, /관절 간 거리/);
 });

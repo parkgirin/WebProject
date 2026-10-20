@@ -50,6 +50,33 @@ test("a virtual parent can be added to two peer joints without changing their po
   assert.equal(state.getJoint("left-shoulder").parentJointId, id);
 });
 
+test("virtual peer center offset changes only the future rotation pivot", () => {
+  const state = new RigState(createDefaultRig());
+  const ids = ["waist", "chest", "left-hip", "right-hip", "left-ankle", "right-ankle"];
+  const before = ids.map((id) => point(state, id));
+  const originalPivot = getPeerGroupPivot(state.rig, "hip-band");
+  state.setPeerCenterOffset("hip-band", 12, -8);
+  ids.forEach((id, index) => close(point(state, id), before[index]));
+  const offset = state.getPeerCenterOffset("hip-band")!;
+  assert.ok(Math.abs(offset.x - 12) < 1e-7);
+  assert.ok(Math.abs(offset.y + 8) < 1e-7);
+  const pivot = getPeerGroupPivot(state.rig, "hip-band");
+  assert.ok(Math.hypot(pivot.x - originalPivot.x, pivot.y - originalPivot.y) > 1);
+
+  const leftHip = point(state, "left-hip");
+  const angle = state.getFaceRotationAngle("pelvis")!;
+  state.rotatePeerGroup("hip-band", angle + 90);
+  close(point(state, "left-hip"), {
+    x: pivot.x - (leftHip.y - pivot.y),
+    y: pivot.y + (leftHip.x - pivot.x),
+  });
+  state.undo();
+  close(point(state, "left-hip"), leftHip);
+  state.undo();
+  ids.forEach((id, index) => close(point(state, id), before[index]));
+  close(getPeerGroupPivot(state.rig, "hip-band"), originalPivot);
+});
+
 test("pre-pivot presets migrate old waist-relative hip positions without changing the pose", () => {
   const rig = createDefaultRig();
   rig.joints = rig.joints.filter((joint) => joint.id !== "pelvis-pivot");

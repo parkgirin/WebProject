@@ -1,4 +1,5 @@
 import { createDefaultRig } from "./rig/default-rig.ts";
+import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS } from "./rig/avatar-presets.ts";
 import { RigState } from "./rig/rig-state.ts";
 import { renderSvgEditor } from "./editor/svg-editor.ts";
 import { enablePointerInput } from "./editor/pointer-input.ts";
@@ -17,6 +18,7 @@ export function createApp(container: HTMLDivElement): void {
   const viewState: EditorViewState = {
     outlinesVisible: true,
     hideSameJointEdges: true,
+    extendHiddenJointFaces: false,
     selectedFaceId: "torso",
     selectedTarget: "joint",
     inspectorTab: "selection",
@@ -80,12 +82,20 @@ export function createApp(container: HTMLDivElement): void {
             <span><span class="status-dot"></span> 직접 조작 · 5등신 가이드</span>
             <div class="canvas-actions">
               <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
+              <label class="avatar-preset-control">체형
+                <select data-avatar-preset aria-label="아바타 체형 프리셋">
+                  ${AVATAR_PROPORTION_PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
+                </select>
+                <button type="button" data-apply-avatar-preset>적용</button>
+              </label>
+              <span class="avatar-preset-status" data-avatar-preset-status aria-live="polite"></span>
               <label class="global-rotation-control">전체 회전
                 <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
                 <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
               </label>
               <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
               <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
+              <label class="toolbar-toggle"><input type="checkbox" data-extend-hidden-joint-faces />숨김 관절 면 연장</label>
             </div>
           </div>
           <svg class="rig-canvas" viewBox="0 0 600 780" role="img" aria-label="관절과 연결 면 편집 화면"></svg>
@@ -105,6 +115,9 @@ export function createApp(container: HTMLDivElement): void {
             <dt>Alt(Option) + 관절 드래그</dt><dd>누르고 있는 동안 부모와의 거리를 유지합니다. 선택 패널의 비율 유지 체크박스로 항상 켤 수도 있습니다.</dd>
             <dt>회전 핸들 드래그</dt><dd>선택 축 또는 여러 관절을 회전합니다. 여러 관절 회전 중 Shift는 15° 단위입니다.</dd>
             <dt>동등 관계 회전 핸들</dt><dd>중심에서 떨어진 보라색 핸들을 중심 주위로 드래그해 어깨 또는 골반을 함께 회전합니다.</dd>
+            <dt>동등 관계 중심 간격</dt><dd>선택 패널에서 양쪽 관절을 중점 기준으로 대칭 이동해 어깨 또는 골반 폭을 조절합니다.</dd>
+            <dt>가상 중심 오프셋</dt><dd>동등축 방향 X와 직교 방향 Y로 가상 관절을 옮깁니다. 현재 포즈는 유지되고 이후 회전 중심에 적용됩니다.</dd>
+            <dt>체형 프리셋</dt><dd>캔버스 상단에서 7종 체형을 고르고 적용합니다. 현재 회전·색상·가상 중심 오프셋은 유지됩니다.</dd>
           </dl></section>
           <section><h3>순서 도구</h3><dl>
             <dt>좌클릭 / 우클릭</dt><dd>면이나 관절을 한 단계 앞으로 / 뒤로 이동합니다.</dd>
@@ -176,6 +189,7 @@ export function createApp(container: HTMLDivElement): void {
   const closeControlsButton = container.querySelector<HTMLButtonElement>("[data-close-controls]");
   const outlineToggle = container.querySelector<HTMLInputElement>("[data-show-outlines]");
   const sameJointEdgeToggle = container.querySelector<HTMLInputElement>("[data-hide-same-joint-edges]");
+  const extendHiddenJointFacesToggle = container.querySelector<HTMLInputElement>("[data-extend-hidden-joint-faces]");
   const previewButton = container.querySelector<HTMLButtonElement>("[data-show-export-preview]");
   const previewDialog = container.querySelector<HTMLDialogElement>("[data-export-preview-dialog]");
   const previewImage = container.querySelector<HTMLImageElement>("[data-export-preview-image]");
@@ -191,6 +205,9 @@ export function createApp(container: HTMLDivElement): void {
   const presetStatus = container.querySelector<HTMLElement>("[data-preset-status]");
   const globalAngleInput = container.querySelector<HTMLInputElement>("[data-global-angle]");
   const globalAngleNumber = container.querySelector<HTMLInputElement>("[data-global-angle-number]");
+  const avatarPresetSelect = container.querySelector<HTMLSelectElement>("[data-avatar-preset]");
+  const applyAvatarPresetButton = container.querySelector<HTMLButtonElement>("[data-apply-avatar-preset]");
+  const avatarPresetStatus = container.querySelector<HTMLElement>("[data-avatar-preset-status]");
   const undoButton = container.querySelector<HTMLButtonElement>("[data-undo]");
   const redoButton = container.querySelector<HTMLButtonElement>("[data-redo]");
   const zoomOutButton = container.querySelector<HTMLButtonElement>("[data-zoom-out]");
@@ -205,12 +222,13 @@ export function createApp(container: HTMLDivElement): void {
   const paintColorInput = container.querySelector<HTMLInputElement>("[data-paint-color]");
   const paletteGrid = container.querySelector<HTMLElement>(".palette-grid");
   if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !openPresetButton || !openControlsButton || !controlsDialog || !closeControlsButton || !outlineToggle
-    || !sameJointEdgeToggle || !previewButton || !previewDialog || !previewImage
+    || !sameJointEdgeToggle || !extendHiddenJointFacesToggle || !previewButton || !previewDialog || !previewImage
     || !previewSize || !previewCloseButton || !previewSavePngButton || !previewSaveSvgButton
     || !undoButton || !redoButton || !zoomOutButton || !zoomResetButton || !zoomInButton
     || !fitSelectionButton || !selectToolButton || !colorToolButton || !zoomToolButton
     || !panToolButton || !layerOrderToolButton || !paintColorInput || !paletteGrid || !presetDialog || !closePresetButton
-    || !savePresetButton || !loadPresetButton || !presetFileInput || !presetStatus) {
+    || !savePresetButton || !loadPresetButton || !presetFileInput || !presetStatus
+    || !avatarPresetSelect || !applyAvatarPresetButton || !avatarPresetStatus) {
     throw new Error("Editor hosts were not created");
   }
   let previewUrl: string | null = null;
@@ -325,6 +343,12 @@ export function createApp(container: HTMLDivElement): void {
     const enabled = panToolButton.getAttribute("aria-pressed") !== "true";
     setPanMode(enabled);
   });
+  applyAvatarPresetButton.addEventListener("click", () => {
+    const preset = AVATAR_PROPORTION_PRESETS.find((candidate) => candidate.id === avatarPresetSelect.value);
+    if (!preset) return;
+    applyAvatarProportionPreset(state, preset.id);
+    avatarPresetStatus.textContent = `${preset.name} 적용됨`;
+  });
   globalAngleInput?.addEventListener("input", () => {
     if (globalAngleInput.dataset.historyActive !== "true") {
       globalAngleInput.dataset.historyActive = "true";
@@ -344,6 +368,9 @@ export function createApp(container: HTMLDivElement): void {
   });
   sameJointEdgeToggle.addEventListener("change", () => {
     setViewState({ hideSameJointEdges: sameJointEdgeToggle.checked });
+  });
+  extendHiddenJointFacesToggle.addEventListener("change", () => {
+    setViewState({ extendHiddenJointFaces: extendHiddenJointFacesToggle.checked });
   });
   openControlsButton.addEventListener("click", () => controlsDialog.showModal());
   closeControlsButton.addEventListener("click", () => controlsDialog.close());

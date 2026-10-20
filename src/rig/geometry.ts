@@ -16,6 +16,23 @@ export interface JointWorldTransform extends Point {
   rotation: number;
 }
 
+/** Return the two points where lines from an external reference touch a circle. */
+export function getCircleTangentPoints(reference: Point, center: Point, radius: number): [Point, Point] | null {
+  const dx = reference.x - center.x;
+  const dy = reference.y - center.y;
+  const distanceSquared = dx * dx + dy * dy;
+  const radiusSquared = radius * radius;
+  if (!(radius > 0) || distanceSquared <= radiusSquared + 1e-9) return null;
+  const baseScale = radiusSquared / distanceSquared;
+  const tangentScale = radius * Math.sqrt(distanceSquared - radiusSquared) / distanceSquared;
+  const base = { x: center.x + dx * baseScale, y: center.y + dy * baseScale };
+  const offset = { x: -dy * tangentScale, y: dx * tangentScale };
+  return [
+    { x: base.x + offset.x, y: base.y + offset.y },
+    { x: base.x - offset.x, y: base.y - offset.y },
+  ];
+}
+
 export function getJointWorldTransform(
   rig: Rig,
   jointId: string,
@@ -92,6 +109,12 @@ export function getPeerGroupPivot(rig: Rig, peerGroupId: string): Point {
   const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
   if (!group) throw new Error(`Unknown peer group: ${peerGroupId}`);
   if (group.centerJointId) return getJointWorldPoint(rig, group.centerJointId);
+  return getPeerGroupCentroid(rig, peerGroupId);
+}
+
+export function getPeerGroupCentroid(rig: Rig, peerGroupId: string): Point {
+  const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+  if (!group) throw new Error(`Unknown peer group: ${peerGroupId}`);
   const points = group.jointIds.map((jointId) => getJointWorldPoint(rig, jointId));
   const total = points.reduce(
     (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),

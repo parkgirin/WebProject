@@ -10,9 +10,14 @@ export function renderSvgEditor(
 ): void {
   const visibleJoints = rig.joints
     .filter((joint) => joint.bodyVisible && isGroupVisible(rig, joint.groupId));
-  const visibleFaces = rig.faces
-    .filter((face) => isGroupVisible(rig, face.groupId))
-    .map((face) => ({ face, points: getFacePoints(rig, face) }));
+  const faceDefinitions = rig.faces.filter((face) => isGroupVisible(rig, face.groupId));
+  const extension = viewState.extendHiddenJointFaces
+    ? getHiddenJointFaceExtensions(rig, faceDefinitions)
+    : { points: new Map<string, Point>(), jointIds: new Set<string>(), fillOnlyJointIds: new Set<string>() };
+  const visibleFaces = faceDefinitions.map((face) => ({
+    face,
+    points: getFacePoints(rig, face).map((point, index) => extension.points.get(`${face.id}:${index}`) ?? point),
+  }));
 
   const jointItems = visibleJoints
     .map((joint, index) => {
@@ -76,7 +81,8 @@ export function renderSvgEditor(
   // Complete the exposed boundary of a hidden joint using only endpoints
   // referenced by visible faces. The convex hull avoids self-intersections.
   const bridgeItems = rig.joints.flatMap((joint) => {
-    if (joint.isVirtual || joint.bodyVisible || !isGroupVisible(rig, joint.groupId)) return [];
+    if (joint.isVirtual || joint.bodyVisible || extension.jointIds.has(joint.id)
+      || !isGroupVisible(rig, joint.groupId)) return [];
     const connected = visibleFaces.filter(({ face }) => face.vertices.some((vertex) => vertex.jointId === joint.id));
     const points = getOuterPoints(connected.flatMap(({ face }) => face.vertices
       .filter((vertex) => vertex.jointId === joint.id)
@@ -87,7 +93,7 @@ export function renderSvgEditor(
     const order = Math.min(...connected.map(({ face }) => getItemStackOrder(rig, {
       groupId: face.groupId, order: getFaceOrder(rig, face),
     }))) - groupOrder - 0.001;
-    const outline = points.length === 2
+    const outline = extension.fillOnlyJointIds.has(joint.id) ? "" : points.length === 2
       ? `<polyline class="body-face-outline" points="${pointList}" />`
       : `<polygon class="body-face-outline" points="${pointList}" />`;
     const fill = points.length > 2
@@ -248,6 +254,278 @@ function getOuterPoints(points: Point[]): Point[] {
   const lower = half(unique);
   const upper = half([...unique].reverse());
   return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
+/** Join each side of a two-face hidden joint from one selected outline pair. */
+function getHiddenJointFaceExtensions(
+  rig: Rig,
+  faces: Rig["faces"],
+): { points: Map<string, Point>; jointIds: Set<string>; fillOnlyJointIds: Set<string> } {
+  const points = new Map<string, Point>();
+  const jointIds = new Set<string>();
+  const fillOnlyJointIds = new Set<string>();
+  for (const joint of rig.joints) {
+    if (joint.isVirtual || joint.bodyVisible || !isGroupVisible(rig, joint.groupId)) continue;
+    const allConnected = faces.filter((face) => face.vertices.some((vertex) => vertex.jointId === joint.id));
+
+    // Hips cross the torso/leg group boundary. Join both silhouette pairs:
+    // outer pelvis tangent -> outer thigh, central pelvis bottom -> inner thigh.
+    const outerPelvisFace = allConnected.find((face) => face.vertices.some((vertex) => (
+      vertex.jointId === joint.id && vertex.axisId === "pelvis-horizontal"
+    )));
+    const centerPelvisFace = allConnected.find((face) => (
+      face.vertices.some((vertex) => vertex.jointId === joint.id && vertex.axisId === "pelvis-vertical")
+      && face.vertices.some((vertex) => vertex.jointId !== joint.id && vertex.axisId === "pelvis-vertical")
+    ));
+    const upperLegFace = allConnected.find((face) => face.vertices.some((vertex) => (
+      vertex.jointId === joint.id && vertex.axisId === "upper-leg"
+    )));
+    if (outerPelvisFace && centerPelvisFace && upperLegFace) {
+      const outerPelvisPoints = getFacePoints(rig, outerPelvisFace);
+      const centerPelvisPoints = getFacePoints(rig, centerPelvisFace);
+      const upperLegPoints = getFacePoints(rig, upperLegFace);
+      const outerPelvisIndex = outerPelvisFace.vertices.findIndex((vertex) => (
+        vertex.jointId === joint.id && vertex.axisId === "pelvis-horizontal"
+      ));
+      const outerPelvisRemoteIndex = [-1, 1]
+        .map((offset) => (outerPelvisIndex + offset + outerPelvisFace.vertices.length) % outerPelvisFace.vertices.length)
+        .find((index) => outerPelvisFace.vertices[index].jointId !== joint.id);
+      const innerPelvisIndex = centerPelvisFace.vertices.findIndex((vertex) => (
+        vertex.jointId === joint.id && vertex.axisId === "pelvis-vertical"
+      ));
+      const innerPelvisRemoteIndex = [-1, 1]
+        .map((offset) => (innerPelvisIndex + offset + centerPelvisFace.vertices.length) % centerPelvisFace.vertices.length)
+        .find((index) => centerPelvisFace.vertices[index].jointId !== joint.id
+          && centerPelvisFace.vertices[index].axisId === "pelvis-vertical");
+      const upperLegEdges = upperLegFace.vertices.flatMap((vertex, index) => {
+        if (vertex.jointId !== joint.id || vertex.axisId !== "upper-leg") return [];
+        const remoteIndex = [-1, 1]
+          .map((offset) => (index + offset + upperLegFace.vertices.length) % upperLegFace.vertices.length)
+          .find((candidate) => upperLegFace.vertices[candidate].jointId !== joint.id);
+        return remoteIndex === undefined ? [] : [{
+          face: upperLegFace,
+          index,
+          vertex,
+          endpoint: upperLegPoints[index],
+          remote: upperLegPoints[remoteIndex],
+        }];
+      });
+      const center = getJointWorldTransform(rig, joint.id);
+      if (outerPelvisRemoteIndex !== undefined && innerPelvisRemoteIndex !== undefined
+        && upperLegEdges.length === 2) {
+        const pelvisEdges = [
+          {
+            side: "outer" as const,
+            pelvisFace: outerPelvisFace,
+            pelvisPoints: outerPelvisPoints,
+            pelvisIndex: outerPelvisIndex,
+            pelvisRemoteIndex: outerPelvisRemoteIndex,
+          },
+          {
+            side: "inner" as const,
+            pelvisFace: centerPelvisFace,
+            pelvisPoints: centerPelvisPoints,
+            pelvisIndex: innerPelvisIndex,
+            pelvisRemoteIndex: innerPelvisRemoteIndex,
+          },
+        ];
+        const resolvePair = (pelvisEdge: (typeof pelvisEdges)[number], legEdge: (typeof upperLegEdges)[number]) => {
+          const pelvisEndpoint = pelvisEdge.pelvisPoints[pelvisEdge.pelvisIndex];
+          const intersection = getLineIntersection(
+            pelvisEdge.pelvisPoints[pelvisEdge.pelvisRemoteIndex], pelvisEndpoint,
+            legEdge.remote, legEdge.endpoint,
+          ) ?? (Math.hypot(
+            pelvisEndpoint.x - legEdge.endpoint.x,
+            pelvisEndpoint.y - legEdge.endpoint.y,
+          ) < 1e-7 ? pelvisEndpoint : null);
+          return intersection ? {
+            side: pelvisEdge.side,
+            pelvisVertex: pelvisEdge.pelvisFace.vertices[pelvisEdge.pelvisIndex],
+            legVertex: legEdge.vertex,
+            intersection,
+            pelvisScale: getLineScale(
+              pelvisEdge.pelvisPoints[pelvisEdge.pelvisRemoteIndex], pelvisEndpoint, intersection,
+            ),
+            legScale: getLineScale(legEdge.remote, legEdge.endpoint, intersection),
+          } : null;
+        };
+        const matchings = [upperLegEdges, [...upperLegEdges].reverse()];
+        const candidates = matchings.flatMap((legEdges) => {
+          const pairs = pelvisEdges.map((pelvisEdge, index) => resolvePair(pelvisEdge, legEdges[index]));
+          if (pairs.some((pair) => pair === null)) return [];
+          const outerPair = pairs[0]!;
+          const innerPair = pairs[1]!;
+          const outerDistance = Math.hypot(
+            outerPair.intersection.x - center.x, outerPair.intersection.y - center.y,
+          );
+          const innerDistance = Math.hypot(
+            innerPair.intersection.x - center.x, innerPair.intersection.y - center.y,
+          );
+          if (innerPair.pelvisScale < -1e-7
+            || outerDistance > joint.radius * 6 || innerDistance > joint.radius * 4) return [];
+          const extensionPenalty = [outerPair, innerPair].reduce((total, pair) => total
+            + (pair.pelvisScale >= 1 - 1e-7 ? 0 : 1)
+            + (pair.legScale >= 1 - 1e-7 ? 0 : 1), 0);
+          return [{ pairs: [outerPair, innerPair], extensionPenalty,
+            cost: outerDistance ** 2 + innerDistance ** 2 }];
+        }).sort((first, second) => first.extensionPenalty - second.extensionPenalty || first.cost - second.cost);
+        const outerCandidates = upperLegEdges.flatMap((legEdge) => {
+          const pair = resolvePair(pelvisEdges[0], legEdge);
+          if (!pair) return [];
+          const distance = Math.hypot(pair.intersection.x - center.x, pair.intersection.y - center.y);
+          const extensionPenalty = (pair.pelvisScale >= 1 - 1e-7 ? 0 : 1)
+            + (pair.legScale >= 1 - 1e-7 ? 0 : 1);
+          return distance <= joint.radius * 6 ? [{ pair, distance, extensionPenalty }] : [];
+        }).sort((first, second) => first.extensionPenalty - second.extensionPenalty || first.distance - second.distance);
+        const idealOuter = outerCandidates.find((candidate) => candidate.extensionPenalty === 0);
+        // A true two-ray outer extension has priority. Use a complete pairing
+        // only when its outer leg edge is the same; otherwise retain that outer
+        // miter and bridge the unresolved inner side. Without an ideal outer
+        // ray, prefer the best complete pairing so a valid inner join is kept.
+        const selected = idealOuter
+          ? candidates.find((candidate) => samePointRef(candidate.pairs[0].legVertex, idealOuter.pair.legVertex))
+          : candidates[0];
+        if (selected) {
+          for (const pair of selected.pairs) {
+            for (const face of allConnected) {
+              face.vertices.forEach((vertex, index) => {
+                if (samePointRef(vertex, pair.pelvisVertex) || samePointRef(vertex, pair.legVertex)) {
+                  points.set(`${face.id}:${index}`, pair.intersection);
+                }
+              });
+            }
+          }
+          jointIds.add(joint.id);
+          continue;
+        }
+
+        // If no compatible complete pairing is usable, retain the best outer
+        // miter and let a fill-only bridge close the inner gap.
+        const outerFallback = (idealOuter ?? outerCandidates[0])?.pair;
+        if (outerFallback) {
+          for (const face of allConnected) {
+            face.vertices.forEach((vertex, index) => {
+              if (samePointRef(vertex, outerFallback.pelvisVertex)
+                || samePointRef(vertex, outerFallback.legVertex)) {
+                points.set(`${face.id}:${index}`, outerFallback.intersection);
+              }
+            });
+          }
+          fillOnlyJointIds.add(joint.id);
+          continue;
+        }
+      }
+    }
+
+    // Two ordinary axes define two cross-sections even when one section belongs
+    // to a compound surface spanning several faces/groups (shoulder band +
+    // torso, for example). Collapse that compound side after shared edges are
+    // removed, and pair it with the single outgoing child face.
+    if (joint.axes.filter((axis) => !axis.alignment).length !== 2) continue;
+    const connected = allConnected;
+    const outgoingFaces = connected.filter((face) => {
+      const target = face.rotationTarget;
+      if (target.type !== "child") return false;
+      return rig.joints.find((candidate) => candidate.id === target.childJointId)
+        ?.parentJointId === joint.id;
+    });
+    if (outgoingFaces.length !== 1) continue;
+    const outgoingFace = outgoingFaces[0];
+    const edges = connected.flatMap((face) => {
+      const facePoints = getFacePoints(rig, face);
+      return face.vertices.flatMap((vertex, index) => {
+        if (vertex.jointId !== joint.id) return [];
+        const endpoint = facePoints[index];
+        return [-1, 1].flatMap((offset) => {
+          const remoteIndex = (index + offset + face.vertices.length) % face.vertices.length;
+          const remoteVertex = face.vertices[remoteIndex];
+          if (remoteVertex.jointId === joint.id) return [];
+          // An edge referenced by another face in the same group is internal,
+          // so only unshared silhouette edges are candidates for extension.
+          if (connected.some((candidate) => candidate.id !== face.id
+            && hasMatchingEdge(candidate, vertex, remoteVertex))) return [];
+          return [{ face, index, vertex, endpoint, remote: facePoints[remoteIndex] }];
+        });
+      });
+    });
+    if (edges.length !== 4) continue;
+    const firstEdges = edges.filter((edge) => edge.face.id !== outgoingFace.id);
+    const secondEdges = edges.filter((edge) => edge.face.id === outgoingFace.id);
+    if (firstEdges.length !== 2 || secondEdges.length !== 2) continue;
+
+    const center = getJointWorldTransform(rig, joint.id);
+    const averageRemote = (faceEdges: typeof edges): Point => ({
+      x: faceEdges.reduce((total, edge) => total + edge.remote.x, 0) / faceEdges.length,
+      y: faceEdges.reduce((total, edge) => total + edge.remote.y, 0) / faceEdges.length,
+    });
+    const firstRemote = averageRemote(firstEdges);
+    const secondRemote = averageRemote(secondEdges);
+    // Traverse through the joint: the first face enters it and the second
+    // leaves it. Equal cross-product signs are the same silhouette side.
+    const firstDirection = { x: center.x - firstRemote.x, y: center.y - firstRemote.y };
+    const secondDirection = { x: secondRemote.x - center.x, y: secondRemote.y - center.y };
+    const side = (edge: (typeof edges)[number], direction: Point): number => {
+      const cross = direction.x * (edge.endpoint.y - center.y)
+        - direction.y * (edge.endpoint.x - center.x);
+      return Math.abs(cross) < 1e-7 ? 0 : Math.sign(cross);
+    };
+    const matchings = [
+      [[firstEdges[0], secondEdges[0]], [firstEdges[1], secondEdges[1]]],
+      [[firstEdges[0], secondEdges[1]], [firstEdges[1], secondEdges[0]]],
+    ];
+    const candidates = matchings.flatMap((matching) => {
+      const pairs = matching.map(([first, second]) => {
+        const intersection = getLineIntersection(first.remote, first.endpoint, second.remote, second.endpoint)
+          ?? (Math.hypot(first.endpoint.x - second.endpoint.x, first.endpoint.y - second.endpoint.y) < 1e-7
+            ? first.endpoint : null);
+        return intersection ? { first, second, intersection } : null;
+      });
+      if (pairs.some((pair) => !pair)) return [];
+      const sideMismatch = matching.reduce((total, [first, second]) => {
+        const firstSide = side(first, firstDirection);
+        const secondSide = side(second, secondDirection);
+        return total + (firstSide !== 0 && secondSide !== 0 && firstSide === secondSide ? 0 : 1);
+      }, 0);
+      const cost = pairs.reduce((total, pair) => total
+        + (pair!.first.endpoint.x - pair!.second.endpoint.x) ** 2
+        + (pair!.first.endpoint.y - pair!.second.endpoint.y) ** 2, 0);
+      return [{ pairs: pairs as Array<NonNullable<(typeof pairs)[number]>>, sideMismatch, cost }];
+    }).sort((first, second) => first.sideMismatch - second.sideMismatch || first.cost - second.cost);
+    const selected = candidates[0];
+    if (!selected) continue;
+    for (const { first, second, intersection } of selected.pairs) {
+      for (const face of connected) {
+        face.vertices.forEach((vertex, index) => {
+          if (samePointRef(vertex, first.vertex) || samePointRef(vertex, second.vertex)) {
+            points.set(`${face.id}:${index}`, intersection);
+          }
+        });
+      }
+    }
+    jointIds.add(joint.id);
+  }
+  return { points, jointIds, fillOnlyJointIds };
+}
+
+function getLineScale(start: Point, end: Point, point: Point): number {
+  const x = end.x - start.x;
+  const y = end.y - start.y;
+  const lengthSquared = x * x + y * y;
+  if (lengthSquared < 1e-12) return Number.NEGATIVE_INFINITY;
+  return ((point.x - start.x) * x + (point.y - start.y) * y) / lengthSquared;
+}
+
+function getLineIntersection(firstStart: Point, firstEnd: Point, secondStart: Point, secondEnd: Point): Point | null {
+  const firstX = firstEnd.x - firstStart.x;
+  const firstY = firstEnd.y - firstStart.y;
+  const secondX = secondEnd.x - secondStart.x;
+  const secondY = secondEnd.y - secondStart.y;
+  const denominator = firstX * secondY - firstY * secondX;
+  if (Math.abs(denominator) < 1e-9) return null;
+  const offsetX = secondStart.x - firstStart.x;
+  const offsetY = secondStart.y - firstStart.y;
+  const scale = (offsetX * secondY - offsetY * secondX) / denominator;
+  return { x: firstStart.x + firstX * scale, y: firstStart.y + firstY * scale };
 }
 
 function getItemStackOrder(

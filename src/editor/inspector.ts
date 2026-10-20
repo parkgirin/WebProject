@@ -39,24 +39,13 @@ export function renderInspector(
   const selectedTargetName = viewState.selectedTarget === "joint"
     ? joint?.id ?? "선택 없음"
     : selectedFace.id;
-  const isAncestorOf = (ancestorId: string, descendantId: string) => {
-    let parentId = state.getJoint(descendantId).parentJointId;
-    while (parentId) {
-      if (parentId === ancestorId) return true;
-      parentId = state.getJoint(parentId).parentJointId;
-    }
-    return false;
-  };
   const relations = joint ? [
     ...(joint.parentJointId ? [{ label: `부모 ${joint.parentJointId}`, movingId: joint.id, anchorId: joint.parentJointId }] : []),
     ...state.rig.joints.filter((candidate) => candidate.parentJointId === joint.id)
       .map((child) => ({ label: `자식 ${child.id}`, movingId: child.id, anchorId: joint.id })),
-    ...state.rig.peerGroups.filter((group) => group.jointIds.includes(joint.id)).flatMap((group) =>
-      group.jointIds.filter((id) => id !== joint.id).map((id) => ({ label: `동등 ${id} (${group.id})`,
-        movingId: isAncestorOf(joint.id, id) ? id : joint.id, anchorId: isAncestorOf(joint.id, id) ? joint.id : id }))),
   ] : [];
-  const selectedPeerGroups = state.rig.peerGroups.filter((group) => group.jointIds.length === 2
-    && group.jointIds.every((id) => selection.jointIds.includes(id)));
+  const relatedPeerGroups = joint ? state.rig.peerGroups.filter((group) => group.jointIds.length === 2
+    && group.jointIds.includes(joint.id)) : [];
 
   const targetSummary = `
     <div class="selection-target-summary is-${viewState.selectedTarget}">
@@ -89,12 +78,22 @@ export function renderInspector(
       ${state.getValidParents(joint.id).map((candidateId) => `<option value="${escapeHtml(candidateId)}"${candidateId === joint.parentJointId ? " selected" : ""}>${escapeHtml(candidateId)}</option>`).join("")}
     </select>
     <p class="hint">부모를 변경해도 현재 화면 포즈는 유지됩니다.</p>
-    ${selectedPeerGroups.map((group) => `
+    ${relatedPeerGroups.map((group) => {
+      const distance = state.getPeerGroupDistance(group.id)!;
+      const centerOffset = state.getPeerCenterOffset(group.id);
+      return `
       <div class="joint-distance-section">
         <strong>${escapeHtml(group.id)} 동등 관계</strong>
-        ${group.centerJointId ? `<p class="hint">가상 부모: ${escapeHtml(group.centerJointId)}</p>`
+        <label class="joint-distance-field"><span>관절 중심 간격<small>두 관절을 중점 기준으로 대칭 이동</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-peer-distance="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 동등 관절 중심 간격" /></label>
+        ${group.centerJointId ? `<p class="hint">가상 부모: ${escapeHtml(group.centerJointId)}</p>
+          <div class="numeric-field-grid">
+            <label><span>중심 오프셋 X</span><input type="number" step="any" value="${centerOffset!.x.toFixed(2)}" data-peer-center-offset-x="${escapeHtml(group.id)}" /></label>
+            <label><span>중심 오프셋 Y</span><input type="number" step="any" value="${centerOffset!.y.toFixed(2)}" data-peer-center-offset-y="${escapeHtml(group.id)}" /></label>
+          </div>
+          <p class="hint">X는 두 관절을 잇는 축 방향, Y는 직교 방향입니다. 현재 포즈는 유지하고 이후 회전 중심만 옮깁니다.</p>`
           : `<button type="button" data-add-peer-center="${escapeHtml(group.id)}"${state.getJoint(group.jointIds[0]).parentJointId !== state.getJoint(group.jointIds[1]).parentJointId ? " disabled" : ""}>가상 부모 관절 추가</button><p class="hint">두 관절이 같은 부모를 가질 때 추가할 수 있습니다. 현재 포즈는 유지됩니다.</p>`}
-      </div>`).join("")}
+      </div>`;
+    }).join("")}
     ${relations.length ? `
       <div class="joint-distance-section">
         <div class="section-heading"><h3>관절 간 거리</h3></div>
@@ -131,7 +130,9 @@ export function renderInspector(
           <span><input id="axis-angle-number" type="number" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment ? " disabled" : ""} />°</span>
         </div>
         <p class="hint">${selectedAxis.alignment
-          ? `이 축은 부모 관절${selectedAxis.alignment.includes("peer") ? "과 동등 관절 중심의" : ""} 연결선과 항상 ${selectedAxis.alignment.includes("perpendicular") ? "직교" : "평행"}하도록 자동 계산됩니다.`
+          ? selectedAxis.alignment === "reference-axis-outer-tangent"
+            ? "이 축은 허리 축 끝점에서 고관절 원으로 이어지는 외측 접점을 자동 추적합니다."
+            : `이 축은 부모 관절${selectedAxis.alignment.includes("peer") ? "과 동등 관절 중심의" : ""} 연결선과 항상 ${selectedAxis.alignment.includes("perpendicular") ? "직교" : "평행"}하도록 자동 계산됩니다.`
           : "연결 축은 관절 연결선과 직교합니다. 회전하면 연결된 하위 관절과 도형도 함께 회전합니다."}</p>` : ""}
     </div>` : `
       <h2>관절 속성</h2>
@@ -332,6 +333,24 @@ export function renderInspector(
     button.addEventListener("click", () => {
       const groupId = button.dataset.addPeerCenter;
       if (groupId) state.addPeerCenter(groupId);
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-peer-distance]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const groupId = input.dataset.peerDistance;
+      if (!groupId) return;
+      state.setPeerGroupDistance(groupId, input.valueAsNumber);
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-peer-center-offset-x], [data-peer-center-offset-y]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const groupId = input.dataset.peerCenterOffsetX ?? input.dataset.peerCenterOffsetY;
+      if (!groupId) return;
+      const xInput = [...element.querySelectorAll<HTMLInputElement>("[data-peer-center-offset-x]")]
+        .find((candidate) => candidate.dataset.peerCenterOffsetX === groupId);
+      const yInput = [...element.querySelectorAll<HTMLInputElement>("[data-peer-center-offset-y]")]
+        .find((candidate) => candidate.dataset.peerCenterOffsetY === groupId);
+      if (xInput && yInput) state.setPeerCenterOffset(groupId, xInput.valueAsNumber, yInput.valueAsNumber);
     });
   });
   element.querySelector<HTMLSelectElement>("[data-face-shortcut]")?.addEventListener("change", (event) => {

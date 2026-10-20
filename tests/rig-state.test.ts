@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { getAxisWorldAngle, getJointWorldTransform } from "../src/rig/geometry.ts";
+import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointWorldTransform, getPeerGroupCentroid } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const closeTo = (actual: number, expected: number, message?: string) => {
@@ -156,5 +156,72 @@ test("rotating a shoulder-band axis rotates its peer group and keeps both axes p
   state.setAxisAngle(joint.id, axis.id, getAxisWorldAngle(state.rig, joint, axis) + 30);
   closeTo(state.getFaceRotationAngle("shoulder-band")!, (initialAngle + 30) % 360);
   assertShoulderBandPerpendicular(state);
+});
+
+test("hip pelvis vertical axes are editable while outer axes track exact tangents", () => {
+  const state = new RigState(createDefaultRig());
+  const pelvis = state.getFace("pelvis");
+  assert.equal(pelvis.vertices.length, 4);
+  assert.equal(state.getFace("left-pelvis-triangle").vertices.length, 3);
+  assert.equal(state.getFace("right-pelvis-triangle").vertices.length, 3);
+
+  const assertHipAxes = () => {
+    const peerCenter = getPeerGroupCentroid(state.rig, "hip-band");
+    const waistJoint = state.getJoint("waist");
+    const waistAxis = waistJoint.axes.find((axis) => axis.id === "pelvis")!;
+    const hips = [
+      { id: "left-hip", referenceSide: -1 as const, outerSide: -1 as const },
+      { id: "right-hip", referenceSide: 1 as const, outerSide: 1 as const },
+    ];
+    for (const { id, referenceSide, outerSide } of hips) {
+      const joint = state.getJoint(id);
+      const center = getJointWorldTransform(state.rig, id);
+      const outerAxis = joint.axes.find((axis) => axis.id === "pelvis-horizontal")!;
+      const reference = getAxisPoint(state.rig, waistJoint, waistAxis, referenceSide);
+      const outer = getAxisPoint(state.rig, joint, outerAxis, outerSide);
+      const tangentPoints = getCircleTangentPoints(reference, center, joint.radius)!;
+      closeTo(
+        (outer.x - center.x) * (outer.x - reference.x) + (outer.y - center.y) * (outer.y - reference.y),
+        0,
+        `${id} outer boundary is not tangent`,
+      );
+      const distanceToPeer = (point: { x: number; y: number }) => Math.hypot(point.x - peerCenter.x, point.y - peerCenter.y);
+      closeTo(distanceToPeer(outer), Math.max(...tangentPoints.map(distanceToPeer)), `${id} did not select the outer tangent`);
+    }
+  };
+
+  assertHipAxes();
+  const fixedAxis = state.getJoint("left-hip").axes.find((axis) => axis.id === "pelvis-vertical")!;
+  const fixedAngle = fixedAxis.angle;
+  assert.equal(fixedAxis.alignment, undefined);
+  state.setAxisAngle("left-hip", "pelvis-vertical", fixedAngle + 20);
+  closeTo(fixedAxis.angle, fixedAngle + 20, "ordinary hip axis should be directly editable");
+  const outerAxis = state.getJoint("left-hip").axes.find((axis) => axis.id === "pelvis-horizontal")!;
+  const outerAngle = outerAxis.angle;
+  state.setAxisAngle("left-hip", "pelvis-horizontal", outerAngle + 20);
+  closeTo(outerAxis.angle, outerAngle, "derived tangent axis should not be directly editable");
+  state.setPeerGroupDistance("hip-band", 110);
+  state.setJointRadius("left-hip", 35);
+  state.setJointRadius("right-hip", 35);
+  assertHipAxes();
+
+  const beforeOffsetAngles = ["left-hip", "right-hip"].flatMap((id) => {
+    const joint = state.getJoint(id);
+    return ["pelvis-vertical", "pelvis-horizontal"].map((axisId) => (
+      getAxisWorldAngle(state.rig, joint, joint.axes.find((axis) => axis.id === axisId)!)
+    ));
+  });
+  state.setPeerCenterOffset("hip-band", 18, -12);
+  assertHipAxes();
+  ["left-hip", "right-hip"].flatMap((id) => {
+    const joint = state.getJoint(id);
+    return ["pelvis-vertical", "pelvis-horizontal"].map((axisId) => (
+      getAxisWorldAngle(state.rig, joint, joint.axes.find((axis) => axis.id === axisId)!)
+    ));
+  }).forEach((angle, index) => {
+    closeTo(angle, beforeOffsetAngles[index], "virtual pivot offset changed a structural axis");
+  });
+  state.rotatePeerGroup("hip-band", state.getFaceRotationAngle("pelvis")! + 35);
+  assertHipAxes();
 });
 

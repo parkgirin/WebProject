@@ -7,6 +7,8 @@ export interface EditorSelection {
 export interface EditorViewState {
   outlinesVisible: boolean;
   hideSameJointEdges: boolean;
+  /** Extend two adjacent faces to their boundary intersections when their shared joint is hidden. */
+  extendHiddenJointFaces?: boolean;
   selectedFaceId: string;
   selectedTarget: "joint" | "face";
   inspectorTab: "selection" | "layers" | "color";

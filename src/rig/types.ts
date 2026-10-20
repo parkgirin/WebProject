@@ -4,8 +4,13 @@ export interface JointAxis {
   id: string;
   angle: number;
   pointSides: AxisPointSide[];
-  /** Derives the axis from the parent connection, optionally through a peer-group center. */
-  alignment?: "parent-perpendicular" | "parent-parallel" | "parent-peer-perpendicular" | "parent-peer-parallel";
+  /** Derives the axis from a connection direction or a reference-axis tangent. */
+  alignment?: "parent-perpendicular" | "parent-parallel" | "parent-peer-perpendicular" | "parent-peer-parallel"
+    | "reference-axis-outer-tangent";
+  /** Reference-axis endpoint and this axis endpoint used by tangent alignment. */
+  referenceAxisId?: string;
+  referenceAxisSide?: AxisPointSide;
+  alignedPointSide?: AxisPointSide;
 }
 
 export interface Joint {
