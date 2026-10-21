@@ -10,6 +10,7 @@ import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
 export function createApp(container: HTMLDivElement): void {
   const state = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(state, "neutral-straight");
   let selection: EditorSelection = {
     jointId: "right-elbow",
     axisId: "upper-arm",
