@@ -25,9 +25,10 @@ loaded selectively. The repository also includes a GitHub Pages deployment
 workflow and automated coverage for rig validation, hierarchy transforms,
 history, and preset round-trips.
 
-The [general-purpose editor feature overview](docs/GENERAL_EDITOR_FEATURES.md)
+The [general-purpose editor feature overview](docs/plans/GENERAL_EDITOR_FEATURES.md)
 describes the intended reusable joint, peer-relationship, and virtual-parent
 tools, distinguishing implemented capabilities from future work.
+Active and proposed work is indexed in [the plans folder](docs/plans/README.md).
 
 ## Export
 

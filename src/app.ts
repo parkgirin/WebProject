@@ -80,7 +80,6 @@ export function createApp(container: HTMLDivElement): void {
         </nav>
         <div class="canvas-panel">
           <div class="canvas-toolbar">
-            <span><span class="status-dot"></span> 직접 조작 · 5등신 가이드</span>
             <div class="canvas-actions">
               <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
               <label class="avatar-preset-control">체형
@@ -180,58 +179,48 @@ export function createApp(container: HTMLDivElement): void {
     </main>
   `;
 
-  const svg = container.querySelector<SVGSVGElement>(".rig-canvas");
-  const inspectorHost = container.querySelector<HTMLElement>("[data-inspector-host]");
-  const savePngButton = container.querySelector<HTMLButtonElement>("[data-save-png]");
-  const saveSvgButton = container.querySelector<HTMLButtonElement>("[data-save-svg]");
-  const openPresetButton = container.querySelector<HTMLButtonElement>("[data-open-preset]");
-  const openControlsButton = container.querySelector<HTMLButtonElement>("[data-open-controls]");
-  const controlsDialog = container.querySelector<HTMLDialogElement>("[data-controls-dialog]");
-  const closeControlsButton = container.querySelector<HTMLButtonElement>("[data-close-controls]");
-  const outlineToggle = container.querySelector<HTMLInputElement>("[data-show-outlines]");
-  const sameJointEdgeToggle = container.querySelector<HTMLInputElement>("[data-hide-same-joint-edges]");
-  const extendHiddenJointFacesToggle = container.querySelector<HTMLInputElement>("[data-extend-hidden-joint-faces]");
-  const previewButton = container.querySelector<HTMLButtonElement>("[data-show-export-preview]");
-  const previewDialog = container.querySelector<HTMLDialogElement>("[data-export-preview-dialog]");
-  const previewImage = container.querySelector<HTMLImageElement>("[data-export-preview-image]");
-  const previewSize = container.querySelector<HTMLElement>("[data-export-preview-size]");
-  const previewCloseButton = container.querySelector<HTMLButtonElement>("[data-close-export-preview]");
-  const previewSavePngButton = container.querySelector<HTMLButtonElement>("[data-preview-save-png]");
-  const previewSaveSvgButton = container.querySelector<HTMLButtonElement>("[data-preview-save-svg]");
-  const presetDialog = container.querySelector<HTMLDialogElement>("[data-preset-dialog]");
-  const closePresetButton = container.querySelector<HTMLButtonElement>("[data-close-preset]");
-  const savePresetButton = container.querySelector<HTMLButtonElement>("[data-save-preset]");
-  const loadPresetButton = container.querySelector<HTMLButtonElement>("[data-load-preset]");
-  const presetFileInput = container.querySelector<HTMLInputElement>("[data-preset-file]");
-  const presetStatus = container.querySelector<HTMLElement>("[data-preset-status]");
-  const globalAngleInput = container.querySelector<HTMLInputElement>("[data-global-angle]");
-  const globalAngleNumber = container.querySelector<HTMLInputElement>("[data-global-angle-number]");
-  const avatarPresetSelect = container.querySelector<HTMLSelectElement>("[data-avatar-preset]");
-  const applyAvatarPresetButton = container.querySelector<HTMLButtonElement>("[data-apply-avatar-preset]");
-  const avatarPresetStatus = container.querySelector<HTMLElement>("[data-avatar-preset-status]");
-  const undoButton = container.querySelector<HTMLButtonElement>("[data-undo]");
-  const redoButton = container.querySelector<HTMLButtonElement>("[data-redo]");
-  const zoomOutButton = container.querySelector<HTMLButtonElement>("[data-zoom-out]");
-  const zoomResetButton = container.querySelector<HTMLButtonElement>("[data-zoom-reset]");
-  const zoomInButton = container.querySelector<HTMLButtonElement>("[data-zoom-in]");
-  const fitSelectionButton = container.querySelector<HTMLButtonElement>("[data-fit-selection]");
-  const selectToolButton = container.querySelector<HTMLButtonElement>("[data-tool-select]");
-  const colorToolButton = container.querySelector<HTMLButtonElement>("[data-tool-color]");
-  const zoomToolButton = container.querySelector<HTMLButtonElement>("[data-tool-zoom]");
-  const panToolButton = container.querySelector<HTMLButtonElement>("[data-tool-pan]");
-  const layerOrderToolButton = container.querySelector<HTMLButtonElement>("[data-tool-layer-order]");
-  const paintColorInput = container.querySelector<HTMLInputElement>("[data-paint-color]");
-  const paletteGrid = container.querySelector<HTMLElement>(".palette-grid");
-  if (!svg || !inspectorHost || !savePngButton || !saveSvgButton || !openPresetButton || !openControlsButton || !controlsDialog || !closeControlsButton || !outlineToggle
-    || !sameJointEdgeToggle || !extendHiddenJointFacesToggle || !previewButton || !previewDialog || !previewImage
-    || !previewSize || !previewCloseButton || !previewSavePngButton || !previewSaveSvgButton
-    || !undoButton || !redoButton || !zoomOutButton || !zoomResetButton || !zoomInButton
-    || !fitSelectionButton || !selectToolButton || !colorToolButton || !zoomToolButton
-    || !panToolButton || !layerOrderToolButton || !paintColorInput || !paletteGrid || !presetDialog || !closePresetButton
-    || !savePresetButton || !loadPresetButton || !presetFileInput || !presetStatus
-    || !avatarPresetSelect || !applyAvatarPresetButton || !avatarPresetStatus) {
-    throw new Error("Editor hosts were not created");
-  }
+  const svg = requireElement<SVGSVGElement>(container, ".rig-canvas");
+  const inspectorHost = requireElement<HTMLElement>(container, "[data-inspector-host]");
+  const savePngButton = requireElement<HTMLButtonElement>(container, "[data-save-png]");
+  const saveSvgButton = requireElement<HTMLButtonElement>(container, "[data-save-svg]");
+  const openPresetButton = requireElement<HTMLButtonElement>(container, "[data-open-preset]");
+  const openControlsButton = requireElement<HTMLButtonElement>(container, "[data-open-controls]");
+  const controlsDialog = requireElement<HTMLDialogElement>(container, "[data-controls-dialog]");
+  const closeControlsButton = requireElement<HTMLButtonElement>(container, "[data-close-controls]");
+  const outlineToggle = requireElement<HTMLInputElement>(container, "[data-show-outlines]");
+  const sameJointEdgeToggle = requireElement<HTMLInputElement>(container, "[data-hide-same-joint-edges]");
+  const extendHiddenJointFacesToggle = requireElement<HTMLInputElement>(container, "[data-extend-hidden-joint-faces]");
+  const previewButton = requireElement<HTMLButtonElement>(container, "[data-show-export-preview]");
+  const previewDialog = requireElement<HTMLDialogElement>(container, "[data-export-preview-dialog]");
+  const previewImage = requireElement<HTMLImageElement>(container, "[data-export-preview-image]");
+  const previewSize = requireElement<HTMLElement>(container, "[data-export-preview-size]");
+  const previewCloseButton = requireElement<HTMLButtonElement>(container, "[data-close-export-preview]");
+  const previewSavePngButton = requireElement<HTMLButtonElement>(container, "[data-preview-save-png]");
+  const previewSaveSvgButton = requireElement<HTMLButtonElement>(container, "[data-preview-save-svg]");
+  const presetDialog = requireElement<HTMLDialogElement>(container, "[data-preset-dialog]");
+  const closePresetButton = requireElement<HTMLButtonElement>(container, "[data-close-preset]");
+  const savePresetButton = requireElement<HTMLButtonElement>(container, "[data-save-preset]");
+  const loadPresetButton = requireElement<HTMLButtonElement>(container, "[data-load-preset]");
+  const presetFileInput = requireElement<HTMLInputElement>(container, "[data-preset-file]");
+  const presetStatus = requireElement<HTMLElement>(container, "[data-preset-status]");
+  const globalAngleInput = requireElement<HTMLInputElement>(container, "[data-global-angle]");
+  const globalAngleNumber = requireElement<HTMLInputElement>(container, "[data-global-angle-number]");
+  const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
+  const applyAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-avatar-preset]");
+  const avatarPresetStatus = requireElement<HTMLElement>(container, "[data-avatar-preset-status]");
+  const undoButton = requireElement<HTMLButtonElement>(container, "[data-undo]");
+  const redoButton = requireElement<HTMLButtonElement>(container, "[data-redo]");
+  const zoomOutButton = requireElement<HTMLButtonElement>(container, "[data-zoom-out]");
+  const zoomResetButton = requireElement<HTMLButtonElement>(container, "[data-zoom-reset]");
+  const zoomInButton = requireElement<HTMLButtonElement>(container, "[data-zoom-in]");
+  const fitSelectionButton = requireElement<HTMLButtonElement>(container, "[data-fit-selection]");
+  const selectToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-select]");
+  const colorToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-color]");
+  const zoomToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-zoom]");
+  const panToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-pan]");
+  const layerOrderToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-layer-order]");
+  const paintColorInput = requireElement<HTMLInputElement>(container, "[data-paint-color]");
+  const paletteGrid = requireElement<HTMLElement>(container, ".palette-grid");
   let previewUrl: string | null = null;
   const getPresetParts = (): PresetParts => ({
     pose: container.querySelector<HTMLInputElement>("[data-preset-pose]")?.checked ?? false,
@@ -258,11 +247,9 @@ export function createApp(container: HTMLDivElement): void {
     render();
   };
   const render = () => {
-    if (globalAngleInput && globalAngleNumber) {
-      const globalAngle = toSignedAngle(state.getGlobalRotation());
-      globalAngleInput.value = String(globalAngle);
-      globalAngleNumber.value = globalAngle.toFixed(0);
-    }
+    const globalAngle = toSignedAngle(state.getGlobalRotation());
+    globalAngleInput.value = String(globalAngle);
+    globalAngleNumber.value = globalAngle.toFixed(0);
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
@@ -303,18 +290,13 @@ export function createApp(container: HTMLDivElement): void {
     panToolButton.classList.toggle("is-active", enabled);
     viewport.setPanMode(enabled);
   };
-  selectToolButton.addEventListener("click", () => {
+  const activateTool = (activeTool: EditorViewState["activeTool"], inspectorTab: EditorViewState["inspectorTab"]) => {
     setPanMode(false);
-    setViewState({ activeTool: "select", inspectorTab: "selection" });
-  });
-  colorToolButton.addEventListener("click", () => {
-    setPanMode(false);
-    setViewState({ activeTool: "color", inspectorTab: "color" });
-  });
-  layerOrderToolButton.addEventListener("click", () => {
-    setPanMode(false);
-    setViewState({ activeTool: "layer-order", inspectorTab: "layers" });
-  });
+    setViewState({ activeTool, inspectorTab });
+  };
+  selectToolButton.addEventListener("click", () => activateTool("select", "selection"));
+  colorToolButton.addEventListener("click", () => activateTool("color", "color"));
+  layerOrderToolButton.addEventListener("click", () => activateTool("layer-order", "layers"));
   paletteGrid.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-palette-id]");
     const paletteId = button?.dataset.paletteId;
@@ -350,41 +332,26 @@ export function createApp(container: HTMLDivElement): void {
     applyAvatarProportionPreset(state, preset.id);
     avatarPresetStatus.textContent = `${preset.name} 적용됨`;
   });
-  globalAngleInput?.addEventListener("input", () => {
+  globalAngleInput.addEventListener("input", () => {
     if (globalAngleInput.dataset.historyActive !== "true") {
       globalAngleInput.dataset.historyActive = "true";
       state.beginHistoryTransaction();
     }
     state.setGlobalRotation(Number(globalAngleInput.value));
   });
-  globalAngleInput?.addEventListener("change", () => {
+  globalAngleInput.addEventListener("change", () => {
     delete globalAngleInput.dataset.historyActive;
     state.endHistoryTransaction();
   });
-  globalAngleNumber?.addEventListener("change", () => {
+  globalAngleNumber.addEventListener("change", () => {
     state.setGlobalRotation(globalAngleNumber.valueAsNumber);
   });
-  outlineToggle.addEventListener("change", () => {
-    setViewState({ outlinesVisible: outlineToggle.checked });
-  });
-  sameJointEdgeToggle.addEventListener("change", () => {
-    setViewState({ hideSameJointEdges: sameJointEdgeToggle.checked });
-  });
-  extendHiddenJointFacesToggle.addEventListener("change", () => {
-    setViewState({ extendHiddenJointFaces: extendHiddenJointFacesToggle.checked });
-  });
-  openControlsButton.addEventListener("click", () => controlsDialog.showModal());
-  closeControlsButton.addEventListener("click", () => controlsDialog.close());
-  controlsDialog.addEventListener("click", (event) => {
-    if (event.target === controlsDialog) controlsDialog.close();
-  });
-  openPresetButton.addEventListener("click", () => {
+  bindCheckbox(outlineToggle, (outlinesVisible) => setViewState({ outlinesVisible }));
+  bindCheckbox(sameJointEdgeToggle, (hideSameJointEdges) => setViewState({ hideSameJointEdges }));
+  bindCheckbox(extendHiddenJointFacesToggle, (extendHiddenJointFaces) => setViewState({ extendHiddenJointFaces }));
+  bindDialog(openControlsButton, closeControlsButton, controlsDialog);
+  bindDialog(openPresetButton, closePresetButton, presetDialog, () => {
     presetStatus.textContent = "";
-    presetDialog.showModal();
-  });
-  closePresetButton.addEventListener("click", () => presetDialog.close());
-  presetDialog.addEventListener("click", (event) => {
-    if (event.target === presetDialog) presetDialog.close();
   });
   savePresetButton.addEventListener("click", () => {
     const content = JSON.stringify(createRigPreset(state.rig, {
@@ -494,4 +461,30 @@ export function createApp(container: HTMLDivElement): void {
 function toSignedAngle(angle: number): number {
   const normalized = ((angle % 360) + 360) % 360;
   return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function requireElement<T extends Element>(root: ParentNode, selector: string): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Required editor element was not created: ${selector}`);
+  return element;
+}
+
+function bindCheckbox(input: HTMLInputElement, update: (checked: boolean) => void): void {
+  input.addEventListener("change", () => update(input.checked));
+}
+
+function bindDialog(
+  openButton: HTMLButtonElement,
+  closeButton: HTMLButtonElement,
+  dialog: HTMLDialogElement,
+  beforeOpen?: () => void,
+): void {
+  openButton.addEventListener("click", () => {
+    beforeOpen?.();
+    dialog.showModal();
+  });
+  closeButton.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
 }

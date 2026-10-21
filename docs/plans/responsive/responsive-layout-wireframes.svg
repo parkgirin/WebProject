@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Responsive editor layout wireframes</title>
+  <desc id="desc">Rectangle-only layout proposals for desktop, landscape tablet, portrait tablet, and mobile screens.</desc>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #37332e; }
+    .title { font-size: 24px; font-weight: 700; }
+    .screen-title { font-size: 16px; font-weight: 700; }
+    .label { font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    .note { font-size: 11px; fill: #756f67; }
+    .frame { fill: #ffffff; stroke: #37332e; stroke-width: 2; }
+    .header { fill: #ddd9d2; stroke: #8e877e; }
+    .tools { fill: #c9e4ea; stroke: #4e8996; }
+    .canvas { fill: #eeeae3; stroke: #9b9389; }
+    .toolbar { fill: #f7f4ef; stroke: #b8b0a6; }
+    .panel { fill: #e5dcf0; stroke: #81669f; }
+    .nav { fill: #d8e7d7; stroke: #628261; }
+  </style>
+
+  <text class="title" x="40" y="42">Responsive editor layout</text>
+  <text class="note" x="40" y="67">Relative placement and size only · dimensions shown at 50% scale</text>
+
+  <!-- Desktop 1440 × 900 -->
+  <g transform="translate(40 110)">
+    <text class="screen-title" x="0" y="-18">Desktop · 1440 × 900</text>
+    <rect class="frame" width="720" height="450" rx="4" />
+    <rect class="header" x="0" y="0" width="720" height="38" />
+    <text class="label" x="360" y="19">Header 76</text>
+    <rect class="tools" x="0" y="38" width="42" height="412" />
+    <text class="label" transform="translate(21 244) rotate(-90)">Tool rail 84</text>
+    <rect class="canvas" x="42" y="38" width="508" height="412" />
+    <rect class="toolbar" x="42" y="38" width="508" height="32" />
+    <text class="label" x="296" y="54">Canvas toolbar</text>
+    <text class="label" x="296" y="260">Canvas</text>
+    <rect class="panel" x="550" y="38" width="170" height="412" />
+    <text class="label" x="635" y="244">Inspector 340</text>
+  </g>
+
+  <!-- Tablet landscape 1024 × 768 -->
+  <g transform="translate(810 110)">
+    <text class="screen-title" x="0" y="-18">Tablet landscape · 1024 × 768</text>
+    <rect class="frame" width="512" height="384" rx="4" />
+    <rect class="header" width="512" height="38" />
+    <text class="label" x="256" y="19">Compact header</text>
+    <rect class="tools" x="0" y="38" width="46" height="346" />
+    <text class="label" transform="translate(23 211) rotate(-90)">Tool rail</text>
+    <rect class="canvas" x="46" y="38" width="466" height="346" />
+    <rect class="toolbar" x="46" y="38" width="466" height="34" />
+    <text class="label" x="279" y="55">Wrapping canvas toolbar</text>
+    <text class="label" x="279" y="225">Canvas</text>
+    <rect class="panel" x="346" y="72" width="166" height="312" />
+    <text class="label" x="429" y="228">Inspector drawer</text>
+  </g>
+
+  <!-- Tablet portrait 768 × 1024 -->
+  <g transform="translate(40 630)">
+    <text class="screen-title" x="0" y="-18">Tablet portrait · 768 × 1024</text>
+    <rect class="frame" width="307" height="410" rx="4" />
+    <rect class="header" width="307" height="34" />
+    <text class="label" x="153.5" y="17">Compact header</text>
+    <rect class="tools" x="0" y="34" width="42" height="376" />
+    <text class="label" transform="translate(21 222) rotate(-90)">Tool rail</text>
+    <rect class="canvas" x="42" y="34" width="265" height="238" />
+    <rect class="toolbar" x="42" y="34" width="265" height="36" />
+    <text class="label" x="174.5" y="52">Canvas toolbar</text>
+    <text class="label" x="174.5" y="170">Canvas</text>
+    <rect class="panel" x="42" y="272" width="265" height="138" />
+    <text class="label" x="174.5" y="341">Docked inspector</text>
+  </g>
+
+  <!-- Mobile 390 × 844 -->
+  <g transform="translate(440 618)">
+    <text class="screen-title" x="0" y="-18">Mobile · 390 × 844</text>
+    <rect class="frame" width="195" height="422" rx="6" />
+    <rect class="header" width="195" height="32" />
+    <text class="label" x="97.5" y="16">Header</text>
+    <rect class="canvas" x="0" y="32" width="195" height="226" />
+    <rect class="toolbar" x="0" y="32" width="195" height="36" />
+    <text class="label" x="97.5" y="50">Actions</text>
+    <text class="label" x="97.5" y="162">Canvas</text>
+    <rect class="panel" x="0" y="258" width="195" height="124" />
+    <text class="label" x="97.5" y="320">Bottom sheet</text>
+    <rect class="nav" x="0" y="382" width="195" height="40" />
+    <text class="label" x="97.5" y="402">Bottom tools</text>
+  </g>
+
+  <g transform="translate(720 670)">
+    <text class="screen-title" x="0" y="0">Panel organization</text>
+    <rect class="panel" x="0" y="22" width="310" height="54" />
+    <text class="label" x="155" y="49">Sticky target summary + tabs</text>
+    <rect class="panel" x="0" y="88" width="310" height="72" />
+    <text class="label" x="155" y="124">Frequently used controls</text>
+    <rect class="panel" x="0" y="172" width="310" height="54" />
+    <text class="label" x="155" y="199">Relationships and visibility</text>
+    <rect class="panel" x="0" y="238" width="310" height="54" />
+    <text class="label" x="155" y="265">Advanced settings</text>
+  </g>
+
+  <g transform="translate(1080 670)">
+    <text class="screen-title" x="0" y="0">Legend</text>
+    <rect class="header" x="0" y="22" width="34" height="24" /><text class="note" x="45" y="39">Header</text>
+    <rect class="tools" x="0" y="58" width="34" height="24" /><text class="note" x="45" y="75">Tools</text>
+    <rect class="canvas" x="0" y="94" width="34" height="24" /><text class="note" x="45" y="111">Canvas</text>
+    <rect class="toolbar" x="0" y="130" width="34" height="24" /><text class="note" x="45" y="147">Canvas actions</text>
+    <rect class="panel" x="0" y="166" width="34" height="24" /><text class="note" x="45" y="183">Inspector</text>
+    <rect class="nav" x="0" y="202" width="34" height="24" /><text class="note" x="45" y="219">Mobile tools</text>
+  </g>
+</svg>

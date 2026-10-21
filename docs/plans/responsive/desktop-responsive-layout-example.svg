@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Desktop responsive editor layout example</title>
+  <desc id="desc">A 1440 by 900 desktop editor layout with header, tool rail, flexible canvas, and inspector panel.</desc>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #39352f; }
+    .main-label { font-size: 18px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    .label { font-size: 13px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    .small { font-size: 11px; fill: #746e66; text-anchor: middle; dominant-baseline: middle; }
+    .dimension { font-size: 11px; fill: #716a62; }
+    .page { fill: #f1eee8; }
+    .header { fill: #ddd8d0; stroke: #8c857b; stroke-width: 1.5; }
+    .header-part { fill: #eeeae4; stroke: #aaa298; }
+    .tools { fill: #cce7ec; stroke: #4f8996; stroke-width: 1.5; }
+    .canvas-panel { fill: #e9e5de; stroke: #8f887e; stroke-width: 1.5; }
+    .canvas-toolbar { fill: #f9f6f1; stroke: #b5aea5; }
+    .canvas { fill: #ffffff; stroke: #b7b0a6; }
+    .panel { fill: #e7def1; stroke: #8268a0; stroke-width: 1.5; }
+    .panel-block { fill: #f5f0fa; stroke: #b7a6ca; }
+    .gap { fill: #d8d3cb; }
+  </style>
+
+  <rect class="page" width="1440" height="900" />
+
+  <!-- Header: full content width, fixed height -->
+  <rect class="header" x="40" y="24" width="1360" height="64" rx="8" />
+  <rect class="header-part" x="52" y="36" width="196" height="40" rx="5" />
+  <text class="label" x="150" y="56">Brand / file name</text>
+  <rect class="header-part" x="264" y="36" width="730" height="40" rx="5" />
+  <text class="label" x="629" y="56">Global actions · presets · undo / redo</text>
+  <rect class="header-part" x="1010" y="36" width="378" height="40" rx="5" />
+  <text class="label" x="1199" y="56">Help · export · status</text>
+
+  <!-- Workspace grid: 72px minmax(0, 1fr) 336px -->
+  <rect class="tools" x="40" y="104" width="72" height="772" rx="8" />
+  <text class="main-label" transform="translate(76 490) rotate(-90)">Tool rail · 72px</text>
+  <rect class="gap" x="112" y="104" width="16" height="772" />
+
+  <rect class="canvas-panel" x="128" y="104" width="920" height="772" rx="10" />
+  <rect class="canvas-toolbar" x="128" y="104" width="920" height="56" rx="10" />
+  <text class="label" x="248" y="132">Current mode</text>
+  <rect class="header-part" x="338" y="116" width="284" height="32" rx="4" />
+  <text class="small" x="480" y="132">View options</text>
+  <rect class="header-part" x="638" y="116" width="398" height="32" rx="4" />
+  <text class="small" x="837" y="132">Context actions</text>
+  <rect class="canvas" x="144" y="176" width="888" height="684" rx="6" />
+  <text class="main-label" x="588" y="500">Flexible canvas · minmax(0, 1fr)</text>
+  <text class="small" x="588" y="528">SVG fills remaining width and height</text>
+
+  <rect class="gap" x="1048" y="104" width="16" height="772" />
+  <rect class="panel" x="1064" y="104" width="336" height="772" rx="10" />
+
+  <!-- Inspector structure -->
+  <rect class="panel-block" x="1076" y="116" width="312" height="48" rx="5" />
+  <text class="label" x="1232" y="140">Selection · Layers · Color</text>
+  <rect class="panel-block" x="1076" y="176" width="312" height="82" rx="5" />
+  <text class="label" x="1232" y="208">Selected target summary</text>
+  <text class="small" x="1232" y="230">Name · type · active axis</text>
+  <rect class="panel-block" x="1076" y="270" width="312" height="176" rx="5" />
+  <text class="label" x="1232" y="302">Frequently used controls</text>
+  <rect class="header-part" x="1090" y="324" width="284" height="42" rx="4" />
+  <text class="small" x="1232" y="345">Position / distance</text>
+  <rect class="header-part" x="1090" y="378" width="284" height="54" rx="4" />
+  <text class="small" x="1232" y="405">Angle slider + number</text>
+  <rect class="panel-block" x="1076" y="458" width="312" height="130" rx="5" />
+  <text class="label" x="1232" y="490">Relationships</text>
+  <text class="small" x="1232" y="520">Parent · peer · virtual pivot</text>
+  <rect class="panel-block" x="1076" y="600" width="312" height="98" rx="5" />
+  <text class="label" x="1232" y="630">Visibility</text>
+  <text class="small" x="1232" y="658">Joint · guide · body</text>
+  <rect class="panel-block" x="1076" y="710" width="312" height="154" rx="5" />
+  <text class="label" x="1232" y="744">Advanced settings</text>
+  <text class="small" x="1232" y="774">Collapsed by default</text>
+
+  <!-- Dimension labels -->
+  <text class="dimension" x="40" y="15">content: min(1360px, calc(100% - 48px))</text>
+  <text class="dimension" x="40" y="895">workspace: 72px  minmax(0, 1fr)  336px · gap 16px</text>
+</svg>

@@ -173,7 +173,7 @@ worldPoint = jointCenter
 4. JSON v1 포즈·비율·색상 저장 및 선택 불러오기
 5. PNG/SVG 출력과 GitHub Pages 자동 배포
 
-다음 작업:
+후속 작업 후보(현재 우선순위는 `plans/README.md` 참고):
 
 1. 포즈·비율 클립보드 복사/붙여넣기와 수동 텍스트 입력 대체 UI
 2. 브라우저 포인터 조작과 다운로드 흐름의 종단 간 테스트
@@ -271,5 +271,5 @@ https://parkgirin.github.io/WebProject/
 - `head` 관절도 다른 관절과 동일한 부모–자식 변환 규칙을 사용한다. 큰 머리 원만 향후 도형 추가 기능을 미리 보여 주는 임시 출력이며, 이후 `ArtShape`로 옮겨 이동·회전·변형 영향값을 별도로 받는다. 모든 면은 이름별 분기 없이 `rotationTarget`으로 회전 대상을 선언한다.
 - `ArtShape`는 하나 이상의 관절 또는 면을 바인딩 대상으로 참조하고 `translationInfluence`, `rotationInfluence`, `deformationInfluence`를 각각 `0..1`로 저장한다. 머리 미리보기는 초기에는 `head` 관절 이동 영향 `1`, 회전 영향 `1`, 변형 영향 `0`인 원형 도형으로 이전한다.
 - 유사 3D 시점 변형은 현재 구현을 보류한다. 재개할 때는 단순한 가로 축소가 아니라 코·턱·후두부·어깨처럼 윤곽을 결정하는 부분의 위치 보정과 눈·귀·팔의 앞뒤 전환을 함께 처리하며, 비대칭 요소는 좌·우 측면 키를 따로 가진다.
-- 세부 데이터 구조, 보간 순서, 편집 UI와 인수 기준은 `IMPLEMENTATION_PLAN.md`의 `유사 3D 시점 회전 변형` 절을 따른다.
-- 상세 데이터 구조와 충돌 규칙은 `GRAPHICS_GENERATION_SPEC.md`의 구조 확장 절을, 구현 순서는 `IMPLEMENTATION_PLAN.md`의 기본 구현 이후 구조 확장 절을 기준으로 한다.
+- 세부 데이터 구조, 보간 순서, 편집 UI와 인수 기준은 `plans/IMPLEMENTATION_PLAN.md`의 `유사 3D 시점 회전 변형` 절을 따른다.
+- 상세 데이터 구조와 충돌 규칙은 `GRAPHICS_GENERATION_SPEC.md`의 구조 확장 절을, 구현 순서는 `plans/IMPLEMENTATION_PLAN.md`의 기본 구현 이후 구조 확장 절을 기준으로 한다.
