@@ -16,6 +16,83 @@ export interface JointWorldTransform extends Point {
   rotation: number;
 }
 
+export const PROJECTION_ORIGIN: Point = { x: 300, y: 390 };
+
+/**
+ * Convert the editor's depth unit into a bounded 2.5D scale. Keeping this
+ * separate from Joint.radius preserves the editable rig proportions.
+ */
+export function getProjectionScale(rig: Rig, depth = 0): number {
+  const strength = Number.isFinite(rig.projectionStrength) ? rig.projectionStrength : 0;
+  return Math.min(1.5, Math.max(0.5, 1 + depth * strength / 10_000));
+}
+
+/** Depth after rotating the X/depth plane around the canvas vertical Y axis. */
+export function getProjectedDepth(rig: Rig, point: Point, depth = 0): number {
+  const angle = (rig.viewYRotation * Math.PI) / 180;
+  return depth * Math.cos(angle) - (point.x - PROJECTION_ORIGIN.x) * Math.sin(angle);
+}
+
+/**
+ * Keep a small horizontal silhouette at side view. This is deliberately a
+ * 2D rig-preview rule rather than a physical perspective camera: otherwise
+ * two joints that differ only on X collapse to one point and their face has
+ * zero length.
+ */
+export function getViewHorizontalScale(rig: Rig): number {
+  const cosine = Math.cos((rig.viewYRotation * Math.PI) / 180);
+  const retained = (Number.isFinite(rig.silhouetteRetention) ? rig.silhouetteRetention : 0) / 100;
+  return cosine + Math.abs(1 - cosine) * retained;
+}
+
+/** Interpolate a joint's front radius to its author-provided side-view radius. */
+export function getJointViewRadius(rig: Rig, joint: Joint): number {
+  const sideRadius = joint.sideRadius ?? joint.radius;
+  const amount = Math.min(1, Math.abs(rig.viewYRotation) / 90);
+  return joint.radius + (sideRadius - joint.radius) * amount;
+}
+
+/** Project a world point away from the canvas centre as it comes forward. */
+export function projectPoint(rig: Rig, point: Point, depth = 0): Point {
+  const angle = (rig.viewYRotation * Math.PI) / 180;
+  const x = point.x - PROJECTION_ORIGIN.x;
+  const rotatedX = x * getViewHorizontalScale(rig) + depth * Math.sin(angle);
+  const scale = getProjectionScale(rig, getProjectedDepth(rig, point, depth));
+  return {
+    x: PROJECTION_ORIGIN.x + rotatedX * scale,
+    y: PROJECTION_ORIGIN.y + (point.y - PROJECTION_ORIGIN.y) * scale,
+  };
+}
+
+/** Convert a rendered pointer coordinate back to its unprojected rig point. */
+export function unprojectPoint(rig: Rig, point: Point, depth = 0): Point {
+  const angle = (rig.viewYRotation * Math.PI) / 180;
+  const sine = Math.sin(angle);
+  const horizontalScale = getViewHorizontalScale(rig);
+  const screenX = point.x - PROJECTION_ORIGIN.x;
+  let x = screenX;
+  // The depth-dependent scale makes the inverse nonlinear. The selected
+  // joint's known depth keeps this one-dimensional Newton solve stable.
+  for (let index = 0; index < 8; index += 1) {
+    const rotatedX = x * horizontalScale + depth * sine;
+    const rotatedDepth = depth * Math.cos(angle) - x * sine;
+    const scale = getProjectionScale(rig, rotatedDepth);
+    const error = rotatedX * scale - screenX;
+    const epsilon = 0.01;
+    const nextX = x + epsilon;
+    const nextScale = getProjectionScale(rig, depth * Math.cos(angle) - nextX * sine);
+    const derivative = ((nextX * horizontalScale + depth * sine) * nextScale - rotatedX * scale) / epsilon;
+    if (Math.abs(derivative) < 1e-8) break;
+    x -= error / derivative;
+  }
+  const rotatedDepth = depth * Math.cos(angle) - x * sine;
+  const scale = getProjectionScale(rig, rotatedDepth);
+  return {
+    x: PROJECTION_ORIGIN.x + x,
+    y: PROJECTION_ORIGIN.y + (point.y - PROJECTION_ORIGIN.y) / scale,
+  };
+}
+
 /** Return the two points where lines from an external reference touch a circle. */
 export function getCircleTangentPoints(reference: Point, center: Point, radius: number): [Point, Point] | null {
   const dx = reference.x - center.x;

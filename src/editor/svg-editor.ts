@@ -1,5 +1,5 @@
 import type { Rig } from "../rig/types.ts";
-import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointWorldTransform, getPeerGroupPivot, type Point } from "../rig/geometry.ts";
+import { getAxisPoint, getAxisWorldAngle, getFacePoints, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedDepth, getProjectionScale, projectPoint, type Point } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -8,27 +8,64 @@ export function renderSvgEditor(
   selection: EditorSelection,
   viewState: EditorViewState,
 ): void {
+  const depthOf = (jointId: string) => rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0;
+  const project = (point: Point, depth = 0) => projectPoint(rig, point, depth);
+  const projectJoint = (jointId: string) => project(getJointWorldTransform(rig, jointId), depthOf(jointId));
+  const scaleOf = (jointId: string) => {
+    const world = getJointWorldTransform(rig, jointId);
+    return getProjectionScale(rig, getProjectedDepth(rig, world, depthOf(jointId)));
+  };
+  const viewRadiusOf = (jointId: string) => getJointViewRadius(rig, rig.joints.find((joint) => joint.id === jointId)!);
+  const bodyRadiusOf = (jointId: string) => {
+    const joint = rig.joints.find((candidate) => candidate.id === jointId)!;
+    const bodyRadius = joint.bodyRadius ?? joint.radius;
+    return bodyRadius * viewRadiusOf(jointId) / joint.radius;
+  };
+  const renderedDepthOf = (jointId: string) => {
+    const world = getJointWorldTransform(rig, jointId);
+    return getProjectedDepth(rig, world, depthOf(jointId));
+  };
+  // This editor's view turn is a rig-motion simulation, not a literal 3D
+  // projection. Keep each joint's connecting cross-section visible in screen
+  // space so faces remain connections between their two joints at side view.
+  const projectedAxisPoint = (jointId: string, axisId: string, side: -1 | 1): Point => {
+    const joint = rig.joints.find((candidate) => candidate.id === jointId)!;
+    const axis = joint.axes.find((candidate) => candidate.id === axisId)!;
+    const center = projectJoint(jointId);
+    const radians = getAxisWorldAngle(rig, joint, axis) * Math.PI / 180;
+    const radius = viewRadiusOf(jointId) * scaleOf(jointId);
+    return {
+      x: center.x + Math.cos(radians) * radius * side,
+      y: center.y + Math.sin(radians) * radius * side,
+    };
+  };
   const visibleJoints = rig.joints
     .filter((joint) => joint.bodyVisible && isGroupVisible(rig, joint.groupId));
   const faceDefinitions = rig.faces.filter((face) => isGroupVisible(rig, face.groupId));
-  const extension = viewState.extendHiddenJointFaces
+  const extension = viewState.extendHiddenJointFaces && rig.viewYRotation === 0
     ? getHiddenJointFaceExtensions(rig, faceDefinitions)
     : { points: new Map<string, Point>(), jointIds: new Set<string>(), fillOnlyJointIds: new Set<string>() };
   const visibleFaces = faceDefinitions.map((face) => ({
     face,
-    points: getFacePoints(rig, face).map((point, index) => extension.points.get(`${face.id}:${index}`) ?? point),
+    points: face.vertices.map((vertex, index) => {
+      const extended = extension.points.get(`${face.id}:${index}`);
+      return extended
+        ? project(extended, depthOf(vertex.jointId))
+        : projectedAxisPoint(vertex.jointId, vertex.axisId, vertex.side);
+    }),
   }));
 
   const jointItems = visibleJoints
     .map((joint, index) => {
-      const world = getJointWorldTransform(rig, joint.id);
+      const world = projectJoint(joint.id);
+      const radius = bodyRadiusOf(joint.id) * scaleOf(joint.id);
       return {
         id: `joint:${joint.id}`,
         groupId: joint.groupId,
         order: joint.renderOrder,
         markup: `<g class="body-joint-item">
-          <circle class="body-joint" data-body-joint data-joint-id="${escapeXml(joint.id)}" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />
-          <circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.bodyRadius ?? joint.radius}" mask="url(#joint-outline-mask-${index})" />
+          <circle class="body-joint" data-body-joint data-joint-id="${escapeXml(joint.id)}" cx="${world.x}" cy="${world.y}" r="${radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />
+          <circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />
         </g>`,
       };
     });
@@ -64,8 +101,8 @@ export function renderSvgEditor(
     const otherJoints = visibleJoints
       .filter((candidate) => candidate.id !== joint.id && candidate.groupId === joint.groupId)
       .map((candidate) => {
-        const world = getJointWorldTransform(rig, candidate.id);
-        return `<circle cx="${world.x}" cy="${world.y}" r="${candidate.bodyRadius ?? candidate.radius}" fill="#000" stroke="#000" stroke-width="3" />`;
+        const world = projectJoint(candidate.id);
+        return `<circle cx="${world.x}" cy="${world.y}" r="${bodyRadiusOf(candidate.id) * scaleOf(candidate.id)}" fill="#000" stroke="#000" stroke-width="3" />`;
       })
       .join("");
     const faces = visibleFaces
@@ -86,7 +123,7 @@ export function renderSvgEditor(
     const connected = visibleFaces.filter(({ face }) => face.vertices.some((vertex) => vertex.jointId === joint.id));
     const points = getOuterPoints(connected.flatMap(({ face }) => face.vertices
       .filter((vertex) => vertex.jointId === joint.id)
-      .map((vertex) => getAxisPoint(rig, joint, joint.axes.find((axis) => axis.id === vertex.axisId)!, vertex.side))));
+      .map((vertex) => projectedAxisPoint(vertex.jointId, vertex.axisId, vertex.side))));
     if (points.length < 2) return [];
     const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
     const groupOrder = joint.groupId ? rig.groups.find((group) => group.id === joint.groupId)?.order ?? 0 : 0;
@@ -99,11 +136,14 @@ export function renderSvgEditor(
     const fill = points.length > 2
       ? `<polygon points="${pointList}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />`
       : "";
-    return [{ id: `bridge:${joint.id}`, groupId: joint.groupId, order,
+    return [{ id: `bridge:${joint.id}`, groupId: joint.groupId, order, depth: renderedDepthOf(joint.id),
       markup: `<g class="joint-bridge" data-bridge-joint-id="${escapeXml(joint.id)}">${fill}${outline}</g>` }];
   });
 
-  const bodyItems = [...jointItems, ...faceItems, ...bridgeItems];
+  const bodyItems = [...jointItems.map((item) => ({ ...item, depth: renderedDepthOf(item.id.slice(6)) })), ...faceItems.map((item) => {
+    const face = rig.faces.find((candidate) => `face:${candidate.id}` === item.id)!;
+    return { ...item, depth: face.vertices.reduce((sum, vertex) => sum + renderedDepthOf(vertex.jointId), 0) / face.vertices.length };
+  }), ...bridgeItems];
   const renderedBody = bodyItems
     .sort((a, b) => getItemStackOrder(rig, a) - getItemStackOrder(rig, b) || a.id.localeCompare(b.id))
     .map((item) => item.markup)
@@ -112,8 +152,8 @@ export function renderSvgEditor(
   const relationshipGuides = rig.joints
     .filter((joint) => joint.guideVisible && joint.parentJointId && isGroupVisible(rig, joint.groupId))
     .map((joint) => {
-      const parent = getJointWorldTransform(rig, joint.parentJointId!);
-      const child = getJointWorldTransform(rig, joint.id);
+      const parent = projectJoint(joint.parentJointId!);
+      const child = projectJoint(joint.id);
       return `<line class="hierarchy-line" x1="${parent.x}" y1="${parent.y}" x2="${child.x}" y2="${child.y}"
         data-child-rotation data-joint-id="${escapeXml(joint.id)}" />`;
     })
@@ -123,15 +163,19 @@ export function renderSvgEditor(
     return joint ? isGroupVisible(rig, joint.groupId) : false;
   }));
   const peerLines = visiblePeerGroups.map((group) => {
-    const pivot = getPeerGroupPivot(rig, group.id);
+    const pivotDepth = group.centerJointId ? depthOf(group.centerJointId)
+      : group.jointIds.reduce((sum, jointId) => sum + depthOf(jointId), 0) / group.jointIds.length;
+    const pivot = project(getPeerGroupPivot(rig, group.id), pivotDepth);
     return group.jointIds.map((jointId) => {
-      const point = getJointWorldTransform(rig, jointId);
+      const point = projectJoint(jointId);
       return `<line class="peer-line" x1="${pivot.x}" y1="${pivot.y}" x2="${point.x}" y2="${point.y}" />`;
     }).join("");
   }).join("");
   const peerHandles = visiblePeerGroups.map((group) => {
-    const pivot = getPeerGroupPivot(rig, group.id);
-    const reference = getJointWorldTransform(rig, group.jointIds[0]);
+    const pivotDepth = group.centerJointId ? depthOf(group.centerJointId)
+      : group.jointIds.reduce((sum, jointId) => sum + depthOf(jointId), 0) / group.jointIds.length;
+    const pivot = project(getPeerGroupPivot(rig, group.id), pivotDepth);
+    const reference = projectJoint(group.jointIds[0]);
     const dx = reference.x - pivot.x;
     const dy = reference.y - pivot.y;
     const distance = Math.hypot(dx, dy);
@@ -149,11 +193,12 @@ export function renderSvgEditor(
     .map((joint) => {
       const selectedJoint = viewState.selectedTarget === "joint" && selection.jointIds.includes(joint.id);
       const primaryJoint = viewState.selectedTarget === "joint" && selection.jointId === joint.id;
-      const world = getJointWorldTransform(rig, joint.id);
+      const world = projectJoint(joint.id);
+      const scale = scaleOf(joint.id);
       const axes = joint.axes
         .map((axis, axisIndex) => {
-          const start = getAxisPoint(rig, joint, axis, -1);
-          const end = getAxisPoint(rig, joint, axis, 1);
+          const start = projectedAxisPoint(joint.id, axis.id, -1);
+          const end = projectedAxisPoint(joint.id, axis.id, 1);
           const lineStart = axis.pointSides.includes(-1) ? start : world;
           const lineEnd = axis.pointSides.includes(1) ? end : world;
           const selectedAxis = primaryJoint && selection.axisId === axis.id;
@@ -170,19 +215,19 @@ export function renderSvgEditor(
         .join("");
 
       const jointControl = joint.isVirtual
-        ? `<rect class="virtual-joint-hit" x="${world.x - joint.radius}" y="${world.y - joint.radius}" width="${joint.radius * 2}" height="${joint.radius * 2}"
+        ? `<rect class="virtual-joint-hit" x="${world.x - viewRadiusOf(joint.id) * scale}" y="${world.y - viewRadiusOf(joint.id) * scale}" width="${viewRadiusOf(joint.id) * 2 * scale}" height="${viewRadiusOf(joint.id) * 2 * scale}"
               data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
            <rect class="virtual-joint-outline" x="${world.x - 5}" y="${world.y - 5}" width="10" height="10" />`
-        : `<circle class="joint-hit" cx="${world.x}" cy="${world.y}" r="${joint.radius}"
+        : `<circle class="joint-hit" cx="${world.x}" cy="${world.y}" r="${viewRadiusOf(joint.id) * scale}"
               data-drag-joint data-joint-id="${escapeXml(joint.id)}"${joint.bodyVisible ? "" : " data-hidden-joint"} />
-           <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${joint.radius}" />`;
+           <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${viewRadiusOf(joint.id) * scale}" />`;
 
       return `
         <g class="joint-guide${selectedJoint ? " is-selected" : ""}" data-guide-joint-id="${escapeXml(joint.id)}">
           ${jointControl}
           ${axes}
           <circle class="joint-center" cx="${world.x}" cy="${world.y}" r="3" />
-          <text class="joint-label" x="${world.x}" y="${world.y - joint.radius - 8}">${escapeXml(joint.id)}</text>
+          <text class="joint-label" x="${world.x}" y="${world.y - viewRadiusOf(joint.id) * scale - 8}">${escapeXml(joint.id)}</text>
         </g>`;
     })
     .join("");
@@ -191,27 +236,26 @@ export function renderSvgEditor(
   const selectedAxis = selectedJoint?.axes.find((axis) => axis.id === selection.axisId);
   let rotationHandle = "";
   if (selectedJoint && selectedAxis && !selectedAxis.alignment) {
-    const world = getJointWorldTransform(rig, selectedJoint.id);
+    const world = projectJoint(selectedJoint.id);
     const radians = (getAxisWorldAngle(rig, selectedJoint, selectedAxis) * Math.PI) / 180;
-    const distance = selectedJoint.radius + 34;
-    const x = world.x + Math.cos(radians) * distance;
-    const y = world.y + Math.sin(radians) * distance;
+    const distance = (viewRadiusOf(selectedJoint.id) + 34) * scaleOf(selectedJoint.id);
+    const handle = { x: world.x + Math.cos(radians) * distance, y: world.y + Math.sin(radians) * distance };
     rotationHandle = `
-      <line class="rotation-guide" x1="${world.x}" y1="${world.y}" x2="${x}" y2="${y}" />
-      <circle class="rotation-handle" cx="${x}" cy="${y}" r="9"
+      <line class="rotation-guide" x1="${world.x}" y1="${world.y}" x2="${handle.x}" y2="${handle.y}" />
+      <circle class="rotation-handle" cx="${handle.x}" cy="${handle.y}" r="9"
         data-rotation-handle data-joint-id="${escapeXml(selectedJoint.id)}" data-axis-id="${escapeXml(selectedAxis.id)}" />`;
   }
 
   const selectedJointBounds = selection.jointIds
     .map((jointId) => rig.joints.find((joint) => joint.id === jointId))
     .filter((joint): joint is Rig["joints"][number] => Boolean(joint))
-    .map((joint) => ({ joint, world: getJointWorldTransform(rig, joint.id) }));
+    .map((joint) => ({ joint, world: projectJoint(joint.id) }));
   let selectionTransform = "";
   if (selectedJointBounds.length > 1) {
-    const left = Math.min(...selectedJointBounds.map(({ joint, world }) => world.x - joint.radius)) - 10;
-    const right = Math.max(...selectedJointBounds.map(({ joint, world }) => world.x + joint.radius)) + 10;
-    const top = Math.min(...selectedJointBounds.map(({ joint, world }) => world.y - joint.radius)) - 10;
-    const bottom = Math.max(...selectedJointBounds.map(({ joint, world }) => world.y + joint.radius)) + 10;
+    const left = Math.min(...selectedJointBounds.map(({ joint, world }) => world.x - viewRadiusOf(joint.id) * scaleOf(joint.id))) - 10;
+    const right = Math.max(...selectedJointBounds.map(({ joint, world }) => world.x + viewRadiusOf(joint.id) * scaleOf(joint.id))) + 10;
+    const top = Math.min(...selectedJointBounds.map(({ joint, world }) => world.y - viewRadiusOf(joint.id) * scaleOf(joint.id))) - 10;
+    const bottom = Math.max(...selectedJointBounds.map(({ joint, world }) => world.y + viewRadiusOf(joint.id) * scaleOf(joint.id))) + 10;
     const pivotX = (left + right) / 2;
     const pivotY = (top + bottom) / 2;
     const handleY = top - 34;
@@ -530,12 +574,13 @@ function getLineIntersection(firstStart: Point, firstEnd: Point, secondStart: Po
 
 function getItemStackOrder(
   rig: Rig,
-  item: { groupId?: string; order: number },
+  item: { groupId?: string; order: number; depth?: number },
 ): number {
   const groupOrder = item.groupId
     ? rig.groups.find((group) => group.id === item.groupId)?.order ?? 0
     : 0;
-  return groupOrder + item.order;
+  // Depth complements the authored group/layer order; it does not replace it.
+  return groupOrder + item.order + (item.depth ?? 0) / 10;
 }
 
 function hasMatchingEdge(

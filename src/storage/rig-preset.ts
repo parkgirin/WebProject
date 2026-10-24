@@ -12,6 +12,7 @@ interface SavedJointPose {
   y: number;
   localRotation: number;
   axes: Record<string, number>;
+  depth?: number;
 }
 
 interface SavedJointProportions {
@@ -19,6 +20,7 @@ interface SavedJointProportions {
   y: number;
   radius: number;
   bodyRadius?: number;
+  sideRadius?: number;
 }
 
 export interface RigPreset {
@@ -27,7 +29,7 @@ export interface RigPreset {
   createdAt: string;
   /** Parent identities allow incompatible pose coordinate systems to be detected. */
   hierarchy?: Record<string, string | null>;
-  pose?: { joints: Record<string, SavedJointPose> };
+  pose?: { projectionStrength?: number; viewYRotation?: number; silhouetteRetention?: number; joints: Record<string, SavedJointPose> };
   proportions?: { joints: Record<string, SavedJointProportions> };
   colors?: {
     defaultColor: string;
@@ -48,11 +50,15 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
   };
   if (parts.pose) {
     preset.pose = {
+      projectionStrength: rig.projectionStrength,
+      viewYRotation: rig.viewYRotation,
+      silhouetteRetention: rig.silhouetteRetention,
       joints: Object.fromEntries(rig.joints.map((joint) => [joint.id, {
         x: joint.x,
         y: joint.y,
         localRotation: joint.localRotation,
         axes: Object.fromEntries(joint.axes.map((axis) => [axis.id, axis.angle])),
+        depth: joint.depth ?? 0,
       }])),
     };
   }
@@ -63,6 +69,7 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
         y: joint.y,
         radius: joint.radius,
         ...(joint.bodyRadius === undefined ? {} : { bodyRadius: joint.bodyRadius }),
+        ...(joint.sideRadius === undefined ? {} : { sideRadius: joint.sideRadius }),
       }])),
     };
   }
@@ -119,6 +126,15 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       applied.push("비율");
     }
     if (parts.pose && compatiblePreset.pose?.joints) {
+      if (isFiniteNumber(compatiblePreset.pose.projectionStrength)) {
+        state.setProjectionStrength(compatiblePreset.pose.projectionStrength);
+      }
+      if (isFiniteNumber(compatiblePreset.pose.viewYRotation)) {
+        state.setViewYRotation(compatiblePreset.pose.viewYRotation);
+      }
+      if (isFiniteNumber(compatiblePreset.pose.silhouetteRetention)) {
+        state.setSilhouetteRetention(compatiblePreset.pose.silhouetteRetention);
+      }
       for (const [jointId, value] of Object.entries(compatiblePreset.pose.joints)) {
         if (!isPose(value) || !hasJoint(state.rig, jointId)) continue;
         state.applyJointPose(jointId, value);
@@ -208,13 +224,15 @@ function isFiniteNumber(value: unknown): value is number {
 function isPose(value: unknown): value is SavedJointPose {
   if (!isRecord(value) || !isFiniteNumber(value.x) || !isFiniteNumber(value.y)
     || !isFiniteNumber(value.localRotation) || !isRecord(value.axes)) return false;
-  return Object.values(value.axes).every(isFiniteNumber);
+  return Object.values(value.axes).every(isFiniteNumber)
+    && (value.depth === undefined || isFiniteNumber(value.depth));
 }
 
 function isProportions(value: unknown): value is SavedJointProportions {
   return isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y)
     && isFiniteNumber(value.radius)
-    && (value.bodyRadius === undefined || isFiniteNumber(value.bodyRadius));
+    && (value.bodyRadius === undefined || isFiniteNumber(value.bodyRadius))
+    && (value.sideRadius === undefined || isFiniteNumber(value.sideRadius));
 }
 
 function isColors(value: unknown): value is NonNullable<RigPreset["colors"]> {

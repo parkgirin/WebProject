@@ -3,6 +3,9 @@ import type { Rig } from "./types.ts";
 export function createDefaultRig(): Rig {
   return {
     defaultColor: "#dca27b",
+    projectionStrength: 35,
+    viewYRotation: 0,
+    silhouetteRetention: 18,
     palette: [],
     groups: [
       { id: "head", name: "머리", visible: true, order: 40 },

@@ -28,6 +28,15 @@ export function validateRig(
   if (!isHexColor(rig.defaultColor)) {
     errors.push(`Invalid default color: ${rig.defaultColor}`);
   }
+  if (!Number.isFinite(rig.projectionStrength) || rig.projectionStrength < 0 || rig.projectionStrength > 100) {
+    errors.push(`Projection strength must be between 0 and 100: ${rig.projectionStrength}`);
+  }
+  if (!Number.isFinite(rig.viewYRotation) || rig.viewYRotation < -90 || rig.viewYRotation > 90) {
+    errors.push(`View Y rotation must be between -90 and 90: ${rig.viewYRotation}`);
+  }
+  if (!Number.isFinite(rig.silhouetteRetention) || rig.silhouetteRetention < 0 || rig.silhouetteRetention > 50) {
+    errors.push(`Silhouette retention must be between 0 and 50: ${rig.silhouetteRetention}`);
+  }
   for (const entry of rig.palette) {
     if (!entry.id.trim()) errors.push("Palette id cannot be empty");
     if (paletteIds.has(entry.id)) errors.push(`Duplicate palette id: ${entry.id}`);
@@ -64,6 +73,12 @@ export function validateRig(
 
     if (!(joint.radius > 0)) {
       errors.push(`Joint radius must be positive: ${joint.id}`);
+    }
+    if (joint.sideRadius !== undefined && !(joint.sideRadius > 0)) {
+      errors.push(`Joint side radius must be positive: ${joint.id}`);
+    }
+    if (joint.depth !== undefined && !Number.isFinite(joint.depth)) {
+      errors.push(`Joint depth must be finite: ${joint.id}`);
     }
     if (joint.bodyRadius !== undefined && !(joint.bodyRadius > 0)) {
       errors.push(`Joint body radius must be positive: ${joint.id}`);
@@ -593,14 +608,45 @@ export class RigState {
     this.notify();
   }
 
+  public setJointSideRadius(jointId: string, radius: number): void {
+    if (!Number.isFinite(radius)) return;
+    this.getJoint(jointId).sideRadius = Math.min(80, Math.max(4, radius));
+    this.notify();
+  }
+
+  public setJointDepth(jointId: string, depth: number): void {
+    if (!Number.isFinite(depth)) return;
+    this.getJoint(jointId).depth = Math.min(100, Math.max(-100, depth));
+    this.notify();
+  }
+
+  public setProjectionStrength(strength: number): void {
+    if (!Number.isFinite(strength)) return;
+    this.rig.projectionStrength = Math.min(100, Math.max(0, strength));
+    this.notify();
+  }
+
+  public setViewYRotation(angle: number): void {
+    if (!Number.isFinite(angle)) return;
+    this.rig.viewYRotation = Math.min(90, Math.max(-90, angle));
+    this.notify();
+  }
+
+  public setSilhouetteRetention(retention: number): void {
+    if (!Number.isFinite(retention)) return;
+    this.rig.silhouetteRetention = Math.min(50, Math.max(0, retention));
+    this.notify();
+  }
+
   public applyJointPose(
     jointId: string,
-    pose: { x: number; y: number; localRotation: number; axes: Record<string, number> },
+    pose: { x: number; y: number; localRotation: number; axes: Record<string, number>; depth?: number },
   ): void {
     const joint = this.getJoint(jointId);
     joint.x = pose.x;
     joint.y = pose.y;
     joint.localRotation = normalizeAngle(pose.localRotation);
+    if (Number.isFinite(pose.depth)) joint.depth = Math.min(100, Math.max(-100, pose.depth!));
     for (const axis of joint.axes) {
       const angle = pose.axes[axis.id];
       if (Number.isFinite(angle)) axis.angle = normalizeAngle(angle);
@@ -611,12 +657,14 @@ export class RigState {
 
   public applyJointProportions(
     jointId: string,
-    proportions: { x: number; y: number; radius: number; bodyRadius?: number },
+    proportions: { x: number; y: number; radius: number; bodyRadius?: number; sideRadius?: number },
   ): void {
     const joint = this.getJoint(jointId);
     joint.x = proportions.x;
     joint.y = proportions.y;
     joint.radius = Math.min(80, Math.max(8, proportions.radius));
+    if (proportions.sideRadius === undefined) delete joint.sideRadius;
+    else if (proportions.sideRadius > 0) joint.sideRadius = Math.min(80, Math.max(4, proportions.sideRadius));
     if (proportions.bodyRadius === undefined) delete joint.bodyRadius;
     else if (proportions.bodyRadius > 0) joint.bodyRadius = proportions.bodyRadius;
     this.alignDirectConnectionAxes(joint.id);

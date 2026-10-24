@@ -26,6 +26,10 @@ export interface Joint {
   /** Non-body transform control, such as a pelvis or scene pivot. */
   isVirtual?: boolean;
   radius: number;
+  /** Optional radius used at a full left or right side view (±90°). */
+  sideRadius?: number;
+  /** Camera-relative depth. Positive values are closer to the viewer. */
+  depth?: number;
   /** Temporary preview output size; migrate to a joint-bound ArtShape. */
   bodyRadius?: number;
   color?: string;
@@ -81,6 +85,12 @@ export interface ColorPaletteEntry {
 
 export interface Rig {
   defaultColor: string;
+  /** 0..100: how strongly joint depth affects the rendered 2.5D projection. */
+  projectionStrength: number;
+  /** -90..90: camera rotation around the canvas' vertical (Y) axis. */
+  viewYRotation: number;
+  /** 0..50: minimum horizontal silhouette retained at a full side view. */
+  silhouetteRetention: number;
   palette: ColorPaletteEntry[];
   groups: LayerGroup[];
   joints: Joint[];

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointWorldTransform, getPeerGroupCentroid } from "../src/rig/geometry.ts";
+import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointViewRadius, getJointWorldTransform, getPeerGroupCentroid, getProjectionScale, getViewHorizontalScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const closeTo = (actual: number, expected: number, message?: string) => {
@@ -11,6 +11,61 @@ const closeTo = (actual: number, expected: number, message?: string) => {
 
 test("the default rig satisfies all structural constraints", () => {
   assert.deepEqual(validateRig(createDefaultRig()), []);
+});
+
+test("depth projection scales around the canvas centre and remains invertible", () => {
+  const rig = createDefaultRig();
+  rig.projectionStrength = 50;
+  assert.equal(getProjectionScale(rig, 40), 1.2);
+  const projected = projectPoint(rig, { x: 400, y: 500 }, 40);
+  closeTo(projected.x, 420);
+  closeTo(projected.y, 522);
+  assert.deepEqual(unprojectPoint(rig, projected, 40), { x: 400, y: 500 });
+});
+
+test("Y-axis view rotation interpolates X into depth and remains invertible", () => {
+  const rig = createDefaultRig();
+  rig.projectionStrength = 0;
+  rig.viewYRotation = 60;
+  const projected = projectPoint(rig, { x: 400, y: 500 }, 0);
+  closeTo(projected.x, 359);
+  closeTo(projected.y, 500);
+  const restored = unprojectPoint(rig, projected, 0);
+  closeTo(restored.x, 400);
+  closeTo(restored.y, 500);
+});
+
+test("side-view silhouette retention keeps distinct X joints connected", () => {
+  const rig = createDefaultRig();
+  rig.projectionStrength = 0;
+  rig.viewYRotation = 90;
+  closeTo(getViewHorizontalScale(rig), 0.18);
+  const left = projectPoint(rig, { x: 200, y: 390 }, 0);
+  const right = projectPoint(rig, { x: 400, y: 390 }, 0);
+  closeTo(right.x - left.x, 36);
+});
+
+test("side radius interpolates from front to side without mutating the base rig", () => {
+  const rig = createDefaultRig();
+  const waist = rig.joints.find((joint) => joint.id === "waist")!;
+  waist.sideRadius = 24;
+  rig.viewYRotation = 45;
+  assert.equal(waist.radius, 48);
+  assert.equal(getJointViewRadius(rig, waist), 36);
+  rig.viewYRotation = 90;
+  assert.equal(getJointViewRadius(rig, waist), 24);
+});
+
+test("joint depth and projection strength are bounded and undoable", () => {
+  const state = new RigState(createDefaultRig());
+  state.setJointDepth("head", 200);
+  state.setProjectionStrength(-1);
+  state.setViewYRotation(120);
+  assert.equal(state.getJoint("head").depth, 100);
+  assert.equal(state.rig.projectionStrength, 0);
+  assert.equal(state.rig.viewYRotation, 90);
+  state.undo();
+  assert.equal(state.rig.viewYRotation, 0);
 });
 
 test("validation reports broken references, duplicate axes, and parent cycles", () => {

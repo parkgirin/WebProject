@@ -1,5 +1,5 @@
 import type { RigState } from "../rig/rig-state.ts";
-import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot } from "../rig/geometry.ts";
+import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot, unprojectPoint } from "../rig/geometry.ts";
 import type { EditorSelection } from "./types.ts";
 
 interface PointerInputOptions {
@@ -43,6 +43,7 @@ export function enablePointerInput(
   let jointDrag: { jointId: string; jointIds: string[]; constrained: boolean; lastX: number; lastY: number } | null = null;
   let spacePressed = false;
   let panMode = false;
+  let interactionDepth = 0;
 
   const readViewBox = (): ViewBox => {
     const box = element.viewBox.baseVal;
@@ -97,11 +98,17 @@ export function enablePointerInput(
   const onPointerDown = (event: PointerEvent) => {
     if (event.button !== 0 && event.button !== 1 && !(event.button === 2 && options.getLayerToolActive())) return;
     const target = event.target as SVGElement;
-    const point = toSvgPoint(element, event);
     const jointId = target.dataset.jointId;
     const axisId = target.dataset.axisId;
     const faceId = target.dataset.faceId;
     const peerGroupId = target.dataset.peerGroupId;
+    interactionDepth = jointId ? options.state.getJoint(jointId).depth ?? 0
+      : peerGroupId
+        ? getPeerDepth(options.state.rig, peerGroupId)
+        : faceId
+          ? getFaceDepth(options.state.rig, faceId)
+          : 0;
+    const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
 
     if (event.button === 1 || (event.button === 0 && (spacePressed || panMode))) {
       interaction = {
@@ -242,7 +249,7 @@ export function enablePointerInput(
       return;
     }
 
-    const point = toSvgPoint(element, event);
+    const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
     if (jointDrag && jointDrag.constrained !== (options.getPreserveProportions() || event.altKey)) {
       startJointMove(jointDrag.jointId, jointDrag.jointIds, { x: jointDrag.lastX, y: jointDrag.lastY }, options.getPreserveProportions() || event.altKey);
     }
@@ -310,7 +317,7 @@ export function enablePointerInput(
         options.setSelection({ jointId, jointIds, axisId: jointId ? options.state.getJoint(jointId).axes[0]?.id ?? null : null });
       }
     } else if (interaction.type === "marquee") {
-      const point = event ? toSvgPoint(element, event) : { x: interaction.startX, y: interaction.startY };
+      const point = event ? toSvgPoint(element, event, options.state.rig, interactionDepth) : { x: interaction.startX, y: interaction.startY };
       const left = Math.min(interaction.startX, point.x);
       const right = Math.max(interaction.startX, point.x);
       const top = Math.min(interaction.startY, point.y);
@@ -331,6 +338,7 @@ export function enablePointerInput(
     }
     interaction = null;
     jointDrag = null;
+    interactionDepth = 0;
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", endInteraction);
     window.removeEventListener("pointercancel", endInteraction);
@@ -403,12 +411,26 @@ export function enablePointerInput(
   };
 }
 
-function toSvgPoint(element: SVGSVGElement, event: MouseEvent | PointerEvent | WheelEvent) {
+function toSvgPoint(element: SVGSVGElement, event: MouseEvent | PointerEvent | WheelEvent, rig?: RigState["rig"], depth = 0) {
   const point = element.createSVGPoint();
   point.x = event.clientX;
   point.y = event.clientY;
   const matrix = element.getScreenCTM();
-  return matrix ? point.matrixTransform(matrix.inverse()) : point;
+  const screenPoint = matrix ? point.matrixTransform(matrix.inverse()) : point;
+  return rig ? unprojectPoint(rig, screenPoint, depth) : screenPoint;
+}
+
+function getFaceDepth(rig: RigState["rig"], faceId: string): number {
+  const face = rig.faces.find((candidate) => candidate.id === faceId);
+  if (!face) return 0;
+  return face.vertices.reduce((total, vertex) => total + (rig.joints.find((joint) => joint.id === vertex.jointId)?.depth ?? 0), 0) / face.vertices.length;
+}
+
+function getPeerDepth(rig: RigState["rig"], peerGroupId: string): number {
+  const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+  if (!group) return 0;
+  if (group.centerJointId) return rig.joints.find((joint) => joint.id === group.centerJointId)?.depth ?? 0;
+  return group.jointIds.reduce((total, id) => total + (rig.joints.find((joint) => joint.id === id)?.depth ?? 0), 0) / group.jointIds.length;
 }
 
 function getAngle(centerX: number, centerY: number, x: number, y: number): number {
