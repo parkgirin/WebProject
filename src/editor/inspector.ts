@@ -69,10 +69,7 @@ export function renderInspector(
       </div>
       <div class="joint-layer-actions">
         <span>겹침 순서</span>
-        <div>
-          <button type="button" data-send-joint-back title="선택 관절을 뒤로 ([)">← 뒤로</button>
-          <button type="button" data-bring-joint-forward title="선택 관절을 앞으로 (])">앞으로 →</button>
-        </div>
+        <div>${renderLayerStepButtons("joint", true)}</div>
       </div>
     </div>
     <label class="field-label" for="parent-joint">부모 관절</label>
@@ -169,10 +166,7 @@ export function renderInspector(
       </div>
       <div class="joint-layer-actions">
         <span>겹침 순서</span>
-        <div>
-          <button type="button" data-send-face-back title="선택 면을 뒤로 ([)">← 뒤로</button>
-          <button type="button" data-bring-face-forward title="선택 면을 앞으로 (])">앞으로 →</button>
-        </div>
+        <div>${renderLayerStepButtons("face", true)}</div>
       </div>
     </div>
     <p class="hint">면을 선택한 상태에서는 순서 변경과 색상 설정이 이 면에 적용됩니다.</p>`;
@@ -224,27 +218,24 @@ export function renderInspector(
         <h2>레이어와 그룹</h2>
         <button type="button" class="add-group-button" data-add-layer-group>그룹 추가</button>
       </div>
-      ${joint ? `
-        <div class="layer-editor-row${viewState.selectedTarget === "joint" ? " is-active-target" : ""}">
-          <div class="layer-editor-heading"><span class="target-kind is-joint">관절</span><strong>${escapeHtml(joint.id)}</strong>${viewState.selectedTarget === "joint" ? "<em>현재 선택</em>" : ""}</div>
-          <select aria-label="선택 관절 그룹" data-joint-group>${renderGroupOptions(state, joint.groupId)}</select>
-          <label>레이어 <input type="number" min="-999" max="999" step="1" value="${joint.renderOrder}" data-joint-layer /></label>
-          <div class="layer-order-equation"><span>그룹 ${groupOrder(joint.groupId)}</span><b>+</b><span>관절 ${jointLayerOrder}</span><strong>= 최종 ${jointFinalOrder}</strong></div>
-          <div class="layer-item-actions">
-            <button type="button" data-send-joint-back title="선택 관절을 뒤로">← 뒤로</button>
-            <button type="button" data-bring-joint-forward title="선택 관절을 앞으로">앞으로 →</button>
-          </div>
-        </div>` : ""}
-      <div class="layer-editor-row${viewState.selectedTarget === "face" ? " is-active-target" : ""}">
-        <div class="layer-editor-heading"><span class="target-kind is-face">면</span><strong>${escapeHtml(selectedFace.id)}</strong>${viewState.selectedTarget === "face" ? "<em>현재 선택</em>" : ""}</div>
-        <select aria-label="선택 면 그룹" data-face-group>${renderGroupOptions(state, selectedFace.groupId)}</select>
-        <label>레이어 <input type="number" min="-999" max="999" step="1" value="${faceLayerOrder}" data-face-layer /></label>
-        <div class="layer-order-equation"><span>그룹 ${groupOrder(selectedFace.groupId)}</span><b>+</b><span>면 ${faceLayerOrder}</span><strong>= 최종 ${faceFinalOrder}</strong></div>
-        <div class="layer-item-actions">
-          <button type="button" data-send-face-back title="선택 면을 뒤로">← 뒤로</button>
-          <button type="button" data-bring-face-forward title="선택 면을 앞으로">앞으로 →</button>
-        </div>
-      </div>
+      ${joint ? renderLayerEditorRow({
+        type: "joint",
+        id: joint.id,
+        active: viewState.selectedTarget === "joint",
+        groupOptions: renderGroupOptions(state, joint.groupId),
+        groupOrder: groupOrder(joint.groupId),
+        layerOrder: jointLayerOrder,
+        finalOrder: jointFinalOrder,
+      }) : ""}
+      ${renderLayerEditorRow({
+        type: "face",
+        id: selectedFace.id,
+        active: viewState.selectedTarget === "face",
+        groupOptions: renderGroupOptions(state, selectedFace.groupId),
+        groupOrder: groupOrder(selectedFace.groupId),
+        layerOrder: faceLayerOrder,
+        finalOrder: faceFinalOrder,
+      })}
       <div class="render-stack-section">
         <div class="section-heading"><h3>관절·면 렌더 순서</h3><span>앞 → 뒤</span></div>
         <div class="render-stack-list">
@@ -435,11 +426,8 @@ export function renderInspector(
     if (!joint || !jointWorld) return;
     state.moveJoint(joint.id, jointWorld.x, (event.target as HTMLInputElement).valueAsNumber);
   });
-  element.querySelector<HTMLButtonElement>("[data-send-joint-back]")?.addEventListener("click", () => {
-    state.moveJointsInLayerStack(selection.jointIds, -1);
-  });
-  element.querySelector<HTMLButtonElement>("[data-bring-joint-forward]")?.addEventListener("click", () => {
-    state.moveJointsInLayerStack(selection.jointIds, 1);
+  bindLayerStepActions(element, "joint", (direction) => {
+    state.moveJointsInLayerStack(selection.jointIds, direction);
   });
   element.querySelector<HTMLSelectElement>("#parent-joint")?.addEventListener("change", (event) => {
     if (!joint) return;
@@ -530,11 +518,8 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("[data-face-layer]")?.addEventListener("change", (event) => {
     state.setFaceLayerOrder(selectedFace.id, (event.target as HTMLInputElement).valueAsNumber);
   });
-  element.querySelector<HTMLButtonElement>("[data-send-face-back]")?.addEventListener("click", () => {
-    state.moveFaceInLayerStack(selectedFace.id, -1);
-  });
-  element.querySelector<HTMLButtonElement>("[data-bring-face-forward]")?.addEventListener("click", () => {
-    state.moveFaceInLayerStack(selectedFace.id, 1);
+  bindLayerStepActions(element, "face", (direction) => {
+    state.moveFaceInLayerStack(selectedFace.id, direction);
   });
   element.querySelectorAll<HTMLInputElement>("[data-layer-group-visible]").forEach((input) => {
     input.addEventListener("change", () => {
@@ -586,6 +571,51 @@ export function renderInspector(
       if (faceId) setViewState({ selectedFaceId: faceId, selectedTarget: "face" });
     });
   });
+}
+
+type LayerTarget = "joint" | "face";
+
+interface LayerEditorRowOptions {
+  type: LayerTarget;
+  id: string;
+  active: boolean;
+  groupOptions: string;
+  groupOrder: number;
+  layerOrder: number;
+  finalOrder: number;
+}
+
+function renderLayerEditorRow(options: LayerEditorRowOptions): string {
+  const { type, id, active, groupOptions, groupOrder, layerOrder, finalOrder } = options;
+  const label = type === "joint" ? "관절" : "면";
+  return `
+    <div class="layer-editor-row${active ? " is-active-target" : ""}">
+      <div class="layer-editor-heading"><span class="target-kind is-${type}">${label}</span><strong>${escapeHtml(id)}</strong>${active ? "<em>현재 선택</em>" : ""}</div>
+      <select aria-label="선택 ${label} 그룹" data-${type}-group>${groupOptions}</select>
+      <label>레이어 <input type="number" min="-999" max="999" step="1" value="${layerOrder}" data-${type}-layer /></label>
+      <div class="layer-order-equation"><span>그룹 ${groupOrder}</span><b>+</b><span>${label} ${layerOrder}</span><strong>= 최종 ${finalOrder}</strong></div>
+      <div class="layer-item-actions">${renderLayerStepButtons(type)}</div>
+    </div>`;
+}
+
+function renderLayerStepButtons(type: LayerTarget, withShortcuts = false): string {
+  const label = type === "joint" ? "관절" : "면";
+  const backShortcut = withShortcuts ? " ([)" : "";
+  const forwardShortcut = withShortcuts ? " (])" : "";
+  return `
+    <button type="button" data-send-${type}-back title="선택 ${label}을 뒤로${backShortcut}">← 뒤로</button>
+    <button type="button" data-bring-${type}-forward title="선택 ${label}을 앞으로${forwardShortcut}">앞으로 →</button>`;
+}
+
+function bindLayerStepActions(
+  element: HTMLElement,
+  type: LayerTarget,
+  move: (direction: -1 | 1) => void,
+): void {
+  element.querySelectorAll<HTMLButtonElement>(`[data-send-${type}-back]`)
+    .forEach((button) => button.addEventListener("click", () => move(-1)));
+  element.querySelectorAll<HTMLButtonElement>(`[data-bring-${type}-forward]`)
+    .forEach((button) => button.addEventListener("click", () => move(1)));
 }
 
 function renderGroupOptions(state: RigState, selectedGroupId: string | undefined): string {
