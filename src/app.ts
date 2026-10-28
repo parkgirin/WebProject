@@ -59,59 +59,78 @@ export function createApp(container: HTMLDivElement): void {
       </header>
       <section class="workspace">
         <nav class="toolbox app-surface" aria-label="편집 도구">
-          <span class="toolbox-title">TOOLS</span>
-          <button type="button" class="toolbox-button is-active" data-tool-select aria-label="선택과 직접 조작" title="선택과 직접 조작">
-            선택
-          </button>
-          <div class="toolbox-color-control">
-            <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
-              색상
+          <div class="toolbox-content">
+            <span class="toolbox-title">TOOLS</span>
+            <button type="button" class="toolbox-button is-active" data-tool-select aria-label="선택과 직접 조작" title="선택과 직접 조작">
+              선택
             </button>
-            <div class="palette-grid" aria-label="작업 색상 팔레트">
-              ${state.rig.palette.map((entry) => `<button type="button" class="palette-swatch" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("")}
+            <div class="toolbox-color-control">
+              <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
+                색상
+              </button>
+              <div class="palette-grid" aria-label="작업 색상 팔레트">
+                ${state.rig.palette.map((entry) => `<button type="button" class="palette-swatch" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("")}
+              </div>
+              <button type="button" class="new-color-button" data-new-palette-color>새 색</button>
+              <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="선택한 팔레트 또는 새 색상" title="선택한 팔레트 또는 새 색상" />
             </div>
-            <button type="button" class="new-color-button" data-new-palette-color>새 색</button>
-            <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="선택한 팔레트 또는 새 색상" title="선택한 팔레트 또는 새 색상" />
+            <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">
+              확대
+            </button>
+            <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">
+              화면
+            </button>
+            <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
           </div>
-          <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">
-            확대
-          </button>
-          <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">
-            화면
-          </button>
-          <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
         </nav>
-        <div class="canvas-panel">
-          <div class="canvas-toolbar">
-            <div class="canvas-actions">
-              <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
-              <label class="avatar-preset-control">체형
-                <select data-avatar-preset aria-label="아바타 체형 프리셋">
-                  ${AVATAR_PROPORTION_PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
-                </select>
-                <button type="button" data-apply-avatar-preset>적용</button>
-              </label>
-              <span class="avatar-preset-status" data-avatar-preset-status aria-live="polite"></span>
-              <label class="global-rotation-control">전체 회전
-                <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
-                <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
-              </label>
-              <div class="interpolation-controls" aria-label="포즈 보간 프레임">
-                <strong>보간 프레임</strong>
+        <div class="editor-column">
+          <div class="canvas-panel">
+            <div class="canvas-toolbar">
+              <div class="canvas-actions">
+                <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
+                <label class="avatar-preset-control">체형
+                  <select data-avatar-preset aria-label="아바타 체형 프리셋">
+                    ${AVATAR_PROPORTION_PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
+                  </select>
+                  <button type="button" data-apply-avatar-preset>적용</button>
+                </label>
+                <span class="avatar-preset-status" data-avatar-preset-status aria-live="polite"></span>
+                <label class="global-rotation-control">전체 회전
+                  <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
+                  <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
+                </label>
+                <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
+                <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
+                <label class="toolbar-toggle"><input type="checkbox" data-extend-hidden-joint-faces />숨김 관절 면 연장</label>
+              </div>
+            </div>
+            <svg class="rig-canvas" viewBox="0 0 600 780" role="img" aria-label="관절과 연결 면 편집 화면"></svg>
+          </div>
+          <section class="interpolation-panel" aria-label="포즈 보간 타임라인">
+            <header class="interpolation-header">
+              <strong>보간 타임라인</strong>
+              <div class="interpolation-controls">
                 <button type="button" data-capture-start>A 저장</button>
                 <button type="button" data-capture-end>B 저장</button>
                 <label>프레임 <input type="range" min="0" max="100" step="1" value="0" data-interpolation-frame disabled /></label>
                 <output data-interpolation-status>A 포즈를 저장하세요</output>
-                <button type="button" data-exit-interpolation hidden>편집</button>
+                <button type="button" data-exit-interpolation hidden>현재 프레임 편집</button>
               </div>
-              <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
-              <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
-              <label class="toolbar-toggle"><input type="checkbox" data-extend-hidden-joint-faces />숨김 관절 면 연장</label>
+              <button type="button" class="panel-collapse-button timeline-collapse-button" data-collapse-timeline aria-expanded="true" aria-label="보간 타임라인 접기" title="보간 타임라인 접기">⌄</button>
+            </header>
+            <div class="interpolation-track">
+              <span class="interpolation-track-label">선택된 포즈</span>
+              <div class="timeline-poses">
+                <button type="button" class="timeline-pose" data-interpolation-jump="0"><strong>포즈 A</strong><span>키 프레임</span></button>
+                <button type="button" class="timeline-pose" data-interpolation-jump="100"><strong>포즈 B</strong><span>키 프레임</span></button>
+              </div>
             </div>
-          </div>
-          <svg class="rig-canvas" viewBox="0 0 600 780" role="img" aria-label="관절과 연결 면 편집 화면"></svg>
+          </section>
         </div>
-        <div data-inspector-host></div>
+        <aside class="inspector-shell">
+          <button type="button" class="panel-collapse-button inspector-collapse-button" data-collapse-inspector aria-expanded="true" aria-label="속성 패널 접기" title="속성 패널 접기">›</button>
+          <div data-inspector-host></div>
+        </aside>
       </section>
       <dialog class="preset-dialog controls-dialog" data-controls-dialog aria-labelledby="controls-title">
         <div class="preset-dialog-header">
@@ -191,6 +210,7 @@ export function createApp(container: HTMLDivElement): void {
   `;
 
   const svg = requireElement<SVGSVGElement>(container, ".rig-canvas");
+  const workspace = requireElement<HTMLElement>(container, ".workspace");
   const inspectorHost = requireElement<HTMLElement>(container, "[data-inspector-host]");
   const savePngButton = requireElement<HTMLButtonElement>(container, "[data-save-png]");
   const saveSvgButton = requireElement<HTMLButtonElement>(container, "[data-save-svg]");
@@ -237,6 +257,9 @@ export function createApp(container: HTMLDivElement): void {
   const interpolationFrameInput = requireElement<HTMLInputElement>(container, "[data-interpolation-frame]");
   const interpolationStatus = requireElement<HTMLOutputElement>(container, "[data-interpolation-status]");
   const exitInterpolationButton = requireElement<HTMLButtonElement>(container, "[data-exit-interpolation]");
+  const collapseInspectorButton = requireElement<HTMLButtonElement>(container, "[data-collapse-inspector]");
+  const collapseTimelineButton = requireElement<HTMLButtonElement>(container, "[data-collapse-timeline]");
+  const interpolationJumpButtons = [...container.querySelectorAll<HTMLButtonElement>("[data-interpolation-jump]")];
   let previewUrl: string | null = null;
   let interpolationStart: Rig | null = null;
   let interpolationEnd: Rig | null = null;
@@ -286,6 +309,11 @@ export function createApp(container: HTMLDivElement): void {
     const hasInterpolation = interpolationStart !== null && interpolationEnd !== null;
     interpolationFrameInput.disabled = !hasInterpolation;
     interpolationFrameInput.value = String(interpolationFrame);
+    for (const button of interpolationJumpButtons) {
+      const frame = Number(button.dataset.interpolationJump);
+      button.disabled = !hasInterpolation;
+      button.classList.toggle("is-selected", hasInterpolation && frame === interpolationFrame);
+    }
     captureStartButton.textContent = interpolationStart ? "A 갱신" : "A 저장";
     captureEndButton.textContent = interpolationEnd ? "B 갱신" : "B 저장";
     exitInterpolationButton.hidden = !interpolationPreviewActive;
@@ -294,7 +322,7 @@ export function createApp(container: HTMLDivElement): void {
       : !interpolationEnd
         ? "B 포즈를 저장하세요"
         : interpolationPreviewActive
-          ? `${interpolationFrame}% 보간 미리보기 · 편집 잠금`
+          ? `${interpolationFrame}% 보간 프레임 · 편집 가능`
           : "A/B 포즈 준비됨";
     container.classList.toggle("is-interpolation-preview", interpolationPreviewActive);
     const renderedRig = interpolationPreviewActive && interpolationStart && interpolationEnd
@@ -341,8 +369,46 @@ export function createApp(container: HTMLDivElement): void {
     render();
   });
   exitInterpolationButton.addEventListener("click", () => {
-    interpolationPreviewActive = false;
+    if (interpolationStart && interpolationEnd) {
+      const editableRig = interpolatePoseRig(interpolationStart, interpolationEnd, interpolationFrame / 100);
+      interpolationPreviewActive = false;
+      state.beginHistoryTransaction();
+      Object.assign(state.rig, structuredClone(editableRig));
+      state.endHistoryTransaction();
+    }
     render();
+  });
+  for (const button of interpolationJumpButtons) {
+    button.addEventListener("click", () => {
+      interpolationFrame = Number(button.dataset.interpolationJump);
+      interpolationPreviewActive = Boolean(interpolationStart && interpolationEnd);
+      render();
+    });
+  }
+  const setPanelCollapsed = (
+    button: HTMLButtonElement,
+    className: string,
+    collapsed: boolean,
+    labels: { open: string; close: string; openGlyph: string; closeGlyph: string },
+  ) => {
+    workspace.classList.toggle(className, collapsed);
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.setAttribute("aria-label", collapsed ? labels.open : labels.close);
+    button.title = collapsed ? labels.open : labels.close;
+    button.textContent = collapsed ? labels.openGlyph : labels.closeGlyph;
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  };
+  collapseInspectorButton.addEventListener("click", () => {
+    const collapsed = !workspace.classList.contains("is-inspector-collapsed");
+    setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", collapsed, {
+      open: "속성 패널 펼치기", close: "속성 패널 접기", openGlyph: "‹", closeGlyph: "›",
+    });
+  });
+  collapseTimelineButton.addEventListener("click", () => {
+    const collapsed = !workspace.classList.contains("is-timeline-collapsed");
+    setPanelCollapsed(collapseTimelineButton, "is-timeline-collapsed", collapsed, {
+      open: "보간 타임라인 펼치기", close: "보간 타임라인 접기", openGlyph: "⌃", closeGlyph: "⌄",
+    });
   });
   const setPanMode = (enabled: boolean) => {
     panToolButton.setAttribute("aria-pressed", String(enabled));

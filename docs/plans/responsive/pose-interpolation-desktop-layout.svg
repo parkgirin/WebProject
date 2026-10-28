@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">포즈 보간 편집기 PC 레이아웃</title>
+  <desc id="desc">1440 x 900 PC 창을 기준으로 한 접이식 도구, 속성, 보간 타임라인 패널 배치도</desc>
+  <style>
+    text { font-family: "Pretendard", "Noto Sans KR", Arial, sans-serif; fill: #263238; }
+    .label { font-size: 13px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    .small { font-size: 11px; font-weight: 500; text-anchor: middle; dominant-baseline: middle; fill: #52606d; }
+    .tiny { font-size: 10px; font-weight: 500; text-anchor: middle; dominant-baseline: middle; fill: #69737d; }
+    .window { fill: #f4f6f8; }
+    .header { fill: #dce3e8; stroke: #71808c; stroke-width: 1; }
+    .header-block { fill: #f6f8fa; stroke: #aab4bc; stroke-width: 1; }
+    .tools { fill: #d8edf1; stroke: #548894; stroke-width: 1; }
+    .tool { fill: #f3fbfc; stroke: #79a5ae; stroke-width: 1; }
+    .canvas-panel { fill: #e8ecef; stroke: #8b969e; stroke-width: 1; }
+    .canvas-toolbar { fill: #f9fafb; stroke: #aab4bc; stroke-width: 1; }
+    .canvas { fill: #ffffff; stroke: #9ca7af; stroke-width: 1; }
+    .inspector { fill: #eadff3; stroke: #84649d; stroke-width: 1; }
+    .inspector-block { fill: #faf7fc; stroke: #b7a4c5; stroke-width: 1; }
+    .timeline { fill: #e2eadc; stroke: #6f8961; stroke-width: 1; }
+    .timeline-head { fill: #f5f8f2; stroke: #9aac91; stroke-width: 1; }
+    .pose { fill: #d9e9ce; stroke: #678755; stroke-width: 1.5; }
+    .inbetween { fill: #ffffff; stroke: #8aa079; stroke-width: 1; }
+    .selected { fill: #fff2bd; stroke: #c18b15; stroke-width: 2; }
+    .collapse { fill: #344955; stroke: #263238; stroke-width: 1; }
+    .collapse-text { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #ffffff; }
+    .divider { fill: #c4ccd2; }
+  </style>
+
+  <!-- 전체 PC 창: 1440 x 900 -->
+  <rect class="window" width="1440" height="900" />
+
+  <!-- 상단 헤더: 1440 x 64 -->
+  <rect class="header" x="0" y="0" width="1440" height="64" />
+  <rect class="header-block" x="16" y="12" width="230" height="40" rx="4" />
+  <text class="label" x="131" y="32">문서명 · 저장 상태</text>
+  <rect class="header-block" x="258" y="12" width="650" height="40" rx="4" />
+  <text class="label" x="583" y="32">실행 취소 · 다시 실행 · 재생 · 전역 명령</text>
+  <rect class="header-block" x="920" y="12" width="504" height="40" rx="4" />
+  <text class="label" x="1172" y="32">프리셋 · 내보내기 · 도움말</text>
+
+  <!-- 왼쪽 도구 패널: 고정 72 -->
+  <rect class="tools" x="0" y="64" width="72" height="836" />
+  <rect class="tool" x="12" y="80" width="48" height="48" rx="5" />
+  <text class="tiny" x="36" y="104">선택</text>
+  <rect class="tool" x="12" y="140" width="48" height="48" rx="5" />
+  <text class="tiny" x="36" y="164">관절</text>
+  <rect class="tool" x="12" y="200" width="48" height="48" rx="5" />
+  <text class="tiny" x="36" y="224">변형</text>
+  <rect class="tool" x="12" y="260" width="48" height="48" rx="5" />
+  <text class="tiny" x="36" y="284">도형</text>
+  <text class="small" transform="translate(36 610) rotate(-90)">도구 패널 · 고정 72px</text>
+
+  <!-- 중앙 작업 영역: 1032px -->
+  <rect class="canvas-panel" x="72" y="64" width="1032" height="724" />
+  <rect class="canvas-toolbar" x="72" y="64" width="1032" height="52" />
+  <rect class="header-block" x="88" y="74" width="190" height="32" rx="4" />
+  <text class="small" x="183" y="90">편집 모드</text>
+  <rect class="header-block" x="290" y="74" width="386" height="32" rx="4" />
+  <text class="small" x="483" y="90">보기 · 스냅 · 확대/축소</text>
+  <rect class="header-block" x="688" y="74" width="400" height="32" rx="4" />
+  <text class="small" x="888" y="90">선택 대상 컨텍스트 명령</text>
+  <rect class="canvas" x="88" y="132" width="1000" height="640" rx="4" />
+  <text class="label" x="588" y="436">캔버스 · 1000 × 640</text>
+  <text class="small" x="588" y="460">속성·보간 패널을 접으면 남은 공간을 즉시 사용</text>
+
+  <!-- 오른쪽 속성 패널: 펼침 336, 접힘 40 -->
+  <rect class="inspector" x="1104" y="64" width="336" height="836" />
+  <rect class="inspector-block" x="1116" y="76" width="264" height="36" rx="4" />
+  <text class="label" x="1248" y="94">선택 · 레이어 · 색상</text>
+  <rect class="collapse" x="1388" y="76" width="40" height="36" rx="4" />
+  <text class="collapse-text" x="1408" y="94">접기</text>
+  <rect class="inspector-block" x="1116" y="124" width="312" height="74" rx="4" />
+  <text class="label" x="1272" y="150">선택 대상</text>
+  <text class="small" x="1272" y="176">포즈 또는 보간 프레임 요약</text>
+  <rect class="inspector-block" x="1116" y="210" width="312" height="196" rx="4" />
+  <text class="label" x="1272" y="238">변형</text>
+  <rect class="header-block" x="1130" y="258" width="284" height="54" rx="4" />
+  <text class="small" x="1272" y="285">위치 · 회전 · 크기</text>
+  <rect class="header-block" x="1130" y="324" width="284" height="66" rx="4" />
+  <text class="small" x="1272" y="357">보간값 · 곡선 · 프레임 시간</text>
+  <rect class="inspector-block" x="1116" y="418" width="312" height="130" rx="4" />
+  <text class="label" x="1272" y="450">관계 · 표시</text>
+  <text class="small" x="1272" y="480">부모 · 가상 중심 · 가이드</text>
+  <text class="small" x="1272" y="510">섹션별 접기/펼치기</text>
+  <rect class="inspector-block" x="1116" y="560" width="312" height="150" rx="4" />
+  <text class="label" x="1272" y="592">고급 설정</text>
+  <text class="small" x="1272" y="620">기본 접힘</text>
+  <rect class="inspector-block" x="1116" y="722" width="312" height="166" rx="4" />
+  <text class="label" x="1272" y="754">패널 내부 스크롤</text>
+  <text class="small" x="1272" y="782">페이지 스크롤 없음</text>
+  <text class="small" x="1272" y="814">336px · 접힘 40px</text>
+
+  <!-- 하단 보간 바: 펼침 112, 접힘 44 -->
+  <rect class="timeline" x="72" y="788" width="1032" height="112" />
+  <rect class="timeline-head" x="72" y="788" width="1032" height="44" />
+  <text class="label" x="164" y="810">보간 타임라인</text>
+  <rect class="header-block" x="252" y="796" width="566" height="28" rx="4" />
+  <text class="small" x="535" y="810">A/B 저장 · 보간 위치 슬라이더 · 현재 프레임 편집</text>
+  <rect class="collapse" x="1048" y="796" width="40" height="28" rx="4" />
+  <text class="collapse-text" x="1068" y="810">접기</text>
+
+  <!-- 선택된 키 포즈만 표시 -->
+  <text class="small" x="136" y="866">선택된 포즈</text>
+  <rect class="pose" x="200" y="842" width="112" height="48" rx="4" />
+  <text class="label" x="240" y="866">포즈 A</text>
+  <text class="tiny" x="286" y="866">키</text>
+  <rect class="pose" x="324" y="842" width="112" height="48" rx="4" />
+  <text class="label" x="364" y="866">포즈 B</text>
+  <text class="tiny" x="410" y="866">키</text>
+  <text class="small" x="700" y="866">중간 프레임은 슬라이더에서 선택한 뒤 편집 상태로 전환</text>
+
+  <!-- 영역 경계 -->
+  <rect class="divider" x="70" y="64" width="2" height="836" />
+  <rect class="divider" x="1102" y="64" width="2" height="836" />
+  <rect class="divider" x="72" y="786" width="1032" height="2" />
+</svg>
