@@ -1,5 +1,5 @@
 import type { RigState } from "../rig/rig-state.ts";
-import { getAxisWorldAngle, getJointViewRadius, getJointWorldTransform } from "../rig/geometry.ts";
+import { getAxisWorldAngle, getJointWorldTransform } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function createInspector(): HTMLElement {
@@ -33,9 +33,6 @@ export function renderInspector(
     groupId ? state.rig.groups.find((group) => group.id === groupId)?.order ?? 0 : 0
   );
   const jointLayerOrder = joint?.renderOrder ?? 0;
-  const jointDepth = joint?.depth ?? 0;
-  const jointSideRadius = joint?.sideRadius ?? joint?.radius ?? 0;
-  const jointViewRadius = joint ? getJointViewRadius(state.rig, joint) : 0;
   const jointFinalOrder = joint ? groupOrder(joint.groupId) + jointLayerOrder : 0;
   const faceLayerOrder = state.getFaceLayerOrder(selectedFace.id);
   const faceFinalOrder = groupOrder(selectedFace.groupId) + faceLayerOrder;
@@ -110,18 +107,6 @@ export function renderInspector(
       <input id="joint-radius" type="range" min="8" max="80" step="1" value="${joint.radius}" />
       <input id="joint-radius-number" type="number" min="8" max="80" step="1" value="${joint.radius.toFixed(0)}" aria-label="관절 반지름 숫자 입력" />
     </div>
-    <label class="field-label" for="joint-side-radius">측면 반지름 <small>±90°</small></label>
-    <div class="range-number-control">
-      <input id="joint-side-radius" type="range" min="4" max="80" step="1" value="${jointSideRadius}" />
-      <input id="joint-side-radius-number" type="number" min="4" max="80" step="1" value="${jointSideRadius.toFixed(0)}" aria-label="관절 측면 반지름 숫자 입력" />
-    </div>
-    <p class="hint">정면 반지름과 측면 반지름 사이를 현재 Y축 시점 각도로 보간합니다. 현재 화면 반지름: ${jointViewRadius.toFixed(1)}</p>
-    <label class="field-label" for="joint-depth">깊이 <small>앞(+) · 뒤(-)</small></label>
-    <div class="range-number-control">
-      <input id="joint-depth" type="range" min="-100" max="100" step="1" value="${jointDepth}" />
-      <input id="joint-depth-number" type="number" min="-100" max="100" step="1" value="${jointDepth.toFixed(0)}" aria-label="관절 깊이 숫자 입력" />
-    </div>
-    <p class="hint">깊이가 클수록 전역 투영 강도에 따라 크게, 앞으로 렌더링됩니다. 리그의 실제 반지름과 연결 구조는 바뀌지 않습니다.</p>
     <div class="axis-section">
       <div class="section-heading">
         <h3>축선</h3>
@@ -174,26 +159,10 @@ export function renderInspector(
   const selectionPanel = `
     ${targetSummary}
     ${renderPoseNavigator(state, selection, viewState.selectedFaceId, viewState.selectedTarget)}
+    <label class="face-override-toggle"><input type="checkbox" data-move-selected-individually${viewState.moveSelectedIndividually ? " checked" : ""} />선택 관절만 이동</label>
+    <p class="hint">목·허리처럼 부모 관절을 옮겨도 자식 관절은 현재 위치에 남깁니다. 한 관절만 선택했을 때 적용됩니다.</p>
     <label class="face-override-toggle"><input type="checkbox" data-preserve-proportions${viewState.preserveProportions ? " checked" : ""} />비율 유지</label>
     <p class="hint">선택 도구에서 Alt(Option)를 누른 채 관절을 드래그하면 일시적으로 비율을 유지합니다.</p>
-    <label class="field-label" for="projection-strength">투영 강도</label>
-    <div class="range-number-control">
-      <input id="projection-strength" type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" />
-      <span><input id="projection-strength-number" type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength.toFixed(0)}" aria-label="전역 투영 강도 숫자 입력" />%</span>
-    </div>
-    <p class="hint">캔버스 전체의 깊이 확대·축소 효과를 조절합니다. 0%에서는 깊이값이 화면 크기와 위치에 영향을 주지 않습니다.</p>
-    <label class="field-label" for="view-y-rotation">Y축 시점 회전 <small>좌(-) · 우(+)</small></label>
-    <div class="range-number-control angle-control">
-      <input id="view-y-rotation" type="range" min="-90" max="90" step="1" value="${state.rig.viewYRotation}" />
-      <span><input id="view-y-rotation-number" type="number" min="-90" max="90" step="1" value="${state.rig.viewYRotation.toFixed(0)}" aria-label="Y축 시점 회전 숫자 입력" />°</span>
-    </div>
-    <p class="hint">X와 깊이값을 Y축을 기준으로 회전해 정면과 측면 사이의 보간을 시험합니다. 현재는 측면 전용 실루엣 키 없이 기하학적 투영만 적용됩니다.</p>
-    <label class="field-label" for="silhouette-retention">측면 실루엣 보존</label>
-    <div class="range-number-control">
-      <input id="silhouette-retention" type="range" min="0" max="50" step="1" value="${state.rig.silhouetteRetention}" />
-      <span><input id="silhouette-retention-number" type="number" min="0" max="50" step="1" value="${state.rig.silhouetteRetention.toFixed(0)}" aria-label="측면 실루엣 보존 숫자 입력" />%</span>
-    </div>
-    <p class="hint">완전 측면에서도 관절 중심의 가로 간격 일부를 남겨 연결 면이 사라지지 않게 합니다. 실제 3D 카메라 효과가 아닌 리그 동작 확인용 보정입니다.</p>
     ${viewState.selectedTarget === "joint" ? jointMarkup : faceMarkup}`;
 
   const stackEntries = [
@@ -332,6 +301,9 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("[data-preserve-proportions]")?.addEventListener("change", (event) => {
     setViewState({ preserveProportions: (event.target as HTMLInputElement).checked });
   });
+  element.querySelector<HTMLInputElement>("[data-move-selected-individually]")?.addEventListener("change", (event) => {
+    setViewState({ moveSelectedIndividually: (event.target as HTMLInputElement).checked });
+  });
   element.querySelectorAll<HTMLButtonElement>("[data-joint-shortcut]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const jointId = button.dataset.jointShortcut;
@@ -383,36 +355,6 @@ export function renderInspector(
 
   bindLiveRange(element, state, "#joint-radius", "#joint-radius-number", (value) => {
     if (joint) state.setJointRadius(joint.id, value);
-  });
-  bindLiveRange(element, state, "#joint-side-radius", "#joint-side-radius-number", (value) => {
-    if (joint) state.setJointSideRadius(joint.id, value);
-  });
-  element.querySelector<HTMLInputElement>("#joint-side-radius-number")?.addEventListener("change", (event) => {
-    if (joint) state.setJointSideRadius(joint.id, (event.target as HTMLInputElement).valueAsNumber);
-  });
-  bindLiveRange(element, state, "#joint-depth", "#joint-depth-number", (value) => {
-    if (joint) state.setJointDepth(joint.id, value);
-  });
-  element.querySelector<HTMLInputElement>("#joint-depth-number")?.addEventListener("change", (event) => {
-    if (joint) state.setJointDepth(joint.id, (event.target as HTMLInputElement).valueAsNumber);
-  });
-  bindLiveRange(element, state, "#projection-strength", "#projection-strength-number", (value) => {
-    state.setProjectionStrength(value);
-  });
-  element.querySelector<HTMLInputElement>("#projection-strength-number")?.addEventListener("change", (event) => {
-    state.setProjectionStrength((event.target as HTMLInputElement).valueAsNumber);
-  });
-  bindLiveRange(element, state, "#view-y-rotation", "#view-y-rotation-number", (value) => {
-    state.setViewYRotation(value);
-  });
-  element.querySelector<HTMLInputElement>("#view-y-rotation-number")?.addEventListener("change", (event) => {
-    state.setViewYRotation((event.target as HTMLInputElement).valueAsNumber);
-  });
-  bindLiveRange(element, state, "#silhouette-retention", "#silhouette-retention-number", (value) => {
-    state.setSilhouetteRetention(value);
-  });
-  element.querySelector<HTMLInputElement>("#silhouette-retention-number")?.addEventListener("change", (event) => {
-    state.setSilhouetteRetention((event.target as HTMLInputElement).valueAsNumber);
   });
   element.querySelector<HTMLInputElement>("#joint-radius-number")?.addEventListener("change", (event) => {
     if (!joint) return;

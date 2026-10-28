@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointViewRadius, getJointWorldTransform, getPeerGroupCentroid, getProjectionScale, getViewHorizontalScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
+import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointViewRadius, getJointWorldTransform, getPeerGroupCentroid, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const closeTo = (actual: number, expected: number, message?: string) => {
@@ -28,21 +28,20 @@ test("Y-axis view rotation interpolates X into depth and remains invertible", ()
   rig.projectionStrength = 0;
   rig.viewYRotation = 60;
   const projected = projectPoint(rig, { x: 400, y: 500 }, 0);
-  closeTo(projected.x, 359);
+  closeTo(projected.x, 350);
   closeTo(projected.y, 500);
   const restored = unprojectPoint(rig, projected, 0);
   closeTo(restored.x, 400);
   closeTo(restored.y, 500);
 });
 
-test("side-view silhouette retention keeps distinct X joints connected", () => {
+test("side view uses pure X/Z rotation without silhouette retention", () => {
   const rig = createDefaultRig();
   rig.projectionStrength = 0;
   rig.viewYRotation = 90;
-  closeTo(getViewHorizontalScale(rig), 0.18);
   const left = projectPoint(rig, { x: 200, y: 390 }, 0);
   const right = projectPoint(rig, { x: 400, y: 390 }, 0);
-  closeTo(right.x - left.x, 36);
+  closeTo(right.x - left.x, 0);
 });
 
 test("side radius interpolates from front to side without mutating the base rig", () => {
@@ -104,6 +103,25 @@ test("rotating a child connection moves its descendant subtree and leaves the op
   closeTo(wristAfter.x, elbowAfter.x + lowerArmLength);
   closeTo(wristAfter.y, elbowAfter.y);
   assert.deepEqual(rightElbowAfter, rightElbowBefore);
+});
+
+test("independent joint movement keeps direct children at their current world positions", () => {
+  const state = new RigState(createDefaultRig());
+  const waist = getJointWorldTransform(state.rig, "waist");
+  const chest = getJointWorldTransform(state.rig, "chest");
+  const head = getJointWorldTransform(state.rig, "head");
+
+  state.moveJointIndependently("waist", waist.x + 30, waist.y + 20);
+
+  const movedWaist = getJointWorldTransform(state.rig, "waist");
+  const chestAfter = getJointWorldTransform(state.rig, "chest");
+  const headAfter = getJointWorldTransform(state.rig, "head");
+  closeTo(movedWaist.x, waist.x + 30);
+  closeTo(movedWaist.y, waist.y + 20);
+  closeTo(chestAfter.x, chest.x);
+  closeTo(chestAfter.y, chest.y);
+  closeTo(headAfter.x, head.x);
+  closeTo(headAfter.y, head.y);
 });
 
 test("changing a parent preserves world pose and rejects cyclic parenting", () => {

@@ -6,6 +6,8 @@ import { enablePointerInput } from "./editor/pointer-input.ts";
 import { createInspector, renderInspector } from "./editor/inspector.ts";
 import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
+import { interpolatePoseRig } from "./rig/pose-interpolation.ts";
+import type { Rig } from "./rig/types.ts";
 import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
 export function createApp(container: HTMLDivElement): void {
@@ -24,6 +26,7 @@ export function createApp(container: HTMLDivElement): void {
     selectedTarget: "joint",
     inspectorTab: "selection",
     preserveProportions: false,
+    moveSelectedIndividually: false,
     activeTool: "select",
     paintColor: state.rig.defaultColor,
     paintPaletteId: null,
@@ -93,6 +96,14 @@ export function createApp(container: HTMLDivElement): void {
                 <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
                 <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
               </label>
+              <div class="interpolation-controls" aria-label="포즈 보간 프레임">
+                <strong>보간 프레임</strong>
+                <button type="button" data-capture-start>A 저장</button>
+                <button type="button" data-capture-end>B 저장</button>
+                <label>프레임 <input type="range" min="0" max="100" step="1" value="0" data-interpolation-frame disabled /></label>
+                <output data-interpolation-status>A 포즈를 저장하세요</output>
+                <button type="button" data-exit-interpolation hidden>편집</button>
+              </div>
               <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
               <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
               <label class="toolbar-toggle"><input type="checkbox" data-extend-hidden-joint-faces />숨김 관절 면 연장</label>
@@ -221,7 +232,16 @@ export function createApp(container: HTMLDivElement): void {
   const layerOrderToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-layer-order]");
   const paintColorInput = requireElement<HTMLInputElement>(container, "[data-paint-color]");
   const paletteGrid = requireElement<HTMLElement>(container, ".palette-grid");
+  const captureStartButton = requireElement<HTMLButtonElement>(container, "[data-capture-start]");
+  const captureEndButton = requireElement<HTMLButtonElement>(container, "[data-capture-end]");
+  const interpolationFrameInput = requireElement<HTMLInputElement>(container, "[data-interpolation-frame]");
+  const interpolationStatus = requireElement<HTMLOutputElement>(container, "[data-interpolation-status]");
+  const exitInterpolationButton = requireElement<HTMLButtonElement>(container, "[data-exit-interpolation]");
   let previewUrl: string | null = null;
+  let interpolationStart: Rig | null = null;
+  let interpolationEnd: Rig | null = null;
+  let interpolationFrame = 0;
+  let interpolationPreviewActive = false;
   const getPresetParts = (): PresetParts => ({
     pose: container.querySelector<HTMLInputElement>("[data-preset-pose]")?.checked ?? false,
     proportions: container.querySelector<HTMLInputElement>("[data-preset-proportions]")?.checked ?? false,
@@ -263,7 +283,24 @@ export function createApp(container: HTMLDivElement): void {
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
     svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
-    renderSvgEditor(svg, state.rig, selection, viewState);
+    const hasInterpolation = interpolationStart !== null && interpolationEnd !== null;
+    interpolationFrameInput.disabled = !hasInterpolation;
+    interpolationFrameInput.value = String(interpolationFrame);
+    captureStartButton.textContent = interpolationStart ? "A 갱신" : "A 저장";
+    captureEndButton.textContent = interpolationEnd ? "B 갱신" : "B 저장";
+    exitInterpolationButton.hidden = !interpolationPreviewActive;
+    interpolationStatus.value = !interpolationStart
+      ? "A 포즈를 저장하세요"
+      : !interpolationEnd
+        ? "B 포즈를 저장하세요"
+        : interpolationPreviewActive
+          ? `${interpolationFrame}% 보간 미리보기 · 편집 잠금`
+          : "A/B 포즈 준비됨";
+    container.classList.toggle("is-interpolation-preview", interpolationPreviewActive);
+    const renderedRig = interpolationPreviewActive && interpolationStart && interpolationEnd
+      ? interpolatePoseRig(interpolationStart, interpolationEnd, interpolationFrame / 100)
+      : state.rig;
+    renderSvgEditor(svg, renderedRig, selection, viewState);
     if (inspector.dataset.liveRangeEditing !== "true") {
       renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
     }
@@ -274,6 +311,7 @@ export function createApp(container: HTMLDivElement): void {
     state,
     getSelection: () => selection,
     getPreserveProportions: () => viewState.preserveProportions,
+    getMoveSelectedIndividually: () => viewState.moveSelectedIndividually,
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
     getLayerToolActive: () => viewState.activeTool === "layer-order",
     setSelection,
@@ -285,6 +323,27 @@ export function createApp(container: HTMLDivElement): void {
   zoomResetButton.addEventListener("click", () => viewport.resetView());
   zoomInButton.addEventListener("click", () => viewport.zoomBy(0.8));
   fitSelectionButton.addEventListener("click", () => viewport.fitSelection());
+  captureStartButton.addEventListener("click", () => {
+    interpolationStart = structuredClone(state.rig);
+    interpolationFrame = 0;
+    interpolationPreviewActive = false;
+    render();
+  });
+  captureEndButton.addEventListener("click", () => {
+    interpolationEnd = structuredClone(state.rig);
+    interpolationFrame = 100;
+    interpolationPreviewActive = Boolean(interpolationStart);
+    render();
+  });
+  interpolationFrameInput.addEventListener("input", () => {
+    interpolationFrame = Number(interpolationFrameInput.value);
+    interpolationPreviewActive = Boolean(interpolationStart && interpolationEnd);
+    render();
+  });
+  exitInterpolationButton.addEventListener("click", () => {
+    interpolationPreviewActive = false;
+    render();
+  });
   const setPanMode = (enabled: boolean) => {
     panToolButton.setAttribute("aria-pressed", String(enabled));
     panToolButton.classList.toggle("is-active", enabled);

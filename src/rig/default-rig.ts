@@ -1,11 +1,10 @@
 import type { Rig } from "./types.ts";
 
 export function createDefaultRig(): Rig {
-  return {
+  const rig: Rig = {
     defaultColor: "#dca27b",
     projectionStrength: 35,
     viewYRotation: 0,
-    silhouetteRetention: 18,
     palette: [],
     groups: [
       { id: "head", name: "머리", visible: true, order: 40 },
@@ -121,6 +120,10 @@ export function createDefaultRig(): Rig {
       ...createLegFaces("right", 1),
     ],
   };
+  // Persist the neutral Z-axis state explicitly instead of relying on an
+  // omitted optional value to mean zero.
+  rig.joints.forEach((joint) => { joint.depth = 0; });
+  return rig;
 }
 
 function createArmFaces(

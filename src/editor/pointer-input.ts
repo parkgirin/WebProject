@@ -6,6 +6,7 @@ interface PointerInputOptions {
   state: RigState;
   getSelection: () => EditorSelection;
   getPreserveProportions: () => boolean;
+  getMoveSelectedIndividually?: () => boolean;
   getPaintColor: () => string | null;
   getLayerToolActive: () => boolean;
   setSelection: (selection: EditorSelection) => void;
@@ -254,7 +255,13 @@ export function enablePointerInput(
       startJointMove(jointDrag.jointId, jointDrag.jointIds, { x: jointDrag.lastX, y: jointDrag.lastY }, options.getPreserveProportions() || event.altKey);
     }
     if (interaction.type === "move-selection") {
-      options.state.moveJointsBy(interaction.jointIds, point.x - interaction.lastX, point.y - interaction.lastY);
+      if (interaction.jointIds.length === 1 && options.getMoveSelectedIndividually?.()) {
+        const joint = options.state.getJoint(interaction.jointIds[0]);
+        const world = getJointWorldTransform(options.state.rig, joint.id);
+        options.state.moveJointIndependently(joint.id, world.x + point.x - interaction.lastX, world.y + point.y - interaction.lastY);
+      } else {
+        options.state.moveJointsBy(interaction.jointIds, point.x - interaction.lastX, point.y - interaction.lastY);
+      }
       interaction.lastX = point.x;
       interaction.lastY = point.y;
     } else if (interaction.type === "move-selection-constrained") {

@@ -34,9 +34,6 @@ export function validateRig(
   if (!Number.isFinite(rig.viewYRotation) || rig.viewYRotation < -90 || rig.viewYRotation > 90) {
     errors.push(`View Y rotation must be between -90 and 90: ${rig.viewYRotation}`);
   }
-  if (!Number.isFinite(rig.silhouetteRetention) || rig.silhouetteRetention < 0 || rig.silhouetteRetention > 50) {
-    errors.push(`Silhouette retention must be between 0 and 50: ${rig.silhouetteRetention}`);
-  }
   for (const entry of rig.palette) {
     if (!entry.id.trim()) errors.push("Palette id cannot be empty");
     if (paletteIds.has(entry.id)) errors.push(`Duplicate palette id: ${entry.id}`);
@@ -300,6 +297,23 @@ export class RigState {
     const joint = this.getJoint(jointId);
     this.setJointWorldPosition(joint, x, y);
     this.alignDirectConnectionAxes(jointId);
+    this.notify();
+  }
+
+  /**
+   * Move only one joint in world space. Its direct children are rebased so
+   * their current world positions stay fixed instead of following the parent.
+   */
+  public moveJointIndependently(jointId: string, x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const joint = this.getJoint(jointId);
+    const children = this.rig.joints
+      .filter((candidate) => candidate.parentJointId === jointId)
+      .map((child) => ({ child, world: getJointWorldTransform(this.rig, child.id) }));
+    this.setJointWorldPosition(joint, x, y);
+    for (const { child, world } of children) this.setJointWorldPosition(child, world.x, world.y);
+    this.alignDirectConnectionAxes(jointId);
+    for (const { child } of children) this.alignDirectConnectionAxes(child.id);
     this.notify();
   }
 
@@ -629,12 +643,6 @@ export class RigState {
   public setViewYRotation(angle: number): void {
     if (!Number.isFinite(angle)) return;
     this.rig.viewYRotation = Math.min(90, Math.max(-90, angle));
-    this.notify();
-  }
-
-  public setSilhouetteRetention(retention: number): void {
-    if (!Number.isFinite(retention)) return;
-    this.rig.silhouetteRetention = Math.min(50, Math.max(0, retention));
     this.notify();
   }
 

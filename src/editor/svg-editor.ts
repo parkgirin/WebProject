@@ -25,19 +25,13 @@ export function renderSvgEditor(
     const world = getJointWorldTransform(rig, jointId);
     return getProjectedDepth(rig, world, depthOf(jointId));
   };
-  // This editor's view turn is a rig-motion simulation, not a literal 3D
-  // projection. Keep each joint's connecting cross-section visible in screen
-  // space so faces remain connections between their two joints at side view.
+  // Project every axis endpoint with the same X/Z transform as its joint
+  // centre. Keeping endpoints in screen space makes the connecting faces
+  // appear to move independently while the view rotates.
   const projectedAxisPoint = (jointId: string, axisId: string, side: -1 | 1): Point => {
     const joint = rig.joints.find((candidate) => candidate.id === jointId)!;
     const axis = joint.axes.find((candidate) => candidate.id === axisId)!;
-    const center = projectJoint(jointId);
-    const radians = getAxisWorldAngle(rig, joint, axis) * Math.PI / 180;
-    const radius = viewRadiusOf(jointId) * scaleOf(jointId);
-    return {
-      x: center.x + Math.cos(radians) * radius * side,
-      y: center.y + Math.sin(radians) * radius * side,
-    };
+    return project(getAxisPoint(rig, joint, axis, side), depthOf(jointId));
   };
   const visibleJoints = rig.joints
     .filter((joint) => joint.bodyVisible && isGroupVisible(rig, joint.groupId));

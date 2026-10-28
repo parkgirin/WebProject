@@ -29,7 +29,7 @@ export interface RigPreset {
   createdAt: string;
   /** Parent identities allow incompatible pose coordinate systems to be detected. */
   hierarchy?: Record<string, string | null>;
-  pose?: { projectionStrength?: number; viewYRotation?: number; silhouetteRetention?: number; joints: Record<string, SavedJointPose> };
+  pose?: { projectionStrength?: number; viewYRotation?: number; joints: Record<string, SavedJointPose> };
   proportions?: { joints: Record<string, SavedJointProportions> };
   colors?: {
     defaultColor: string;
@@ -52,7 +52,6 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
     preset.pose = {
       projectionStrength: rig.projectionStrength,
       viewYRotation: rig.viewYRotation,
-      silhouetteRetention: rig.silhouetteRetention,
       joints: Object.fromEntries(rig.joints.map((joint) => [joint.id, {
         x: joint.x,
         y: joint.y,
@@ -131,9 +130,6 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       }
       if (isFiniteNumber(compatiblePreset.pose.viewYRotation)) {
         state.setViewYRotation(compatiblePreset.pose.viewYRotation);
-      }
-      if (isFiniteNumber(compatiblePreset.pose.silhouetteRetention)) {
-        state.setSilhouetteRetention(compatiblePreset.pose.silhouetteRetention);
       }
       for (const [jointId, value] of Object.entries(compatiblePreset.pose.joints)) {
         if (!isPose(value) || !hasJoint(state.rig, jointId)) continue;

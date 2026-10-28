@@ -28,7 +28,7 @@ export interface Joint {
   radius: number;
   /** Optional radius used at a full left or right side view (±90°). */
   sideRadius?: number;
-  /** Camera-relative depth. Positive values are closer to the viewer. */
+  /** Z-axis movement. Positive values are closer to the viewer; defaults to 0. */
   depth?: number;
   /** Temporary preview output size; migrate to a joint-bound ArtShape. */
   bodyRadius?: number;
@@ -89,8 +89,6 @@ export interface Rig {
   projectionStrength: number;
   /** -90..90: camera rotation around the canvas' vertical (Y) axis. */
   viewYRotation: number;
-  /** 0..50: minimum horizontal silhouette retained at a full side view. */
-  silhouetteRetention: number;
   palette: ColorPaletteEntry[];
   groups: LayerGroup[];
   joints: Joint[];

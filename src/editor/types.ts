@@ -13,6 +13,8 @@ export interface EditorViewState {
   selectedTarget: "joint" | "face";
   inspectorTab: "selection" | "layers" | "color";
   preserveProportions: boolean;
+  /** Move one selected joint while keeping its direct children in place. */
+  moveSelectedIndividually: boolean;
   activeTool: "select" | "color" | "layer-order";
   paintColor: string;
   paintPaletteId: string | null;
