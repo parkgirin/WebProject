@@ -6,7 +6,16 @@ import { enablePointerInput } from "./editor/pointer-input.ts";
 import { createInspector, renderInspector } from "./editor/inspector.ts";
 import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
-import { interpolatePoseRig } from "./rig/pose-interpolation.ts";
+import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
+import {
+  addPoseKey,
+  advancePosePlayback,
+  createPoseKey,
+  getPosePlaybackSettings,
+  samplePosePlayback,
+  samplePoseClip,
+  type PoseClip,
+} from "./rig/pose-interpolation.ts";
 import type { Rig } from "./rig/types.ts";
 import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
@@ -110,20 +119,29 @@ export function createApp(container: HTMLDivElement): void {
             <header class="interpolation-header">
               <strong>보간 타임라인</strong>
               <div class="interpolation-controls">
-                <button type="button" data-capture-start>A 저장</button>
-                <button type="button" data-capture-end>B 저장</button>
-                <label>프레임 <input type="range" min="0" max="100" step="1" value="0" data-interpolation-frame disabled /></label>
-                <output data-interpolation-status>A 포즈를 저장하세요</output>
+                <button type="button" data-toggle-pose-playback disabled>▶ 재생</button>
+                <select data-pose-playback-mode aria-label="애니메이션 재생 방식">
+                  <option value="ping-pong">왕복</option>
+                  <option value="loop">끝→처음</option>
+                </select>
+                <label data-closing-frames-control hidden>연결 <input class="pose-gap-input" type="number" min="1" max="120" step="1" value="6" data-closing-frames />f</label>
+                <button type="button" data-add-pose-key>키 추가</button>
+                <button type="button" data-update-pose-key disabled>키 갱신</button>
+                <button type="button" data-delete-pose-key disabled>삭제</button>
+                <button type="button" data-save-pose-animation>저장</button>
+                <button type="button" data-load-pose-animation>불러오기</button>
+                <input type="file" accept="application/json,.json" data-pose-animation-file hidden />
+                <label>새 키 간격 <input class="pose-gap-input" type="number" min="1" max="120" step="1" value="6" data-pose-gap />f</label>
+                <label>프레임 <input type="range" min="0" max="0" step="1" value="0" data-interpolation-frame disabled /></label>
+                <output data-interpolation-status>첫 키프레임을 추가하세요</output>
+                <button type="button" data-promote-interpolation hidden>키로 설정</button>
                 <button type="button" data-exit-interpolation hidden>현재 프레임 편집</button>
               </div>
               <button type="button" class="panel-collapse-button timeline-collapse-button" data-collapse-timeline aria-expanded="true" aria-label="보간 타임라인 접기" title="보간 타임라인 접기">⌄</button>
             </header>
             <div class="interpolation-track">
               <span class="interpolation-track-label">선택된 포즈</span>
-              <div class="timeline-poses">
-                <button type="button" class="timeline-pose" data-interpolation-jump="0"><strong>포즈 A</strong><span>키 프레임</span></button>
-                <button type="button" class="timeline-pose" data-interpolation-jump="100"><strong>포즈 B</strong><span>키 프레임</span></button>
-              </div>
+              <div class="timeline-poses" data-pose-key-list><span class="timeline-empty">키프레임 없음</span></div>
             </div>
           </section>
         </div>
@@ -252,19 +270,41 @@ export function createApp(container: HTMLDivElement): void {
   const layerOrderToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-layer-order]");
   const paintColorInput = requireElement<HTMLInputElement>(container, "[data-paint-color]");
   const paletteGrid = requireElement<HTMLElement>(container, ".palette-grid");
-  const captureStartButton = requireElement<HTMLButtonElement>(container, "[data-capture-start]");
-  const captureEndButton = requireElement<HTMLButtonElement>(container, "[data-capture-end]");
+  const togglePosePlaybackButton = requireElement<HTMLButtonElement>(container, "[data-toggle-pose-playback]");
+  const posePlaybackModeSelect = requireElement<HTMLSelectElement>(container, "[data-pose-playback-mode]");
+  const closingFramesControl = requireElement<HTMLElement>(container, "[data-closing-frames-control]");
+  const closingFramesInput = requireElement<HTMLInputElement>(container, "[data-closing-frames]");
+  const addPoseKeyButton = requireElement<HTMLButtonElement>(container, "[data-add-pose-key]");
+  const updatePoseKeyButton = requireElement<HTMLButtonElement>(container, "[data-update-pose-key]");
+  const deletePoseKeyButton = requireElement<HTMLButtonElement>(container, "[data-delete-pose-key]");
+  const savePoseAnimationButton = requireElement<HTMLButtonElement>(container, "[data-save-pose-animation]");
+  const loadPoseAnimationButton = requireElement<HTMLButtonElement>(container, "[data-load-pose-animation]");
+  const poseAnimationFileInput = requireElement<HTMLInputElement>(container, "[data-pose-animation-file]");
+  const poseGapInput = requireElement<HTMLInputElement>(container, "[data-pose-gap]");
   const interpolationFrameInput = requireElement<HTMLInputElement>(container, "[data-interpolation-frame]");
   const interpolationStatus = requireElement<HTMLOutputElement>(container, "[data-interpolation-status]");
+  const promoteInterpolationButton = requireElement<HTMLButtonElement>(container, "[data-promote-interpolation]");
   const exitInterpolationButton = requireElement<HTMLButtonElement>(container, "[data-exit-interpolation]");
+  const poseKeyList = requireElement<HTMLElement>(container, "[data-pose-key-list]");
   const collapseInspectorButton = requireElement<HTMLButtonElement>(container, "[data-collapse-inspector]");
   const collapseTimelineButton = requireElement<HTMLButtonElement>(container, "[data-collapse-timeline]");
-  const interpolationJumpButtons = [...container.querySelectorAll<HTMLButtonElement>("[data-interpolation-jump]")];
   let previewUrl: string | null = null;
-  let interpolationStart: Rig | null = null;
-  let interpolationEnd: Rig | null = null;
-  let interpolationFrame = 0;
+  let poseClip: PoseClip = {
+    id: "main-clip",
+    name: "기본 클립",
+    fps: 12,
+    keys: [],
+    playback: { mode: "ping-pong", closingFrames: 6 },
+  };
+  let poseFrame = 0;
+  let selectedPoseKeyId: string | null = null;
+  let poseKeySequence = 0;
   let interpolationPreviewActive = false;
+  let posePlaybackActive = false;
+  let posePlaybackDirection: 1 | -1 = 1;
+  let posePlaybackRequestId: number | null = null;
+  let posePlaybackTimestamp: number | null = null;
+  let posePlaybackFrameRemainder = 0;
   const getPresetParts = (): PresetParts => ({
     pose: container.querySelector<HTMLInputElement>("[data-preset-pose]")?.checked ?? false,
     proportions: container.querySelector<HTMLInputElement>("[data-preset-proportions]")?.checked ?? false,
@@ -289,6 +329,11 @@ export function createApp(container: HTMLDivElement): void {
     Object.assign(viewState, next);
     render();
   };
+  const applyRigSnapshot = (rig: Rig) => {
+    state.beginHistoryTransaction();
+    Object.assign(state.rig, structuredClone(rig));
+    state.endHistoryTransaction();
+  };
   const render = () => {
     const globalAngle = toSignedAngle(state.getGlobalRotation());
     globalAngleInput.value = String(globalAngle);
@@ -306,32 +351,95 @@ export function createApp(container: HTMLDivElement): void {
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
     svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
-    const hasInterpolation = interpolationStart !== null && interpolationEnd !== null;
-    interpolationFrameInput.disabled = !hasInterpolation;
-    interpolationFrameInput.value = String(interpolationFrame);
-    for (const button of interpolationJumpButtons) {
-      const frame = Number(button.dataset.interpolationJump);
-      button.disabled = !hasInterpolation;
-      button.classList.toggle("is-selected", hasInterpolation && frame === interpolationFrame);
-    }
-    captureStartButton.textContent = interpolationStart ? "A 갱신" : "A 저장";
-    captureEndButton.textContent = interpolationEnd ? "B 갱신" : "B 저장";
-    exitInterpolationButton.hidden = !interpolationPreviewActive;
-    interpolationStatus.value = !interpolationStart
-      ? "A 포즈를 저장하세요"
-      : !interpolationEnd
-        ? "B 포즈를 저장하세요"
-        : interpolationPreviewActive
-          ? `${interpolationFrame}% 보간 프레임 · 편집 가능`
-          : "A/B 포즈 준비됨";
+    const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
+    const lastFrame = orderedKeys.at(-1)?.frame ?? 0;
+    const hasInterpolation = orderedKeys.length >= 2;
+    const playback = getPosePlaybackSettings(poseClip);
+    const playbackEndFrame = lastFrame + (playback.mode === "loop" && hasInterpolation ? playback.closingFrames : 0);
+    const frameKey = orderedKeys.find((key) => key.frame === poseFrame);
+    const sample = orderedKeys.length > 0 ? samplePosePlayback(poseClip, poseFrame) : null;
+    togglePosePlaybackButton.disabled = !hasInterpolation;
+    togglePosePlaybackButton.textContent = posePlaybackActive ? "■ 정지" : "▶ 재생";
+    posePlaybackModeSelect.value = playback.mode;
+    posePlaybackModeSelect.disabled = posePlaybackActive;
+    closingFramesControl.hidden = playback.mode !== "loop";
+    closingFramesInput.value = String(playback.closingFrames);
+    closingFramesInput.disabled = posePlaybackActive;
+    loadPoseAnimationButton.disabled = posePlaybackActive;
+    interpolationFrameInput.disabled = !hasInterpolation || posePlaybackActive;
+    interpolationFrameInput.max = String(playbackEndFrame);
+    interpolationFrameInput.value = String(Math.min(playbackEndFrame, poseFrame));
+    addPoseKeyButton.disabled = posePlaybackActive;
+    updatePoseKeyButton.disabled = posePlaybackActive || !selectedPoseKeyId;
+    deletePoseKeyButton.disabled = posePlaybackActive || orderedKeys.length <= 1 || !selectedPoseKeyId;
+    promoteInterpolationButton.hidden = posePlaybackActive || !interpolationPreviewActive || Boolean(frameKey) || poseFrame > lastFrame;
+    exitInterpolationButton.hidden = posePlaybackActive || !interpolationPreviewActive || poseFrame > lastFrame;
+    poseKeyList.innerHTML = orderedKeys.length === 0
+      ? `<span class="timeline-empty">키프레임 없음</span>`
+      : orderedKeys.map((key) => `
+          <button type="button" class="timeline-pose${key.id === selectedPoseKeyId ? " is-selected" : ""}" data-pose-key-id="${key.id}"${posePlaybackActive ? " disabled" : ""}>
+            <strong>${key.name}</strong><span>${key.frame}f</span>
+          </button>`).join("");
+    interpolationStatus.value = orderedKeys.length === 0
+      ? "첫 키프레임을 추가하세요"
+      : orderedKeys.length === 1
+        ? "다음 포즈를 만든 뒤 키를 추가하세요"
+        : posePlaybackActive && sample
+          ? `${posePlaybackDirection === 1 ? "▶" : "◀"} ${Math.round(poseFrame)}f · ${sample.leftKey.name} → ${sample.rightKey.name}`
+        : interpolationPreviewActive && sample
+          ? `${Math.round(poseFrame)}f · ${sample.leftKey.name} → ${sample.rightKey.name}`
+          : selectedPoseKeyId
+            ? `${orderedKeys.find((key) => key.id === selectedPoseKeyId)?.name ?? "키"} 편집 중`
+            : `${orderedKeys.length}개 키프레임`;
     container.classList.toggle("is-interpolation-preview", interpolationPreviewActive);
-    const renderedRig = interpolationPreviewActive && interpolationStart && interpolationEnd
-      ? interpolatePoseRig(interpolationStart, interpolationEnd, interpolationFrame / 100)
-      : state.rig;
+    const renderedRig = interpolationPreviewActive && sample ? sample.rig : state.rig;
     renderSvgEditor(svg, renderedRig, selection, viewState);
     if (inspector.dataset.liveRangeEditing !== "true") {
       renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
     }
+  };
+
+  const stopPosePlayback = () => {
+    posePlaybackActive = false;
+    posePlaybackTimestamp = null;
+    posePlaybackFrameRemainder = 0;
+    if (posePlaybackRequestId !== null) window.cancelAnimationFrame(posePlaybackRequestId);
+    posePlaybackRequestId = null;
+  };
+  const animatePosePlayback = (timestamp: number) => {
+    if (!posePlaybackActive) return;
+    if (posePlaybackTimestamp !== null) {
+      posePlaybackFrameRemainder += (timestamp - posePlaybackTimestamp) * poseClip.fps / 1000;
+      const elapsedFrames = Math.floor(posePlaybackFrameRemainder);
+      if (elapsedFrames > 0) {
+        posePlaybackFrameRemainder -= elapsedFrames;
+        const next = advancePosePlayback(poseClip, poseFrame, posePlaybackDirection, elapsedFrames);
+        poseFrame = next.frame;
+        posePlaybackDirection = next.direction;
+        selectedPoseKeyId = poseClip.keys.find((key) => key.frame === poseFrame)?.id ?? null;
+        render();
+      }
+    }
+    posePlaybackTimestamp = timestamp;
+    posePlaybackRequestId = window.requestAnimationFrame(animatePosePlayback);
+  };
+  const startPosePlayback = () => {
+    if (poseClip.keys.length < 2) return;
+    posePlaybackActive = true;
+    interpolationPreviewActive = true;
+    posePlaybackTimestamp = null;
+    posePlaybackFrameRemainder = 0;
+    const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
+    const firstFrame = orderedKeys[0].frame;
+    const lastFrame = orderedKeys[orderedKeys.length - 1].frame;
+    const playback = getPosePlaybackSettings(poseClip);
+    const playbackEndFrame = lastFrame + (playback.mode === "loop" ? playback.closingFrames : 0);
+    if (poseFrame < firstFrame || poseFrame > playbackEndFrame
+      || (playback.mode === "loop" && poseFrame >= playbackEndFrame)) poseFrame = firstFrame;
+    if (playback.mode === "loop") posePlaybackDirection = 1;
+    else if (poseFrame >= lastFrame) posePlaybackDirection = -1;
+    render();
+    posePlaybackRequestId = window.requestAnimationFrame(animatePosePlayback);
   };
 
   state.subscribe(render);
@@ -351,40 +459,146 @@ export function createApp(container: HTMLDivElement): void {
   zoomResetButton.addEventListener("click", () => viewport.resetView());
   zoomInButton.addEventListener("click", () => viewport.zoomBy(0.8));
   fitSelectionButton.addEventListener("click", () => viewport.fitSelection());
-  captureStartButton.addEventListener("click", () => {
-    interpolationStart = structuredClone(state.rig);
-    interpolationFrame = 0;
+  togglePosePlaybackButton.addEventListener("click", () => {
+    if (posePlaybackActive) {
+      stopPosePlayback();
+      render();
+    } else {
+      startPosePlayback();
+    }
+  });
+  posePlaybackModeSelect.addEventListener("change", () => {
+    const mode = posePlaybackModeSelect.value === "loop" ? "loop" : "ping-pong";
+    poseClip = { ...poseClip, playback: { ...getPosePlaybackSettings(poseClip), mode } };
+    const lastFrame = Math.max(0, ...poseClip.keys.map((key) => key.frame));
+    if (mode === "ping-pong" && poseFrame > lastFrame) poseFrame = lastFrame;
+    posePlaybackDirection = 1;
+    render();
+  });
+  closingFramesInput.addEventListener("change", () => {
+    const closingFrames = Math.max(1, Math.round(closingFramesInput.valueAsNumber || 1));
+    poseClip = { ...poseClip, playback: { ...getPosePlaybackSettings(poseClip), closingFrames } };
+    const lastFrame = Math.max(0, ...poseClip.keys.map((key) => key.frame));
+    poseFrame = Math.min(poseFrame, lastFrame + closingFrames);
+    closingFramesInput.value = String(closingFrames);
+    render();
+  });
+  addPoseKeyButton.addEventListener("click", () => {
+    const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
+    const gap = Math.max(1, Math.round(Number(poseGapInput.value) || 1));
+    const frame = orderedKeys.length === 0 ? 0 : orderedKeys[orderedKeys.length - 1].frame + gap;
+    const keyIndex = poseKeySequence++;
+    const key = createPoseKey(
+      `pose-${keyIndex + 1}`,
+      `포즈 ${poseKeyLabel(keyIndex)}`,
+      frame,
+      state.rig,
+    );
+    poseClip = addPoseKey(poseClip, key);
+    selectedPoseKeyId = key.id;
+    poseFrame = frame;
     interpolationPreviewActive = false;
     render();
   });
-  captureEndButton.addEventListener("click", () => {
-    interpolationEnd = structuredClone(state.rig);
-    interpolationFrame = 100;
-    interpolationPreviewActive = Boolean(interpolationStart);
+  updatePoseKeyButton.addEventListener("click", () => {
+    if (!selectedPoseKeyId) return;
+    poseClip = {
+      ...poseClip,
+      keys: poseClip.keys.map((key) => key.id === selectedPoseKeyId
+        ? { ...key, rig: structuredClone(state.rig) }
+        : key),
+    };
+    render();
+  });
+  deletePoseKeyButton.addEventListener("click", () => {
+    if (!selectedPoseKeyId || poseClip.keys.length <= 1) return;
+    const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
+    const deletedIndex = orderedKeys.findIndex((key) => key.id === selectedPoseKeyId);
+    const remaining = orderedKeys.filter((key) => key.id !== selectedPoseKeyId);
+    const nextKey = remaining[Math.min(Math.max(0, deletedIndex), remaining.length - 1)];
+    poseClip = { ...poseClip, keys: remaining };
+    selectedPoseKeyId = nextKey.id;
+    poseFrame = nextKey.frame;
+    interpolationPreviewActive = false;
+    applyRigSnapshot(nextKey.rig);
     render();
   });
   interpolationFrameInput.addEventListener("input", () => {
-    interpolationFrame = Number(interpolationFrameInput.value);
-    interpolationPreviewActive = Boolean(interpolationStart && interpolationEnd);
+    poseFrame = Number(interpolationFrameInput.value);
+    selectedPoseKeyId = poseClip.keys.find((key) => key.frame === poseFrame)?.id ?? null;
+    interpolationPreviewActive = poseClip.keys.length >= 2;
     render();
   });
   exitInterpolationButton.addEventListener("click", () => {
-    if (interpolationStart && interpolationEnd) {
-      const editableRig = interpolatePoseRig(interpolationStart, interpolationEnd, interpolationFrame / 100);
-      interpolationPreviewActive = false;
-      state.beginHistoryTransaction();
-      Object.assign(state.rig, structuredClone(editableRig));
-      state.endHistoryTransaction();
-    }
+    if (poseClip.keys.length === 0) return;
+    const editableRig = samplePoseClip(poseClip, poseFrame).rig;
+    interpolationPreviewActive = false;
+    applyRigSnapshot(editableRig);
     render();
   });
-  for (const button of interpolationJumpButtons) {
-    button.addEventListener("click", () => {
-      interpolationFrame = Number(button.dataset.interpolationJump);
-      interpolationPreviewActive = Boolean(interpolationStart && interpolationEnd);
+  promoteInterpolationButton.addEventListener("click", () => {
+    if (!interpolationPreviewActive || poseClip.keys.some((key) => key.frame === poseFrame)) return;
+    const sampledRig = samplePoseClip(poseClip, poseFrame).rig;
+    const keyIndex = poseKeySequence++;
+    const key = createPoseKey(
+      `pose-${keyIndex + 1}`,
+      `포즈 ${poseKeyLabel(keyIndex)}`,
+      poseFrame,
+      sampledRig,
+    );
+    poseClip = addPoseKey(poseClip, key);
+    selectedPoseKeyId = key.id;
+    interpolationPreviewActive = false;
+    applyRigSnapshot(sampledRig);
+    render();
+  });
+  poseKeyList.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-pose-key-id]");
+    const key = poseClip.keys.find((candidate) => candidate.id === button?.dataset.poseKeyId);
+    if (!key) return;
+    selectedPoseKeyId = key.id;
+    poseFrame = key.frame;
+    interpolationPreviewActive = false;
+    applyRigSnapshot(key.rig);
+    render();
+  });
+  savePoseAnimationButton.addEventListener("click", () => {
+    if (poseClip.keys.length === 0) {
+      interpolationStatus.value = "저장할 키프레임이 없습니다";
+      return;
+    }
+    const content = JSON.stringify(createPoseAnimationFile(poseClip), null, 2);
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+    link.href = url;
+    link.download = "pose-animation.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    interpolationStatus.value = `${poseClip.keys.length}개 키프레임 저장 시작`;
+  });
+  loadPoseAnimationButton.addEventListener("click", () => poseAnimationFileInput.click());
+  poseAnimationFileInput.addEventListener("change", async () => {
+    const file = poseAnimationFileInput.files?.[0];
+    if (!file) return;
+    try {
+      poseClip = parsePoseAnimationFile(await file.text()).clip;
+      poseKeySequence = poseClip.keys.reduce((max, key) => {
+        const match = /^pose-(\d+)$/.exec(key.id);
+        return Math.max(max, match ? Number(match[1]) : 0);
+      }, 0);
+      const firstKey = [...poseClip.keys].sort((a, b) => a.frame - b.frame)[0];
+      selectedPoseKeyId = firstKey?.id ?? null;
+      poseFrame = firstKey?.frame ?? 0;
+      interpolationPreviewActive = false;
+      if (firstKey) applyRigSnapshot(firstKey.rig);
       render();
-    });
-  }
+      interpolationStatus.value = `${poseClip.keys.length}개 키프레임을 불러왔습니다`;
+    } catch (error) {
+      interpolationStatus.value = error instanceof Error ? error.message : "애니메이션을 불러오지 못했습니다.";
+    } finally {
+      poseAnimationFileInput.value = "";
+    }
+  });
   const setPanelCollapsed = (
     button: HTMLButtonElement,
     className: string,
@@ -586,6 +800,10 @@ export function createApp(container: HTMLDivElement): void {
 function toSignedAngle(angle: number): number {
   const normalized = ((angle % 360) + 360) % 360;
   return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function poseKeyLabel(index: number): string {
+  return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
 }
 
 function requireElement<T extends Element>(root: ParentNode, selector: string): T {
