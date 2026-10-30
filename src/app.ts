@@ -5,13 +5,16 @@ import { renderSvgEditor } from "./editor/svg-editor.ts";
 import { enablePointerInput } from "./editor/pointer-input.ts";
 import { createInspector, renderInspector } from "./editor/inspector.ts";
 import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image.ts";
+import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
 import {
   addPoseKey,
   advancePosePlayback,
   createPoseKey,
+  getPosePlaybackFrames,
   getPosePlaybackSettings,
+  reorderPoseKey,
   samplePosePlayback,
   samplePoseClip,
   type PoseClip,
@@ -60,9 +63,7 @@ export function createApp(container: HTMLDivElement): void {
           <div class="save-buttons">
             <button class="save-image-button is-secondary" type="button" data-open-controls>조작 안내</button>
             <button class="save-image-button is-secondary" type="button" data-open-preset>저장/불러오기</button>
-            <button class="save-image-button is-secondary" type="button" data-show-export-preview>미리보기</button>
-            <button class="save-image-button is-secondary" type="button" data-save-svg>SVG</button>
-            <button class="save-image-button" type="button" data-save-png>PNG 저장</button>
+            <button class="save-image-button" type="button" data-open-model-export>내보내기</button>
           </div>
         </div>
       </header>
@@ -130,6 +131,7 @@ export function createApp(container: HTMLDivElement): void {
                 <button type="button" data-delete-pose-key disabled>삭제</button>
                 <button type="button" data-save-pose-animation>저장</button>
                 <button type="button" data-load-pose-animation>불러오기</button>
+                <button type="button" data-open-animation-export disabled>내보내기</button>
                 <input type="file" accept="application/json,.json" data-pose-animation-file hidden />
                 <label>새 키 간격 <input class="pose-gap-input" type="number" min="1" max="120" step="1" value="6" data-pose-gap />f</label>
                 <label>프레임 <input type="range" min="0" max="0" step="1" value="0" data-interpolation-frame disabled /></label>
@@ -183,8 +185,8 @@ export function createApp(container: HTMLDivElement): void {
       <dialog class="export-preview-dialog" data-export-preview-dialog>
         <div class="export-preview-header">
           <div>
-            <span class="eyebrow">EXPORT PREVIEW</span>
-            <h2>저장할 이미지 미리보기</h2>
+            <span class="eyebrow" data-export-kind>MODEL EXPORT</span>
+            <h2 data-export-title>단일 모델 내보내기</h2>
           </div>
           <button type="button" class="preview-close-button" data-close-export-preview aria-label="미리보기 닫기">×</button>
         </div>
@@ -192,11 +194,12 @@ export function createApp(container: HTMLDivElement): void {
           <img data-export-preview-image alt="가이드가 제외된 저장 이미지 미리보기" />
         </div>
         <div class="export-preview-footer">
-          <span data-export-preview-size></span>
-          <div class="save-buttons">
-            <button class="save-image-button is-secondary" type="button" data-preview-save-svg>SVG 저장</button>
-            <button class="save-image-button" type="button" data-preview-save-png>PNG 저장</button>
+          <div class="export-format-control">
+            <label>포맷 <select data-export-format></select></label>
+            <span data-export-preview-size></span>
+            <span class="export-status" data-export-status aria-live="polite"></span>
           </div>
+          <button class="save-image-button" type="button" data-confirm-export>내보내기</button>
         </div>
       </dialog>
       <dialog class="preset-dialog" data-preset-dialog>
@@ -230,8 +233,7 @@ export function createApp(container: HTMLDivElement): void {
   const svg = requireElement<SVGSVGElement>(container, ".rig-canvas");
   const workspace = requireElement<HTMLElement>(container, ".workspace");
   const inspectorHost = requireElement<HTMLElement>(container, "[data-inspector-host]");
-  const savePngButton = requireElement<HTMLButtonElement>(container, "[data-save-png]");
-  const saveSvgButton = requireElement<HTMLButtonElement>(container, "[data-save-svg]");
+  const openModelExportButton = requireElement<HTMLButtonElement>(container, "[data-open-model-export]");
   const openPresetButton = requireElement<HTMLButtonElement>(container, "[data-open-preset]");
   const openControlsButton = requireElement<HTMLButtonElement>(container, "[data-open-controls]");
   const controlsDialog = requireElement<HTMLDialogElement>(container, "[data-controls-dialog]");
@@ -239,13 +241,15 @@ export function createApp(container: HTMLDivElement): void {
   const outlineToggle = requireElement<HTMLInputElement>(container, "[data-show-outlines]");
   const sameJointEdgeToggle = requireElement<HTMLInputElement>(container, "[data-hide-same-joint-edges]");
   const extendHiddenJointFacesToggle = requireElement<HTMLInputElement>(container, "[data-extend-hidden-joint-faces]");
-  const previewButton = requireElement<HTMLButtonElement>(container, "[data-show-export-preview]");
   const previewDialog = requireElement<HTMLDialogElement>(container, "[data-export-preview-dialog]");
   const previewImage = requireElement<HTMLImageElement>(container, "[data-export-preview-image]");
   const previewSize = requireElement<HTMLElement>(container, "[data-export-preview-size]");
   const previewCloseButton = requireElement<HTMLButtonElement>(container, "[data-close-export-preview]");
-  const previewSavePngButton = requireElement<HTMLButtonElement>(container, "[data-preview-save-png]");
-  const previewSaveSvgButton = requireElement<HTMLButtonElement>(container, "[data-preview-save-svg]");
+  const exportKind = requireElement<HTMLElement>(container, "[data-export-kind]");
+  const exportTitle = requireElement<HTMLElement>(container, "[data-export-title]");
+  const exportFormatSelect = requireElement<HTMLSelectElement>(container, "[data-export-format]");
+  const exportStatus = requireElement<HTMLElement>(container, "[data-export-status]");
+  const confirmExportButton = requireElement<HTMLButtonElement>(container, "[data-confirm-export]");
   const presetDialog = requireElement<HTMLDialogElement>(container, "[data-preset-dialog]");
   const closePresetButton = requireElement<HTMLButtonElement>(container, "[data-close-preset]");
   const savePresetButton = requireElement<HTMLButtonElement>(container, "[data-save-preset]");
@@ -279,6 +283,7 @@ export function createApp(container: HTMLDivElement): void {
   const deletePoseKeyButton = requireElement<HTMLButtonElement>(container, "[data-delete-pose-key]");
   const savePoseAnimationButton = requireElement<HTMLButtonElement>(container, "[data-save-pose-animation]");
   const loadPoseAnimationButton = requireElement<HTMLButtonElement>(container, "[data-load-pose-animation]");
+  const openAnimationExportButton = requireElement<HTMLButtonElement>(container, "[data-open-animation-export]");
   const poseAnimationFileInput = requireElement<HTMLInputElement>(container, "[data-pose-animation-file]");
   const poseGapInput = requireElement<HTMLInputElement>(container, "[data-pose-gap]");
   const interpolationFrameInput = requireElement<HTMLInputElement>(container, "[data-interpolation-frame]");
@@ -289,6 +294,7 @@ export function createApp(container: HTMLDivElement): void {
   const collapseInspectorButton = requireElement<HTMLButtonElement>(container, "[data-collapse-inspector]");
   const collapseTimelineButton = requireElement<HTMLButtonElement>(container, "[data-collapse-timeline]");
   let previewUrl: string | null = null;
+  let exportTarget: "model" | "animation" = "model";
   let poseClip: PoseClip = {
     id: "main-clip",
     name: "기본 클립",
@@ -305,6 +311,7 @@ export function createApp(container: HTMLDivElement): void {
   let posePlaybackRequestId: number | null = null;
   let posePlaybackTimestamp: number | null = null;
   let posePlaybackFrameRemainder = 0;
+  let draggedPoseKeyId: string | null = null;
   const getPresetParts = (): PresetParts => ({
     pose: container.querySelector<HTMLInputElement>("[data-preset-pose]")?.checked ?? false,
     proportions: container.querySelector<HTMLInputElement>("[data-preset-proportions]")?.checked ?? false,
@@ -359,6 +366,7 @@ export function createApp(container: HTMLDivElement): void {
     const frameKey = orderedKeys.find((key) => key.frame === poseFrame);
     const sample = orderedKeys.length > 0 ? samplePosePlayback(poseClip, poseFrame) : null;
     togglePosePlaybackButton.disabled = !hasInterpolation;
+    openAnimationExportButton.disabled = !hasInterpolation || posePlaybackActive;
     togglePosePlaybackButton.textContent = posePlaybackActive ? "■ 정지" : "▶ 재생";
     posePlaybackModeSelect.value = playback.mode;
     posePlaybackModeSelect.disabled = posePlaybackActive;
@@ -377,7 +385,7 @@ export function createApp(container: HTMLDivElement): void {
     poseKeyList.innerHTML = orderedKeys.length === 0
       ? `<span class="timeline-empty">키프레임 없음</span>`
       : orderedKeys.map((key) => `
-          <button type="button" class="timeline-pose${key.id === selectedPoseKeyId ? " is-selected" : ""}" data-pose-key-id="${key.id}"${posePlaybackActive ? " disabled" : ""}>
+          <button type="button" class="timeline-pose${key.id === selectedPoseKeyId ? " is-selected" : ""}" data-pose-key-id="${key.id}" draggable="${!posePlaybackActive}"${posePlaybackActive ? " disabled" : ""} title="드래그하여 키 순서 변경">
             <strong>${key.name}</strong><span>${key.frame}f</span>
           </button>`).join("");
     interpolationStatus.value = orderedKeys.length === 0
@@ -483,22 +491,35 @@ export function createApp(container: HTMLDivElement): void {
     closingFramesInput.value = String(closingFrames);
     render();
   });
-  addPoseKeyButton.addEventListener("click", () => {
-    const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
-    const gap = Math.max(1, Math.round(Number(poseGapInput.value) || 1));
-    const frame = orderedKeys.length === 0 ? 0 : orderedKeys[orderedKeys.length - 1].frame + gap;
+  const insertPoseKey = (frame: number, rig: Rig) => {
     const keyIndex = poseKeySequence++;
     const key = createPoseKey(
       `pose-${keyIndex + 1}`,
       `포즈 ${poseKeyLabel(keyIndex)}`,
       frame,
-      state.rig,
+      rig,
     );
     poseClip = addPoseKey(poseClip, key);
     selectedPoseKeyId = key.id;
     poseFrame = frame;
     interpolationPreviewActive = false;
+    applyRigSnapshot(rig);
     render();
+  };
+  addPoseKeyButton.addEventListener("click", () => {
+    const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
+    const firstFrame = orderedKeys[0]?.frame ?? 0;
+    const lastFrame = orderedKeys.at(-1)?.frame ?? 0;
+    const canInsertAtCurrentFrame = poseFrame > firstFrame
+      && poseFrame < lastFrame
+      && !orderedKeys.some((key) => key.frame === poseFrame);
+    if (canInsertAtCurrentFrame) {
+      const insertedRig = interpolationPreviewActive ? samplePoseClip(poseClip, poseFrame).rig : state.rig;
+      insertPoseKey(poseFrame, insertedRig);
+      return;
+    }
+    const gap = Math.max(1, Math.round(Number(poseGapInput.value) || 1));
+    insertPoseKey(orderedKeys.length === 0 ? 0 : lastFrame + gap, state.rig);
   });
   updatePoseKeyButton.addEventListener("click", () => {
     if (!selectedPoseKeyId) return;
@@ -539,18 +560,7 @@ export function createApp(container: HTMLDivElement): void {
   promoteInterpolationButton.addEventListener("click", () => {
     if (!interpolationPreviewActive || poseClip.keys.some((key) => key.frame === poseFrame)) return;
     const sampledRig = samplePoseClip(poseClip, poseFrame).rig;
-    const keyIndex = poseKeySequence++;
-    const key = createPoseKey(
-      `pose-${keyIndex + 1}`,
-      `포즈 ${poseKeyLabel(keyIndex)}`,
-      poseFrame,
-      sampledRig,
-    );
-    poseClip = addPoseKey(poseClip, key);
-    selectedPoseKeyId = key.id;
-    interpolationPreviewActive = false;
-    applyRigSnapshot(sampledRig);
-    render();
+    insertPoseKey(poseFrame, sampledRig);
   });
   poseKeyList.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-pose-key-id]");
@@ -561,6 +571,50 @@ export function createApp(container: HTMLDivElement): void {
     interpolationPreviewActive = false;
     applyRigSnapshot(key.rig);
     render();
+  });
+  const clearPoseDropIndicators = () => {
+    for (const button of poseKeyList.querySelectorAll(".timeline-pose")) {
+      button.classList.remove("is-drop-before", "is-drop-after", "is-dragging");
+    }
+  };
+  poseKeyList.addEventListener("dragstart", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-pose-key-id]");
+    if (!button || posePlaybackActive) return;
+    draggedPoseKeyId = button.dataset.poseKeyId ?? null;
+    if (!draggedPoseKeyId) return;
+    button.classList.add("is-dragging");
+    event.dataTransfer?.setData("text/plain", draggedPoseKeyId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  });
+  poseKeyList.addEventListener("dragover", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-pose-key-id]");
+    if (!button || !draggedPoseKeyId || button.dataset.poseKeyId === draggedPoseKeyId) return;
+    event.preventDefault();
+    for (const candidate of poseKeyList.querySelectorAll(".timeline-pose")) {
+      candidate.classList.remove("is-drop-before", "is-drop-after");
+    }
+    const insertAfter = event.clientX >= button.getBoundingClientRect().left + button.offsetWidth / 2;
+    button.classList.add(insertAfter ? "is-drop-after" : "is-drop-before");
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  });
+  poseKeyList.addEventListener("drop", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-pose-key-id]");
+    const targetKeyId = button?.dataset.poseKeyId;
+    if (!button || !draggedPoseKeyId || !targetKeyId || targetKeyId === draggedPoseKeyId) return;
+    event.preventDefault();
+    const insertAfter = event.clientX >= button.getBoundingClientRect().left + button.offsetWidth / 2;
+    poseClip = reorderPoseKey(poseClip, draggedPoseKeyId, targetKeyId, insertAfter);
+    const movedKey = poseClip.keys.find((key) => key.id === draggedPoseKeyId)!;
+    selectedPoseKeyId = movedKey.id;
+    poseFrame = movedKey.frame;
+    interpolationPreviewActive = false;
+    applyRigSnapshot(movedKey.rig);
+    draggedPoseKeyId = null;
+    render();
+  });
+  poseKeyList.addEventListener("dragend", () => {
+    draggedPoseKeyId = null;
+    clearPoseDropIndicators();
   });
   savePoseAnimationButton.addEventListener("click", () => {
     if (poseClip.keys.length === 0) {
@@ -725,14 +779,25 @@ export function createApp(container: HTMLDivElement): void {
     previewUrl = null;
     previewImage.removeAttribute("src");
   };
-  previewButton.addEventListener("click", () => {
+  const openExportDialog = (target: "model" | "animation") => {
+    exportTarget = target;
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     const preview = createExportPreview(svg);
     previewUrl = preview.url;
     previewImage.src = preview.url;
-    previewSize.textContent = `SVG ${Math.round(preview.width)} × ${Math.round(preview.height)} · PNG 2배 해상도 · 투명 배경`;
+    exportKind.textContent = target === "model" ? "MODEL EXPORT" : "ANIMATION EXPORT";
+    exportTitle.textContent = target === "model" ? "단일 모델 내보내기" : "애니메이션 내보내기";
+    exportFormatSelect.innerHTML = target === "model"
+      ? `<option value="png">PNG 이미지</option><option value="svg">SVG 벡터</option>`
+      : `<option value="png">PNG 프레임 시퀀스 (.zip)</option><option value="svg">SVG 프레임 시퀀스 (.zip)</option>`;
+    exportStatus.textContent = "";
+    previewSize.textContent = target === "model"
+      ? `${Math.round(preview.width)} × ${Math.round(preview.height)} · 투명 배경`
+      : `${getPosePlaybackFrames(poseClip).length}프레임 · ${poseClip.fps}fps · 고정 캔버스 · 투명 배경`;
     previewDialog.showModal();
-  });
+  };
+  openModelExportButton.addEventListener("click", () => openExportDialog("model"));
+  openAnimationExportButton.addEventListener("click", () => openExportDialog("animation"));
   previewCloseButton.addEventListener("click", closePreview);
   previewDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
@@ -741,35 +806,22 @@ export function createApp(container: HTMLDivElement): void {
   previewDialog.addEventListener("click", (event) => {
     if (event.target === previewDialog) closePreview();
   });
-  previewSavePngButton.addEventListener("click", () => exportDrawingAsPng(svg));
-  previewSaveSvgButton.addEventListener("click", () => exportDrawingAsSvg(svg));
-  savePngButton.addEventListener("click", async () => {
-    savePngButton.disabled = true;
-    savePngButton.textContent = "저장 중…";
+  confirmExportButton.addEventListener("click", async () => {
+    confirmExportButton.disabled = true;
+    confirmExportButton.textContent = "내보내는 중…";
+    exportStatus.textContent = "파일을 생성하고 있습니다.";
     try {
-      await exportDrawingAsPng(svg);
-      savePngButton.textContent = "저장 완료";
+      const format = exportFormatSelect.value === "svg" ? "svg" : "png";
+      if (exportTarget === "animation") await exportPoseAnimationFrames(poseClip, svg, viewState, format);
+      else if (format === "svg") exportDrawingAsSvg(svg);
+      else await exportDrawingAsPng(svg);
+      exportStatus.textContent = "내보내기를 시작했습니다.";
     } catch (error) {
       console.error(error);
-      savePngButton.textContent = "저장 실패";
+      exportStatus.textContent = error instanceof Error ? error.message : "내보내기에 실패했습니다.";
     } finally {
-      window.setTimeout(() => {
-        savePngButton.disabled = false;
-        savePngButton.textContent = "PNG 저장";
-      }, 1200);
-    }
-  });
-  saveSvgButton.addEventListener("click", () => {
-    try {
-      exportDrawingAsSvg(svg);
-      saveSvgButton.textContent = "저장 완료";
-    } catch (error) {
-      console.error(error);
-      saveSvgButton.textContent = "저장 실패";
-    } finally {
-      window.setTimeout(() => {
-        saveSvgButton.textContent = "SVG 저장";
-      }, 1200);
+      confirmExportButton.disabled = false;
+      confirmExportButton.textContent = "내보내기";
     }
   });
   window.addEventListener("keydown", (event) => {

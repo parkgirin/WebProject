@@ -6,9 +6,11 @@ import {
   addPoseKey,
   advancePosePlayback,
   createPoseKey,
+  getPosePlaybackFrames,
   interpolateAngle,
   interpolateColor,
   interpolatePoseRig,
+  reorderPoseKey,
   samplePosePlayback,
   samplePoseClip,
   type PoseClip,
@@ -89,6 +91,43 @@ test("a pose clip samples the correct segment across three or more keys", () => 
   assert.equal(late.rig.joints.find((joint) => joint.id === "left-shoulder")!.x, 120);
 });
 
+test("reordering keys changes pose order while preserving existing frame slots", () => {
+  const rig = createDefaultRig();
+  const clip: PoseClip = {
+    id: "clip",
+    name: "정렬",
+    fps: 12,
+    keys: [
+      createPoseKey("a", "A", 0, rig),
+      createPoseKey("b", "B", 4, rig),
+      createPoseKey("c", "C", 10, rig),
+    ],
+  };
+
+  const reordered = reorderPoseKey(clip, "c", "b", false);
+  assert.deepEqual(reordered.keys.map((key) => [key.id, key.frame]), [["a", 0], ["c", 4], ["b", 10]]);
+  assert.deepEqual(clip.keys.map((key) => [key.id, key.frame]), [["a", 0], ["b", 4], ["c", 10]]);
+});
+
+test("an interpolated pose key is inserted between its surrounding keys without changing the motion", () => {
+  const first = createDefaultRig();
+  const last = structuredClone(first);
+  last.joints.find((joint) => joint.id === "scene-root")!.x += 120;
+  let clip: PoseClip = {
+    id: "clip",
+    name: "중간 키",
+    fps: 12,
+    keys: [createPoseKey("a", "A", 0, first), createPoseKey("c", "C", 12, last)],
+  };
+  const beforeInsertion = samplePoseClip(clip, 3).rig;
+  const middle = samplePoseClip(clip, 6).rig;
+
+  clip = addPoseKey(clip, createPoseKey("b", "B", 6, middle));
+
+  assert.deepEqual(clip.keys.map((key) => [key.id, key.frame]), [["a", 0], ["b", 6], ["c", 12]]);
+  assert.deepEqual(samplePoseClip(clip, 3).rig, beforeInsertion);
+});
+
 test("ping-pong playback reverses at both ends without skipping endpoint poses", () => {
   const rig = createDefaultRig();
   const clip: PoseClip = {
@@ -123,6 +162,20 @@ test("loop playback interpolates from the last key back to the first", () => {
   assert.equal(closingMiddle.rightKey.id, "a");
   assert.equal(closingMiddle.rig.joints.find((joint) => joint.id === "scene-root")!.x, 150);
   assert.deepEqual(advancePosePlayback(clip, 9, 1, 1), { frame: 0, direction: 1 });
+});
+
+test("baked playback frame lists include a full cycle without duplicating the first frame", () => {
+  const rig = createDefaultRig();
+  const keys = [createPoseKey("a", "A", 0, rig), createPoseKey("b", "B", 3, rig)];
+  const pingPong: PoseClip = {
+    id: "ping-pong", name: "왕복", fps: 12, keys, playback: { mode: "ping-pong", closingFrames: 2 },
+  };
+  const loop: PoseClip = {
+    id: "loop", name: "반복", fps: 12, keys, playback: { mode: "loop", closingFrames: 2 },
+  };
+
+  assert.deepEqual(getPosePlaybackFrames(pingPong), [0, 1, 2, 3, 2, 1]);
+  assert.deepEqual(getPosePlaybackFrames(loop), [0, 1, 2, 3, 4]);
 });
 
 test("pose keys reject duplicate frames and incompatible structures", () => {

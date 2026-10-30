@@ -103,6 +103,27 @@ export function addPoseKey(clip: PoseClip, key: PoseKey): PoseClip {
   return { ...clip, keys: [...clip.keys, structuredClone(key)].sort((a, b) => a.frame - b.frame) };
 }
 
+/** Reorder key poses while retaining the clip's existing frame slots and segment durations. */
+export function reorderPoseKey(
+  clip: PoseClip,
+  movedKeyId: string,
+  targetKeyId: string,
+  insertAfter: boolean,
+): PoseClip {
+  const ordered = [...clip.keys].sort((a, b) => a.frame - b.frame);
+  const moved = ordered.find((key) => key.id === movedKeyId);
+  if (!moved || movedKeyId === targetKeyId) return clip;
+  const frames = ordered.map((key) => key.frame);
+  const remaining = ordered.filter((key) => key.id !== movedKeyId);
+  const targetIndex = remaining.findIndex((key) => key.id === targetKeyId);
+  if (targetIndex < 0) return clip;
+  remaining.splice(targetIndex + (insertAfter ? 1 : 0), 0, moved);
+  return {
+    ...clip,
+    keys: remaining.map((key, index) => ({ ...key, frame: frames[index] })),
+  };
+}
+
 export function samplePoseClip(clip: PoseClip, frame: number): PoseSample {
   if (clip.keys.length === 0) throw new Error("샘플링할 키프레임이 없습니다.");
   const keys = [...clip.keys].sort((a, b) => a.frame - b.frame);
@@ -171,6 +192,21 @@ export function advancePosePlayback(
   if (next === 0) return { frame: firstFrame, direction: 1 };
   if (next < span) return { frame: firstFrame + next, direction: 1 };
   return { frame: lastFrame - (next - span), direction: -1 };
+}
+
+/** Enumerate one complete baked playback cycle without duplicating the first frame at the end. */
+export function getPosePlaybackFrames(clip: PoseClip): number[] {
+  const keys = [...clip.keys].sort((a, b) => a.frame - b.frame);
+  if (keys.length === 0) return [];
+  if (keys.length === 1) return [keys[0].frame];
+  const firstFrame = keys[0].frame;
+  const lastFrame = keys[keys.length - 1].frame;
+  const forward = Array.from({ length: lastFrame - firstFrame + 1 }, (_, index) => firstFrame + index);
+  const settings = getPosePlaybackSettings(clip);
+  if (settings.mode === "loop") {
+    return [...forward, ...Array.from({ length: Math.max(0, settings.closingFrames - 1) }, (_, index) => lastFrame + index + 1)];
+  }
+  return [...forward, ...forward.slice(1, -1).reverse()];
 }
 
 export function interpolateColor(from: string, to: string, amount: number): string {

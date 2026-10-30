@@ -162,6 +162,9 @@ button, input { font: inherit; }
 .timeline-pose strong { font-size: 11px; white-space: nowrap; }
 .timeline-pose span { color: #718068; font-size: 9px; white-space: nowrap; }
 .timeline-pose.is-selected { border-color: #c18b15; background: #fff2bd; box-shadow: 0 0 0 2px rgba(193,139,21,.14); color: #71500d; }
+.timeline-pose.is-dragging { opacity: .45; }
+.timeline-pose.is-drop-before { box-shadow: -4px 0 0 #c18b15; }
+.timeline-pose.is-drop-after { box-shadow: 4px 0 0 #c18b15; }
 .timeline-pose:disabled { cursor: not-allowed; opacity: .5; }
 .is-timeline-collapsed .interpolation-header { border-bottom: 0; }
 .is-timeline-collapsed .interpolation-controls,
@@ -186,13 +189,17 @@ button, input { font: inherit; }
 
 .export-preview-dialog {
   width: min(760px, calc(100vw - 48px));
+  height: min(720px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
   padding: 0;
+  overflow: hidden;
   border: 1px solid #cfcac2;
   border-radius: 16px;
   background: #fff;
   color: #292724;
   box-shadow: 0 24px 80px rgba(37, 33, 28, .28);
 }
+.export-preview-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .export-preview-dialog::backdrop { background: rgba(35, 32, 28, .42); backdrop-filter: blur(2px); }
 .export-preview-header, .export-preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
 .export-preview-header { border-bottom: 1px solid #e5e1da; }
@@ -200,17 +207,31 @@ button, input { font: inherit; }
 .preview-close-button { width: 34px; height: 34px; padding: 0; border: 1px solid #d8d3cb; border-radius: 50%; background: #fff; color: #554f47; font-size: 23px; line-height: 1; cursor: pointer; }
 .preview-close-button:hover { background: #f0eee9; }
 .export-preview-stage {
-  min-height: 420px;
+  min-width: 0;
+  min-height: 0;
   padding: 28px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   background-color: #f3f1ed;
   background-image: linear-gradient(45deg, #e4e0da 25%, transparent 25%), linear-gradient(-45deg, #e4e0da 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e4e0da 75%), linear-gradient(-45deg, transparent 75%, #e4e0da 75%);
   background-size: 22px 22px;
   background-position: 0 0, 0 11px, 11px -11px, -11px 0;
 }
-.export-preview-stage img { display: block; max-width: 100%; max-height: 520px; filter: drop-shadow(0 8px 18px rgba(60, 48, 36, .12)); }
-.export-preview-footer { border-top: 1px solid #e5e1da; color: #777067; font-size: 11px; }
+.export-preview-stage img { min-width: 0; min-height: 0; display: block; max-width: 100%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 8px 18px rgba(60, 48, 36, .12)); }
+.export-preview-footer { min-width: 0; border-top: 1px solid #e5e1da; color: #777067; font-size: 11px; }
+.export-format-control { min-width: 0; display: grid; gap: 4px; }
+.export-format-control label { display: flex; align-items: center; gap: 7px; color: #4f4942; font-weight: 700; }
+.export-format-control select { min-width: 210px; padding: 6px 8px; border: 1px solid #cfc9c0; border-radius: 7px; background: #fff; color: #302d28; font: inherit; }
+.export-status { color: #2c7d70; }
+@media (max-width: 480px), (max-height: 560px) {
+  .export-preview-dialog { width: calc(100vw - 20px); height: calc(100dvh - 20px); max-height: calc(100dvh - 20px); }
+  .export-preview-header, .export-preview-footer { padding: 12px 14px; }
+  .export-preview-stage { padding: 12px; }
+  .export-preview-footer { align-items: stretch; flex-direction: column; gap: 10px; }
+  .export-format-control select { min-width: 0; width: 100%; }
+  .export-preview-footer > .save-image-button { width: 100%; }
+}
 .preset-dialog { width: min(500px, calc(100vw - 48px)); padding: 0; border: 1px solid #cfcac2; border-radius: 16px; background: #fff; color: #292724; box-shadow: 0 24px 80px rgba(37,33,28,.28); }
 .preset-dialog::backdrop { background: rgba(35,32,28,.42); backdrop-filter: blur(2px); }
 .preset-dialog-header, .preset-dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
