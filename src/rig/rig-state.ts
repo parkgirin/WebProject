@@ -1,11 +1,14 @@
 import {
   DEFAULT_RIG_LIMITS,
   type AxisPointSide,
+  type ArtShapeVertex,
+  type ElementLayerId,
   type Rig,
   type RigLimits,
 } from "./types.ts";
 import {
   getAxisPoint,
+  getArtShapeVertexPoint,
   getCircleTangentPoints,
   getJointWorldTransform,
   getPeerGroupCentroid,
@@ -15,6 +18,12 @@ import {
 
 const VALID_SIDES = new Set<AxisPointSide>([-1, 1]);
 
+export interface PolygonDraftPoint {
+  x: number;
+  y: number;
+  axisPoint?: { jointId: string; axisId: string; side: AxisPointSide };
+}
+
 export function validateRig(
   rig: Rig,
   limits: Readonly<RigLimits> = DEFAULT_RIG_LIMITS,
@@ -22,8 +31,12 @@ export function validateRig(
   const errors: string[] = [];
   const jointIds = new Set<string>();
   const faceIds = new Set<string>();
+  const shapeIds = new Set<string>();
   const groupIds = new Set<string>();
   const paletteIds = new Set<string>();
+  if (rig.elementLayers && ["joints", "axes", "faces", "shapes"].some((key) => (
+    typeof rig.elementLayers![key as ElementLayerId] !== "boolean"
+  ))) errors.push("Invalid element layer visibility");
 
   if (!isHexColor(rig.defaultColor)) {
     errors.push(`Invalid default color: ${rig.defaultColor}`);
@@ -96,6 +109,9 @@ export function validateRig(
         errors.push(`Duplicate axis id: ${joint.id}.${axis.id}`);
       }
       axisIds.add(axis.id);
+      if (axis.length !== undefined && (!(axis.length > 0) || !Number.isFinite(axis.length))) {
+        errors.push(`Axis length must be positive: ${joint.id}.${axis.id}`);
+      }
 
       const sides = new Set<AxisPointSide>();
       for (const side of axis.pointSides) {
@@ -216,6 +232,36 @@ export function validateRig(
     }
   }
 
+  for (const shape of rig.artShapes ?? []) {
+    if (!shape.id.trim() || shapeIds.has(shape.id)) errors.push(`Invalid or duplicate art shape id: ${shape.id}`);
+    shapeIds.add(shape.id);
+    if (shape.kind === "polygon" && shape.vertices.length < 3) errors.push(`Art shape needs at least three vertices: ${shape.id}`);
+    if (shape.kind === "line" && (shape.vertices.length !== 2 || !(shape.strokeWidth! > 0) || !Number.isFinite(shape.strokeWidth))) {
+      errors.push(`Art line needs two vertices and a positive width: ${shape.id}`);
+    }
+    if (shape.kind !== "polygon" && shape.kind !== "line") errors.push(`Unknown art shape kind: ${shape.id}`);
+    if (!Number.isFinite(shape.layerOrder)) errors.push(`Art shape layer order must be finite: ${shape.id}`);
+    if (shape.color !== undefined && !isHexColor(shape.color)) errors.push(`Invalid art shape color: ${shape.id}.${shape.color}`);
+    if (shape.paletteId && !paletteIds.has(shape.paletteId)) errors.push(`Unknown art shape palette: ${shape.id}.${shape.paletteId}`);
+    if (shape.groupId && !groupIds.has(shape.groupId)) errors.push(`Unknown art shape layer group: ${shape.id}.${shape.groupId}`);
+    const vertexIds = new Set<string>();
+    for (const vertex of shape.vertices) {
+      if (!vertex.id.trim() || vertexIds.has(vertex.id)) errors.push(`Invalid art shape vertex id: ${shape.id}.${vertex.id}`);
+      vertexIds.add(vertex.id);
+      if (vertex.source === "self" && (!Number.isFinite(vertex.x) || !Number.isFinite(vertex.y))) errors.push(`Invalid self vertex: ${shape.id}.${vertex.id}`);
+      if (vertex.source === "root") {
+        if (!jointIds.has(vertex.rootJointId) || !Number.isFinite(vertex.x) || !Number.isFinite(vertex.y)) errors.push(`Invalid root vertex: ${shape.id}.${vertex.id}`);
+      }
+      if (vertex.source === "axis-point") {
+        const joint = rig.joints.find((candidate) => candidate.id === vertex.jointId);
+        const axis = joint?.axes.find((candidate) => candidate.id === vertex.axisId);
+        if (!axis || !axis.pointSides.includes(vertex.side) || !Number.isFinite(vertex.offsetX) || !Number.isFinite(vertex.offsetY)) {
+          errors.push(`Invalid axis-point vertex: ${shape.id}.${vertex.id}`);
+        }
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -231,6 +277,8 @@ export class RigState {
     public readonly rig: Rig,
     public readonly limits: Readonly<RigLimits> = DEFAULT_RIG_LIMITS,
   ) {
+    rig.artShapes ??= [];
+    rig.elementLayers ??= { joints: true, axes: true, faces: true, shapes: true };
     const errors = validateRig(rig, limits);
     if (errors.length > 0) {
       throw new Error(`Invalid rig:\n${errors.join("\n")}`);
@@ -290,6 +338,231 @@ export class RigState {
       throw new Error(`Unknown face: ${faceId}`);
     }
     return face;
+  }
+
+  public getArtShape(shapeId: string) {
+    const shape = this.rig.artShapes?.find((candidate) => candidate.id === shapeId);
+    if (!shape) throw new Error(`Unknown art shape: ${shapeId}`);
+    return shape;
+  }
+
+  public addPolygon(points: PolygonDraftPoint[], rootJointId = "scene-root"): string {
+    if (points.length < 3) throw new Error("다각형에는 3개 이상의 꼭짓점이 필요합니다.");
+    const root = this.getJoint(rootJointId);
+    let index = (this.rig.artShapes?.length ?? 0) + 1;
+    let id = `polygon-${index}`;
+    while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `polygon-${++index}`;
+    const vertices = points.map((point, vertexIndex): ArtShapeVertex => point.axisPoint
+      ? { id: `vertex-${vertexIndex + 1}`, source: "axis-point", ...point.axisPoint, offsetX: 0, offsetY: 0 }
+      : { id: `vertex-${vertexIndex + 1}`, source: "root", rootJointId, ...this.worldToLocal(root.id, point.x, point.y) });
+    const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
+    this.rig.artShapes ??= [];
+    this.rig.artShapes.push({ id, kind: "polygon", vertices, layerOrder: clampLayerValue(maxOrder + 1) });
+    this.notify();
+    return id;
+  }
+
+  public addLine(points: PolygonDraftPoint[], strokeWidth = 16, rootJointId = "scene-root"): string {
+    if (points.length !== 2) throw new Error("선분에는 두 개의 끝점이 필요합니다.");
+    if (!(strokeWidth > 0) || !Number.isFinite(strokeWidth)) throw new Error("선분 두께는 0보다 커야 합니다.");
+    const root = this.getJoint(rootJointId);
+    let index = (this.rig.artShapes?.filter((shape) => shape.kind === "line").length ?? 0) + 1;
+    let id = `line-${index}`;
+    while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `line-${++index}`;
+    const vertices = points.map((point, vertexIndex): ArtShapeVertex => point.axisPoint
+      ? { id: `vertex-${vertexIndex + 1}`, source: "axis-point", ...point.axisPoint, offsetX: 0, offsetY: 0 }
+      : { id: `vertex-${vertexIndex + 1}`, source: "root", rootJointId, ...this.worldToLocal(root.id, point.x, point.y) });
+    const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
+    this.rig.artShapes ??= [];
+    this.rig.artShapes.push({ id, kind: "line", vertices, strokeWidth, layerOrder: clampLayerValue(maxOrder + 1) });
+    this.notify();
+    return id;
+  }
+
+  public addArtShapeFromFace(faceId: string): string {
+    const face = this.getFace(faceId);
+    let index = 1;
+    let id = `${face.id}-shape-${index}`;
+    while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `${face.id}-shape-${++index}`;
+    const vertices: ArtShapeVertex[] = face.vertices.map((vertex, vertexIndex) => ({
+      id: `vertex-${vertexIndex + 1}`,
+      source: "axis-point",
+      ...vertex,
+      offsetX: 0,
+      offsetY: 0,
+    }));
+    this.rig.artShapes ??= [];
+    this.rig.artShapes.push({
+      id,
+      kind: "polygon",
+      vertices,
+      ...(face.color ? { color: face.color } : {}),
+      ...(face.paletteId ? { paletteId: face.paletteId } : {}),
+      ...(face.groupId ? { groupId: face.groupId } : {}),
+      layerOrder: clampLayerValue(this.getFaceLayerOrder(face.id) + 1),
+    });
+    this.notify();
+    return id;
+  }
+
+  public insertArtShapeVertex(shapeId: string, afterVertexId: string, x: number, y: number, rootJointId = "scene-root"): string {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("꼭짓점 좌표가 올바르지 않습니다.");
+    const shape = this.getArtShape(shapeId);
+    if (shape.kind !== "polygon") throw new Error("꼭짓점 삽입은 다각형에서만 사용할 수 있습니다.");
+    const index = shape.vertices.findIndex((vertex) => vertex.id === afterVertexId);
+    if (index < 0) throw new Error(`Unknown art shape vertex: ${shapeId}.${afterVertexId}`);
+    const root = this.getJoint(rootJointId);
+    let sequence = shape.vertices.length + 1;
+    let id = `vertex-${sequence}`;
+    while (shape.vertices.some((vertex) => vertex.id === id)) id = `vertex-${++sequence}`;
+    shape.vertices.splice(index + 1, 0, {
+      id,
+      source: "root",
+      rootJointId,
+      ...this.worldToLocal(root.id, x, y),
+    });
+    this.notify();
+    return id;
+  }
+
+  public removeArtShapeVertex(shapeId: string, vertexId: string): string | null {
+    const shape = this.getArtShape(shapeId);
+    const minimum = shape.kind === "line" ? 2 : 3;
+    if (shape.vertices.length <= minimum) throw new Error(shape.kind === "line" ? "선분에는 두 개의 끝점이 필요합니다." : "다각형에는 최소 3개의 꼭짓점이 필요합니다.");
+    const index = shape.vertices.findIndex((vertex) => vertex.id === vertexId);
+    if (index < 0) return null;
+    shape.vertices.splice(index, 1);
+    const next = shape.vertices[Math.min(index, shape.vertices.length - 1)] ?? null;
+    this.notify();
+    return next?.id ?? null;
+  }
+
+  public bindArtShapeVertexToAxis(
+    shapeId: string,
+    vertexId: string,
+    jointId: string,
+    axisId: string,
+    side: AxisPointSide,
+    snap = false,
+  ): void {
+    const shape = this.getArtShape(shapeId);
+    const index = shape.vertices.findIndex((vertex) => vertex.id === vertexId);
+    if (index < 0) throw new Error(`Unknown art shape vertex: ${shapeId}.${vertexId}`);
+    const joint = this.getJoint(jointId);
+    const axis = joint.axes.find((candidate) => candidate.id === axisId);
+    if (!axis || !axis.pointSides.includes(side)) throw new Error("사용할 수 없는 축 끝점입니다.");
+    const world = getArtShapeVertexPoint(this.rig, shape.vertices[index]);
+    const next: ArtShapeVertex = { id: vertexId, source: "axis-point", jointId, axisId, side, offsetX: 0, offsetY: 0 };
+    if (!snap) this.setArtShapeVertexWorldPosition(next, world.x, world.y);
+    shape.vertices[index] = next;
+    this.notify();
+  }
+
+  public unbindArtShapeVertex(shapeId: string, vertexId: string, rootJointId = "scene-root"): void {
+    const shape = this.getArtShape(shapeId);
+    const index = shape.vertices.findIndex((vertex) => vertex.id === vertexId);
+    if (index < 0) throw new Error(`Unknown art shape vertex: ${shapeId}.${vertexId}`);
+    const world = getArtShapeVertexPoint(this.rig, shape.vertices[index]);
+    const root = this.getJoint(rootJointId);
+    shape.vertices[index] = { id: vertexId, source: "root", rootJointId, ...this.worldToLocal(root.id, world.x, world.y) };
+    this.notify();
+  }
+
+  public removeArtShape(shapeId: string): void {
+    const index = this.rig.artShapes?.findIndex((shape) => shape.id === shapeId) ?? -1;
+    if (index < 0) return;
+    this.rig.artShapes!.splice(index, 1);
+    this.notify();
+  }
+
+  public moveArtShapeVertex(shapeId: string, vertexId: string, x: number, y: number): void {
+    const vertex = this.getArtShape(shapeId).vertices.find((candidate) => candidate.id === vertexId);
+    if (!vertex || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.setArtShapeVertexWorldPosition(vertex, x, y);
+    this.notify();
+  }
+
+  public moveArtShape(shapeId: string, deltaX: number, deltaY: number): void {
+    if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
+    const shape = this.getArtShape(shapeId);
+    for (const vertex of shape.vertices) {
+      const world = getArtShapeVertexPoint(this.rig, vertex);
+      this.setArtShapeVertexWorldPosition(vertex, world.x + deltaX, world.y + deltaY);
+    }
+    this.notify();
+  }
+
+  public paintArtShapeWithColor(shapeId: string, color: string): void {
+    const paletteId = this.getOrCreatePaletteColor(color);
+    if (!paletteId) return;
+    const shape = this.getArtShape(shapeId);
+    shape.paletteId = paletteId;
+    delete shape.color;
+    this.notify();
+  }
+
+  public setArtShapeStrokeWidth(shapeId: string, strokeWidth: number): void {
+    if (!(strokeWidth > 0) || !Number.isFinite(strokeWidth)) return;
+    const shape = this.getArtShape(shapeId);
+    if (shape.kind !== "line") return;
+    shape.strokeWidth = strokeWidth;
+    this.notify();
+  }
+
+  public setArtShapeGroup(shapeId: string, groupId: string | null): void {
+    const shape = this.getArtShape(shapeId);
+    if (groupId) this.getLayerGroup(groupId);
+    shape.groupId = groupId ?? undefined;
+    this.notify();
+  }
+
+  public setArtShapeLayerOrder(shapeId: string, layerOrder: number): void {
+    if (!Number.isFinite(layerOrder)) return;
+    this.getArtShape(shapeId).layerOrder = clampLayerValue(layerOrder);
+    this.notify();
+  }
+
+  public setElementLayerVisibility(layer: ElementLayerId, visible: boolean): void {
+    this.rig.elementLayers ??= { joints: true, axes: true, faces: true, shapes: true };
+    this.rig.elementLayers[layer] = visible;
+    this.notify();
+  }
+
+  public setAxisLength(jointId: string, axisId: string, length: number): void {
+    if (!(length > 0) || !Number.isFinite(length)) return;
+    const axis = this.getJoint(jointId).axes.find((candidate) => candidate.id === axisId);
+    if (!axis) return;
+    axis.length = length;
+    this.notify();
+  }
+
+  public addAxis(jointId: string): string {
+    const joint = this.getJoint(jointId);
+    if (joint.axes.length >= this.limits.maxAxesPerJoint) {
+      throw new Error(`관절당 축은 최대 ${this.limits.maxAxesPerJoint}개까지 추가할 수 있습니다.`);
+    }
+    let sequence = joint.axes.length + 1;
+    let id = `art-axis-${sequence}`;
+    while (joint.axes.some((axis) => axis.id === id)) id = `art-axis-${++sequence}`;
+    joint.axes.push({ id, angle: 0, length: joint.radius, pointSides: [-1, 1] });
+    this.notify();
+    return id;
+  }
+
+  public setAxisPointSides(jointId: string, axisId: string, pointSides: AxisPointSide[]): void {
+    const axis = this.getJoint(jointId).axes.find((candidate) => candidate.id === axisId);
+    if (!axis) throw new Error(`Unknown axis: ${jointId}.${axisId}`);
+    const unique = [...new Set(pointSides)].filter((side): side is AxisPointSide => side === -1 || side === 1);
+    if (unique.length === 0) throw new Error("축 끝점은 한쪽 이상 활성화해야 합니다.");
+    const removed = axis.pointSides.filter((side) => !unique.includes(side));
+    const inUse = (this.rig.artShapes ?? []).some((shape) => shape.vertices.some((vertex) => (
+      vertex.source === "axis-point" && vertex.jointId === jointId && vertex.axisId === axisId && removed.includes(vertex.side)
+    ))) || this.rig.faces.some((face) => face.vertices.some((vertex) => (
+      vertex.jointId === jointId && vertex.axisId === axisId && removed.includes(vertex.side)
+    )));
+    if (inUse) throw new Error("도형이나 면이 사용하는 축 끝점은 비활성화할 수 없습니다.");
+    axis.pointSides = unique.sort((a, b) => a - b);
+    this.notify();
   }
 
   public moveJoint(jointId: string, x: number, y: number): void {
@@ -834,10 +1107,12 @@ export class RigState {
   }
 
   /** Move one visible item to an exact position in the rendered body stack. */
-  public moveBodyItemInStack(type: "joint" | "face", id: string, direction: -1 | 1, toEnd: boolean): void {
+  public moveBodyItemInStack(type: "joint" | "face" | "shape", id: string, direction: -1 | 1, toEnd: boolean): void {
     const visible = (groupId: string | undefined) => !groupId || this.getLayerGroup(groupId).visible;
+    const itemGroupId = (entry: { type: "joint" | "face" | "shape"; id: string }) => entry.type === "joint"
+      ? this.getJoint(entry.id).groupId : entry.type === "face" ? this.getFace(entry.id).groupId : this.getArtShape(entry.id).groupId;
     const entries = this.getBodyStackEntries().filter((entry) => visible(
-      entry.type === "joint" ? this.getJoint(entry.id).groupId : this.getFace(entry.id).groupId,
+      itemGroupId(entry),
     )).sort((a, b) => a.order - b.order || `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
     const index = entries.findIndex((entry) => entry.type === type && entry.id === id);
     if (index < 0 || (direction > 0 ? index === entries.length - 1 : index === 0)) return;
@@ -846,7 +1121,7 @@ export class RigState {
     const previous = entries[insertion - 1];
     const next = entries[insertion];
     const groupOrder = (entry: typeof target) => this.getGroupStackOrder(
-      entry.type === "joint" ? this.getJoint(entry.id).groupId : this.getFace(entry.id).groupId,
+      itemGroupId(entry),
     );
     const assignments: Array<{ entry: typeof target; order: number }> = [];
     const assign = (entry: typeof target, order: number) => {
@@ -883,7 +1158,8 @@ export class RigState {
     for (const { entry, order } of assignments) {
       const local = order - groupOrder(entry);
       if (entry.type === "joint") this.getJoint(entry.id).renderOrder = local;
-      else this.getFace(entry.id).layerOrder = local;
+      else if (entry.type === "face") this.getFace(entry.id).layerOrder = local;
+      else this.getArtShape(entry.id).layerOrder = local;
     }
     this.notify();
   }
@@ -967,6 +1243,9 @@ export class RigState {
       }
       for (const face of this.rig.faces) {
         if (face.paletteId === paletteId) face.paletteId = matching.id;
+      }
+      for (const shape of this.rig.artShapes ?? []) {
+        if (shape.paletteId === paletteId) shape.paletteId = matching.id;
       }
       this.rig.palette = this.rig.palette.filter((entry) => entry.id !== paletteId);
     }
@@ -1126,14 +1405,43 @@ export class RigState {
     face.layerOrder = clampLayerValue(stackOrder - this.getGroupStackOrder(face.groupId));
   }
 
-  private getBodyStackEntries(): Array<{ type: "joint" | "face"; id: string; order: number }> {
+  private getBodyStackEntries(): Array<{ type: "joint" | "face" | "shape"; id: string; order: number }> {
     return [
       ...this.rig.joints
         .filter((joint) => joint.bodyVisible)
         .map((joint) => ({ type: "joint" as const, id: joint.id, order: this.getJointStackOrder(joint) })),
       ...this.rig.faces
         .map((face) => ({ type: "face" as const, id: face.id, order: this.getFaceStackOrder(face) })),
+      ...(this.rig.artShapes ?? [])
+        .map((shape) => ({ type: "shape" as const, id: shape.id, order: this.getGroupStackOrder(shape.groupId) + shape.layerOrder })),
     ];
+  }
+
+  private worldToLocal(jointId: string, x: number, y: number): { x: number; y: number } {
+    const joint = getJointWorldTransform(this.rig, jointId);
+    const radians = -joint.rotation * Math.PI / 180;
+    const dx = x - joint.x;
+    const dy = y - joint.y;
+    return { x: Math.cos(radians) * dx - Math.sin(radians) * dy, y: Math.sin(radians) * dx + Math.cos(radians) * dy };
+  }
+
+  private setArtShapeVertexWorldPosition(vertex: ArtShapeVertex, x: number, y: number): void {
+    if (vertex.source === "self") {
+      vertex.x = x;
+      vertex.y = y;
+      return;
+    }
+    if (vertex.source === "root") {
+      Object.assign(vertex, this.worldToLocal(vertex.rootJointId, x, y));
+      return;
+    }
+    const joint = getJointWorldTransform(this.rig, vertex.jointId);
+    const endpoint = getArtShapeVertexPoint(this.rig, { ...vertex, offsetX: 0, offsetY: 0 });
+    const radians = -joint.rotation * Math.PI / 180;
+    const dx = x - endpoint.x;
+    const dy = y - endpoint.y;
+    vertex.offsetX = Math.cos(radians) * dx - Math.sin(radians) * dy;
+    vertex.offsetY = Math.sin(radians) * dx + Math.cos(radians) * dy;
   }
 
   private setJointWorldPosition(joint: Rig["joints"][number], x: number, y: number): void {

@@ -3,6 +3,8 @@ export type AxisPointSide = -1 | 1;
 export interface JointAxis {
   id: string;
   angle: number;
+  /** Endpoint distance from the joint centre. Defaults to the joint radius. */
+  length?: number;
   pointSides: AxisPointSide[];
   /** Derives the axis from a connection direction or a reference-axis tangent. */
   alignment?: "parent-perpendicular" | "parent-parallel" | "parent-peer-perpendicular" | "parent-peer-parallel"
@@ -83,6 +85,27 @@ export interface ColorPaletteEntry {
   color: string;
 }
 
+export type ArtShapeVertex =
+  | { id: string; source: "self"; x: number; y: number }
+  | { id: string; source: "root"; rootJointId: string; x: number; y: number }
+  | { id: string; source: "axis-point"; jointId: string; axisId: string; side: AxisPointSide; offsetX: number; offsetY: number };
+
+export interface ArtShape {
+  id: string;
+  kind: "polygon" | "line";
+  vertices: ArtShapeVertex[];
+  /** Line thickness in model units. Used only when kind is line. */
+  strokeWidth?: number;
+  color?: string;
+  paletteId?: string;
+  groupId?: string;
+  layerOrder: number;
+}
+
+export type ElementLayerId = "joints" | "axes" | "faces" | "shapes";
+
+export type ElementLayerVisibility = Record<ElementLayerId, boolean>;
+
 export interface Rig {
   defaultColor: string;
   /** 0..100: how strongly joint depth affects the rendered 2.5D projection. */
@@ -94,6 +117,9 @@ export interface Rig {
   joints: Joint[];
   peerGroups: PeerGroup[];
   faces: Face[];
+  artShapes?: ArtShape[];
+  /** Photo-editor style global visibility for each element category. */
+  elementLayers?: ElementLayerVisibility;
 }
 
 export interface RigLimits {
@@ -102,5 +128,5 @@ export interface RigLimits {
 
 // The schema uses an array so this policy can be raised without another data migration.
 export const DEFAULT_RIG_LIMITS: Readonly<RigLimits> = {
-  maxAxesPerJoint: 3,
+  maxAxesPerJoint: 8,
 };

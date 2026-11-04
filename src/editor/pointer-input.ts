@@ -1,4 +1,4 @@
-import type { RigState } from "../rig/rig-state.ts";
+import type { PolygonDraftPoint, RigState } from "../rig/rig-state.ts";
 import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot, unprojectPoint } from "../rig/geometry.ts";
 import type { EditorSelection } from "./types.ts";
 
@@ -9,8 +9,23 @@ interface PointerInputOptions {
   getMoveSelectedIndividually?: () => boolean;
   getPaintColor: () => string | null;
   getLayerToolActive: () => boolean;
+  getPolygonToolActive?: () => boolean;
+  getLineToolActive?: () => boolean;
+  getVertexAddToolActive?: () => boolean;
+  getVertexBindToolActive?: () => boolean;
+  addPolygonPoint?: (point: PolygonDraftPoint) => void;
+  addLinePoint?: (point: PolygonDraftPoint) => void;
+  finishPolygon?: () => void;
+  cancelPolygon?: () => void;
+  removeLastPolygonPoint?: () => void;
+  cancelLine?: () => void;
+  removeLastLinePoint?: () => void;
+  insertShapeVertex?: (shapeId: string, afterVertexId: string, point: { x: number; y: number }) => void;
+  bindSelectedShapeVertex?: (jointId: string, axisId: string, side: -1 | 1, snap: boolean) => void;
+  deleteSelectedShapeVertex?: () => void;
   setSelection: (selection: EditorSelection) => void;
   setSelectedFace: (faceId: string) => void;
+  setSelectedShape?: (shapeId: string, vertexId?: string) => void;
 }
 
 export interface ViewportController {
@@ -31,6 +46,8 @@ type Interaction =
   | { type: "rotate-child"; jointId: string; angleOffset: number }
   | { type: "rotate-peer"; peerGroupId: string; pivotX: number; pivotY: number; angleOffset: number }
   | { type: "rotate-selection"; jointIds: string[]; pivotX: number; pivotY: number; lastAngle: number }
+  | { type: "move-shape"; shapeId: string; lastX: number; lastY: number }
+  | { type: "move-shape-vertex"; shapeId: string; vertexId: string }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
   | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement };
 
@@ -102,16 +119,63 @@ export function enablePointerInput(
     const jointId = target.dataset.jointId;
     const axisId = target.dataset.axisId;
     const faceId = target.dataset.faceId;
+    const shapeId = target.dataset.shapeId;
+    const vertexId = target.dataset.vertexId;
+    const afterVertexId = target.dataset.afterVertexId;
     const peerGroupId = target.dataset.peerGroupId;
     interactionDepth = jointId ? options.state.getJoint(jointId).depth ?? 0
       : peerGroupId
         ? getPeerDepth(options.state.rig, peerGroupId)
+        : shapeId
+          ? getShapeDepth(options.state.rig, shapeId, vertexId)
         : faceId
           ? getFaceDepth(options.state.rig, faceId)
           : 0;
     const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
 
-    if (event.button === 1 || (event.button === 0 && (spacePressed || panMode))) {
+    if (event.button === 0 && options.getPolygonToolActive?.() && !spacePressed && !panMode) {
+      if (target.hasAttribute("data-polygon-draft-start")) options.finishPolygon?.();
+      else {
+        const side = Number(target.dataset.axisSide);
+        options.addPolygonPoint?.({
+          x: point.x,
+          y: point.y,
+          ...(target.hasAttribute("data-axis-point") && jointId && axisId && (side === -1 || side === 1)
+            ? { axisPoint: { jointId, axisId, side: side as -1 | 1 } } : {}),
+        });
+      }
+      event.preventDefault();
+      return;
+    } else if (event.button === 0 && options.getLineToolActive?.() && !spacePressed && !panMode) {
+      const side = Number(target.dataset.axisSide);
+      options.addLinePoint?.({
+        x: point.x,
+        y: point.y,
+        ...(target.hasAttribute("data-axis-point") && jointId && axisId && (side === -1 || side === 1)
+          ? { axisPoint: { jointId, axisId, side: side as -1 | 1 } } : {}),
+      });
+      event.preventDefault();
+      return;
+    } else if (event.button === 0 && options.getVertexAddToolActive?.() && !spacePressed && !panMode) {
+      if (shapeId && afterVertexId && target.hasAttribute("data-shape-edge")) {
+        options.insertShapeVertex?.(shapeId, afterVertexId, point);
+      } else if (shapeId) options.setSelectedShape?.(shapeId, vertexId);
+      event.preventDefault();
+      return;
+    } else if (event.button === 0 && options.getVertexBindToolActive?.() && !spacePressed && !panMode) {
+      if (shapeId && vertexId && target.hasAttribute("data-shape-vertex")) {
+        options.setSelectedShape?.(shapeId, vertexId);
+      } else if (shapeId) {
+        options.setSelectedShape?.(shapeId);
+      } else {
+        const side = Number(target.dataset.axisSide);
+        if (target.hasAttribute("data-axis-point") && jointId && axisId && (side === -1 || side === 1)) {
+          options.bindSelectedShapeVertex?.(jointId, axisId, side as -1 | 1, event.altKey);
+        }
+      }
+      event.preventDefault();
+      return;
+    } else if (event.button === 1 || (event.button === 0 && (spacePressed || panMode))) {
       interaction = {
         type: "pan",
         startClientX: event.clientX,
@@ -129,6 +193,9 @@ export function enablePointerInput(
       } else if (faceId) {
         options.setSelectedFace(faceId);
         options.state.moveBodyItemInStack("face", faceId, direction, event.shiftKey);
+      } else if (shapeId) {
+        options.setSelectedShape?.(shapeId, vertexId);
+        options.state.moveBodyItemInStack("shape", shapeId, direction, event.shiftKey);
       }
       event.preventDefault();
       return;
@@ -137,6 +204,17 @@ export function enablePointerInput(
       if (joint.bodyVisible && !joint.isVirtual) {
         options.state.paintJointWithColor(jointId, options.getPaintColor()!);
       }
+    } else if (shapeId && vertexId && target.hasAttribute("data-shape-vertex")) {
+      options.setSelectedShape?.(shapeId, vertexId);
+      interaction = { type: "move-shape-vertex", shapeId, vertexId };
+      options.state.beginHistoryTransaction();
+    } else if (shapeId && options.getPaintColor()) {
+      options.setSelectedShape?.(shapeId);
+      options.state.paintArtShapeWithColor(shapeId, options.getPaintColor()!);
+    } else if (shapeId) {
+      options.setSelectedShape?.(shapeId);
+      interaction = { type: "move-shape", shapeId, lastX: point.x, lastY: point.y };
+      options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-selection-rotation")) {
       const selected = options.getSelection().jointIds;
       const pivotX = Number(target.dataset.pivotX);
@@ -303,6 +381,12 @@ export function enablePointerInput(
       if (event.shiftKey) delta = Math.round(delta / 15) * 15;
       options.state.rotateJointsAround(interaction.jointIds, interaction.pivotX, interaction.pivotY, delta);
       interaction.lastAngle = angle;
+    } else if (interaction.type === "move-shape-vertex") {
+      options.state.moveArtShapeVertex(interaction.shapeId, interaction.vertexId, point.x, point.y);
+    } else if (interaction.type === "move-shape") {
+      options.state.moveArtShape(interaction.shapeId, point.x - interaction.lastX, point.y - interaction.lastY);
+      interaction.lastX = point.x;
+      interaction.lastY = point.y;
     } else if (interaction.type === "marquee") {
       const x = Math.min(interaction.startX, point.x);
       const y = Math.min(interaction.startY, point.y);
@@ -365,6 +449,20 @@ export function enablePointerInput(
     if (event.code === "Space" && !editingOrDialog) {
       spacePressed = true;
       element.classList.add("is-pannable");
+      event.preventDefault();
+    } else if (!editingOrDialog && options.getPolygonToolActive?.()) {
+      if (event.key === "Enter") options.finishPolygon?.();
+      else if (event.key === "Escape") options.cancelPolygon?.();
+      else if (event.key === "Backspace") options.removeLastPolygonPoint?.();
+      else return;
+      event.preventDefault();
+    } else if (!editingOrDialog && options.getLineToolActive?.()) {
+      if (event.key === "Escape") options.cancelLine?.();
+      else if (event.key === "Backspace") options.removeLastLinePoint?.();
+      else return;
+      event.preventDefault();
+    } else if (!editingOrDialog && (event.key === "Delete" || event.key === "Backspace")) {
+      options.deleteSelectedShapeVertex?.();
       event.preventDefault();
     }
   };
@@ -438,6 +536,17 @@ function getPeerDepth(rig: RigState["rig"], peerGroupId: string): number {
   if (!group) return 0;
   if (group.centerJointId) return rig.joints.find((joint) => joint.id === group.centerJointId)?.depth ?? 0;
   return group.jointIds.reduce((total, id) => total + (rig.joints.find((joint) => joint.id === id)?.depth ?? 0), 0) / group.jointIds.length;
+}
+
+function getShapeDepth(rig: RigState["rig"], shapeId: string, vertexId?: string): number {
+  const shape = rig.artShapes?.find((candidate) => candidate.id === shapeId);
+  if (!shape) return 0;
+  const vertices = vertexId ? shape.vertices.filter((vertex) => vertex.id === vertexId) : shape.vertices;
+  if (!vertices.length) return 0;
+  return vertices.reduce((sum, vertex) => {
+    const jointId = vertex.source === "axis-point" ? vertex.jointId : vertex.source === "root" ? vertex.rootJointId : null;
+    return sum + (jointId ? rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0 : 0);
+  }, 0) / vertices.length;
 }
 
 function getAngle(centerX: number, centerY: number, x: number, y: number): number {

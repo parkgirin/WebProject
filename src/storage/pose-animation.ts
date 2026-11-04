@@ -51,6 +51,7 @@ export function parsePoseAnimationFile(text: string): PoseAnimationFile {
       throw new Error("애니메이션 키프레임 형식이 올바르지 않습니다.");
     }
     const rig = sourceKey.rig as unknown as Rig;
+    rig.artShapes ??= [];
     let errors: string[];
     try {
       errors = validateRig(rig);

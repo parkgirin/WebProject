@@ -1,10 +1,11 @@
-import type { RigState } from "../rig/rig-state.ts";
+import { validateRig, type RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
 
 export interface PresetParts {
   pose: boolean;
   proportions: boolean;
   colors: boolean;
+  shapes?: boolean;
 }
 
 interface SavedJointPose {
@@ -37,8 +38,9 @@ export interface RigPreset {
     joints: Record<string, { color?: string; paletteId?: string } | null>;
     faces: Record<string, { color?: string; paletteId?: string } | null>;
   };
-  /** Reserved for future ArtShape and texture asset data. */
-  character?: never;
+  artShapes?: NonNullable<Rig["artShapes"]>;
+  /** Axes referenced by saved art-shape vertices, grouped by joint. */
+  artAxes?: Record<string, Rig["joints"][number]["axes"]>;
 }
 
 export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
@@ -80,6 +82,22 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
       faces: Object.fromEntries(rig.faces.map((face) => [face.id, face.color || face.paletteId ? { ...(face.color ? { color: face.color } : {}), ...(face.paletteId ? { paletteId: face.paletteId } : {}) } : null])),
     };
   }
+  if (parts.shapes) {
+    preset.artShapes = structuredClone(rig.artShapes ?? []);
+    const references = new Map<string, Set<string>>();
+    for (const shape of rig.artShapes ?? []) {
+      for (const vertex of shape.vertices) {
+        if (vertex.source !== "axis-point") continue;
+        const axisIds = references.get(vertex.jointId) ?? new Set<string>();
+        axisIds.add(vertex.axisId);
+        references.set(vertex.jointId, axisIds);
+      }
+    }
+    preset.artAxes = Object.fromEntries([...references].map(([jointId, axisIds]) => {
+      const axes = rig.joints.find((joint) => joint.id === jointId)?.axes.filter((axis) => axisIds.has(axis.id)) ?? [];
+      return [jointId, structuredClone(axes)];
+    }));
+  }
   return preset;
 }
 
@@ -101,6 +119,8 @@ export function parseRigPreset(text: string): RigPreset {
   }
   if (value.proportions !== undefined && !isRecord(value.proportions)) throw new Error("비율 데이터 형식이 올바르지 않습니다.");
   if (value.colors !== undefined && !isRecord(value.colors)) throw new Error("색상 데이터 형식이 올바르지 않습니다.");
+  if (value.artShapes !== undefined && !Array.isArray(value.artShapes)) throw new Error("도형 데이터 형식이 올바르지 않습니다.");
+  if (value.artAxes !== undefined && !isRecord(value.artAxes)) throw new Error("도형 축 데이터 형식이 올바르지 않습니다.");
   return value as unknown as RigPreset;
 }
 
@@ -140,6 +160,28 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
     if (parts.colors && preset.colors && isColors(preset.colors)) {
       state.applyColors(preset.colors);
       applied.push("색상");
+    }
+    if (parts.shapes && preset.artShapes) {
+      const candidate = structuredClone(state.rig);
+      for (const [jointId, savedAxes] of Object.entries(preset.artAxes ?? {})) {
+        const joint = candidate.joints.find((entry) => entry.id === jointId);
+        if (!joint || !Array.isArray(savedAxes)) continue;
+        for (const savedAxis of savedAxes) {
+          const index = joint.axes.findIndex((axis) => axis.id === savedAxis.id);
+          if (index >= 0) joint.axes[index] = structuredClone(savedAxis);
+          else joint.axes.push(structuredClone(savedAxis));
+        }
+      }
+      candidate.artShapes = structuredClone(preset.artShapes);
+      const errors = validateRig(candidate);
+      if (errors.length) throw new Error(`도형 데이터를 적용할 수 없습니다: ${errors[0]}`);
+      for (const [jointId] of Object.entries(preset.artAxes ?? {})) {
+        const source = candidate.joints.find((joint) => joint.id === jointId);
+        const target = state.rig.joints.find((joint) => joint.id === jointId);
+        if (source && target) target.axes = source.axes;
+      }
+      state.rig.artShapes = candidate.artShapes;
+      applied.push("도형");
     }
   } finally {
     state.endHistoryTransaction();

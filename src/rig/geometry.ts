@@ -1,5 +1,6 @@
 import type {
   AxisPointSide,
+  ArtShapeVertex,
   Face,
   Joint,
   JointAxis,
@@ -141,8 +142,30 @@ export function getAxisPoint(
   const radians = (getAxisWorldAngle(rig, joint, axis) * Math.PI) / 180;
 
   return {
-    x: world.x + Math.cos(radians) * joint.radius * side,
-    y: world.y + Math.sin(radians) * joint.radius * side,
+    x: world.x + Math.cos(radians) * (axis.length ?? joint.radius) * side,
+    y: world.y + Math.sin(radians) * (axis.length ?? joint.radius) * side,
+  };
+}
+
+export function getArtShapeVertexPoint(rig: Rig, vertex: ArtShapeVertex): Point {
+  if (vertex.source === "self") return { x: vertex.x, y: vertex.y };
+  if (vertex.source === "root") {
+    const root = getJointWorldTransform(rig, vertex.rootJointId);
+    const radians = root.rotation * Math.PI / 180;
+    return {
+      x: root.x + Math.cos(radians) * vertex.x - Math.sin(radians) * vertex.y,
+      y: root.y + Math.sin(radians) * vertex.x + Math.cos(radians) * vertex.y,
+    };
+  }
+  const joint = rig.joints.find((candidate) => candidate.id === vertex.jointId);
+  const axis = joint?.axes.find((candidate) => candidate.id === vertex.axisId);
+  if (!joint || !axis) throw new Error(`Unknown art shape axis point: ${vertex.jointId}.${vertex.axisId}`);
+  const endpoint = getAxisPoint(rig, joint, axis, vertex.side);
+  const world = getJointWorldTransform(rig, joint.id);
+  const radians = world.rotation * Math.PI / 180;
+  return {
+    x: endpoint.x + Math.cos(radians) * vertex.offsetX - Math.sin(radians) * vertex.offsetY,
+    y: endpoint.y + Math.sin(radians) * vertex.offsetX + Math.cos(radians) * vertex.offsetY,
   };
 }
 

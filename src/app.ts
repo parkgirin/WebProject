@@ -35,6 +35,10 @@ export function createApp(container: HTMLDivElement): void {
     hideSameJointEdges: true,
     extendHiddenJointFaces: false,
     selectedFaceId: "torso",
+    selectedShapeId: null,
+    selectedShapeVertexId: null,
+    polygonDraft: [],
+    lineDraft: [],
     selectedTarget: "joint",
     inspectorTab: "selection",
     preserveProportions: false,
@@ -74,6 +78,10 @@ export function createApp(container: HTMLDivElement): void {
             <button type="button" class="toolbox-button is-active" data-tool-select aria-label="선택과 직접 조작" title="선택과 직접 조작">
               선택
             </button>
+            <button type="button" class="toolbox-button" data-tool-polygon aria-label="직선 다각형 펜툴" title="클릭으로 꼭짓점 추가 · 첫 점 또는 Enter로 닫기 · Esc 취소">다각형</button>
+            <button type="button" class="toolbox-button" data-tool-line aria-label="두께가 있는 선분 추가" title="두 끝점을 차례로 클릭 · 축 끝점 연결 지원">선분</button>
+            <button type="button" class="toolbox-button" data-tool-vertex-add aria-label="다각형 꼭짓점 추가" title="선택한 다각형의 변을 클릭해 꼭짓점 추가">점 추가</button>
+            <button type="button" class="toolbox-button" data-tool-vertex-bind aria-label="꼭짓점 축 연결" title="꼭짓점을 선택한 뒤 축 끝점 클릭 · Alt+클릭은 끝점에 스냅">점 연결</button>
             <div class="toolbox-color-control">
               <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
                 색상
@@ -97,7 +105,7 @@ export function createApp(container: HTMLDivElement): void {
           <div class="canvas-panel">
             <div class="canvas-toolbar">
               <div class="canvas-actions">
-                <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length}</span>
+                <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length} · 도형 <b data-shape-count>0</b></span>
                 <label class="avatar-preset-control">체형
                   <select data-avatar-preset aria-label="아바타 체형 프리셋">
                     ${AVATAR_PROPORTION_PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
@@ -214,7 +222,7 @@ export function createApp(container: HTMLDivElement): void {
             <label><input type="checkbox" data-preset-pose checked /> <span><strong>포즈</strong><small>관절 위치와 회전, 축선 각도</small></span></label>
             <label><input type="checkbox" data-preset-proportions checked /> <span><strong>비율</strong><small>관절 크기와 부모 기준 거리</small></span></label>
             <label><input type="checkbox" data-preset-colors checked /> <span><strong>색상</strong><small>기본색과 관절·면별 색상</small></span></label>
-            <label class="is-disabled"><input type="checkbox" disabled /> <span><strong>인물 전체</strong><small>도형·텍스처 추가 후 제공 예정</small></span></label>
+            <label><input type="checkbox" data-preset-shapes checked /> <span><strong>자유 도형</strong><small>다각형과 축 끝점 연결</small></span></label>
           </div>
           <p class="preset-status" data-preset-status aria-live="polite"></p>
         </div>
@@ -268,10 +276,15 @@ export function createApp(container: HTMLDivElement): void {
   const zoomInButton = requireElement<HTMLButtonElement>(container, "[data-zoom-in]");
   const fitSelectionButton = requireElement<HTMLButtonElement>(container, "[data-fit-selection]");
   const selectToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-select]");
+  const polygonToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-polygon]");
+  const lineToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-line]");
+  const vertexAddToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-vertex-add]");
+  const vertexBindToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-vertex-bind]");
   const colorToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-color]");
   const zoomToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-zoom]");
   const panToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-pan]");
   const layerOrderToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-layer-order]");
+  const shapeCount = requireElement<HTMLElement>(container, "[data-shape-count]");
   const paintColorInput = requireElement<HTMLInputElement>(container, "[data-paint-color]");
   const paletteGrid = requireElement<HTMLElement>(container, ".palette-grid");
   const togglePosePlaybackButton = requireElement<HTMLButtonElement>(container, "[data-toggle-pose-playback]");
@@ -316,6 +329,7 @@ export function createApp(container: HTMLDivElement): void {
     pose: container.querySelector<HTMLInputElement>("[data-preset-pose]")?.checked ?? false,
     proportions: container.querySelector<HTMLInputElement>("[data-preset-proportions]")?.checked ?? false,
     colors: container.querySelector<HTMLInputElement>("[data-preset-colors]")?.checked ?? false,
+    shapes: container.querySelector<HTMLInputElement>("[data-preset-shapes]")?.checked ?? false,
   });
   const inspector = createInspector();
   inspectorHost.append(inspector);
@@ -330,6 +344,8 @@ export function createApp(container: HTMLDivElement): void {
         : uniqueIds.at(-1) ?? null,
     };
     viewState.selectedTarget = "joint";
+    viewState.selectedShapeId = null;
+    viewState.selectedShapeVertexId = null;
     render();
   };
   const setViewState = (next: Partial<EditorViewState>) => {
@@ -342,15 +358,57 @@ export function createApp(container: HTMLDivElement): void {
     state.endHistoryTransaction();
   };
   const render = () => {
+    if (viewState.selectedShapeId && !state.rig.artShapes?.some((shape) => shape.id === viewState.selectedShapeId)) {
+      viewState.selectedShapeId = null;
+      viewState.selectedShapeVertexId = null;
+    }
+    const currentShapes = state.rig.artShapes ?? [];
+    const currentShapeIds = new Set(currentShapes.map((shape) => shape.id));
+    for (const key of poseClip.keys) {
+      key.rig.artShapes ??= [];
+      key.rig.elementLayers = structuredClone(state.rig.elementLayers);
+      for (const currentJoint of state.rig.joints) {
+        const keyJoint = key.rig.joints.find((joint) => joint.id === currentJoint.id);
+        if (!keyJoint) continue;
+        keyJoint.axes = currentJoint.axes.map((currentAxis) => {
+          const keyAxis = keyJoint.axes.find((axis) => axis.id === currentAxis.id);
+          if (!keyAxis) return structuredClone(currentAxis);
+          keyAxis.pointSides = [...currentAxis.pointSides];
+          return keyAxis;
+        });
+      }
+      key.rig.artShapes = key.rig.artShapes.filter((shape) => currentShapeIds.has(shape.id));
+      for (const shape of currentShapes) {
+        const keyShape = key.rig.artShapes.find((candidate) => candidate.id === shape.id);
+        if (!keyShape) {
+          key.rig.artShapes.push(structuredClone(shape));
+          continue;
+        }
+        keyShape.vertices = shape.vertices.map((vertex) => {
+          const existing = keyShape.vertices.find((candidate) => candidate.id === vertex.id);
+          const sameBinding = existing?.source === vertex.source
+            && (vertex.source === "self"
+              || (vertex.source === "root" && existing.source === "root" && existing.rootJointId === vertex.rootJointId)
+              || (vertex.source === "axis-point" && existing.source === "axis-point"
+                && existing.jointId === vertex.jointId && existing.axisId === vertex.axisId && existing.side === vertex.side));
+          return sameBinding ? existing : structuredClone(vertex);
+        });
+      }
+    }
     const globalAngle = toSignedAngle(state.getGlobalRotation());
     globalAngleInput.value = String(globalAngle);
     globalAngleNumber.value = globalAngle.toFixed(0);
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
+    polygonToolButton.classList.toggle("is-active", viewState.activeTool === "polygon");
+    lineToolButton.classList.toggle("is-active", viewState.activeTool === "line");
+    vertexAddToolButton.classList.toggle("is-active", viewState.activeTool === "vertex-add");
+    vertexBindToolButton.classList.toggle("is-active", viewState.activeTool === "vertex-bind");
     colorToolButton.classList.toggle("is-active", viewState.activeTool === "color");
     layerOrderToolButton.classList.toggle("is-active", viewState.activeTool === "layer-order");
     layerOrderToolButton.setAttribute("aria-pressed", String(viewState.activeTool === "layer-order"));
+    shapeCount.textContent = String(currentShapes.length);
     const activePalette = viewState.paintPaletteId
       ? state.rig.palette.find((entry) => entry.id === viewState.paintPaletteId)
       : undefined;
@@ -358,6 +416,10 @@ export function createApp(container: HTMLDivElement): void {
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
     svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
+    svg.classList.toggle("is-polygon-mode", viewState.activeTool === "polygon");
+    svg.classList.toggle("is-line-mode", viewState.activeTool === "line");
+    svg.classList.toggle("is-vertex-add-mode", viewState.activeTool === "vertex-add");
+    svg.classList.toggle("is-vertex-bind-mode", viewState.activeTool === "vertex-bind");
     const orderedKeys = [...poseClip.keys].sort((a, b) => a.frame - b.frame);
     const lastFrame = orderedKeys.at(-1)?.frame ?? 0;
     const hasInterpolation = orderedKeys.length >= 2;
@@ -458,8 +520,65 @@ export function createApp(container: HTMLDivElement): void {
     getMoveSelectedIndividually: () => viewState.moveSelectedIndividually,
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
     getLayerToolActive: () => viewState.activeTool === "layer-order",
+    getPolygonToolActive: () => viewState.activeTool === "polygon",
+    getLineToolActive: () => viewState.activeTool === "line",
+    getVertexAddToolActive: () => viewState.activeTool === "vertex-add",
+    getVertexBindToolActive: () => viewState.activeTool === "vertex-bind",
+    addPolygonPoint: (point) => {
+      viewState.polygonDraft = [...(viewState.polygonDraft ?? []), point];
+      render();
+    },
+    finishPolygon: () => {
+      const points = viewState.polygonDraft ?? [];
+      if (points.length < 3) return;
+      const shapeId = state.addPolygon(points);
+      viewState.polygonDraft = [];
+      viewState.activeTool = "select";
+      viewState.selectedShapeId = shapeId;
+      viewState.selectedShapeVertexId = state.getArtShape(shapeId).vertices[0]?.id ?? null;
+      render();
+    },
+    cancelPolygon: () => { viewState.polygonDraft = []; render(); },
+    removeLastPolygonPoint: () => { viewState.polygonDraft = (viewState.polygonDraft ?? []).slice(0, -1); render(); },
+    addLinePoint: (point) => {
+      const points = [...(viewState.lineDraft ?? []), point];
+      if (points.length < 2) {
+        viewState.lineDraft = points;
+        render();
+        return;
+      }
+      const shapeId = state.addLine(points.slice(0, 2));
+      viewState.lineDraft = [];
+      viewState.activeTool = "select";
+      viewState.selectedShapeId = shapeId;
+      viewState.selectedShapeVertexId = null;
+      render();
+    },
+    cancelLine: () => { viewState.lineDraft = []; render(); },
+    removeLastLinePoint: () => { viewState.lineDraft = (viewState.lineDraft ?? []).slice(0, -1); render(); },
+    insertShapeVertex: (shapeId, afterVertexId, point) => {
+      const vertexId = state.insertArtShapeVertex(shapeId, afterVertexId, point.x, point.y);
+      setViewState({ selectedShapeId: shapeId, selectedShapeVertexId: vertexId, inspectorTab: "selection" });
+    },
+    bindSelectedShapeVertex: (jointId, axisId, side, snap) => {
+      if (!viewState.selectedShapeId || !viewState.selectedShapeVertexId) return;
+      state.bindArtShapeVertexToAxis(viewState.selectedShapeId, viewState.selectedShapeVertexId, jointId, axisId, side, snap);
+    },
+    deleteSelectedShapeVertex: () => {
+      if (!viewState.selectedShapeId || !viewState.selectedShapeVertexId) return;
+      const shape = state.getArtShape(viewState.selectedShapeId);
+      if (shape.vertices.length <= 3) return;
+      viewState.selectedShapeVertexId = state.removeArtShapeVertex(shape.id, viewState.selectedShapeVertexId);
+      render();
+    },
     setSelection,
-    setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId, selectedTarget: "face" }),
+    setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId, selectedTarget: "face", selectedShapeId: null, selectedShapeVertexId: null }),
+    setSelectedShape: (selectedShapeId, selectedShapeVertexId) => setViewState({
+      selectedShapeId,
+      selectedShapeVertexId: selectedShapeVertexId ?? null,
+      selectedTarget: "joint",
+      inspectorTab: "selection",
+    }),
   });
   undoButton.addEventListener("click", () => state.undo());
   redoButton.addEventListener("click", () => state.redo());
@@ -685,9 +804,24 @@ export function createApp(container: HTMLDivElement): void {
   };
   const activateTool = (activeTool: EditorViewState["activeTool"], inspectorTab: EditorViewState["inspectorTab"]) => {
     setPanMode(false);
-    setViewState({ activeTool, inspectorTab });
+    setViewState({
+      activeTool,
+      inspectorTab,
+      ...(activeTool === "polygon" ? {} : { polygonDraft: [] }),
+      ...(activeTool === "line" ? {} : { lineDraft: [] }),
+    });
   };
   selectToolButton.addEventListener("click", () => activateTool("select", "selection"));
+  polygonToolButton.addEventListener("click", () => {
+    setPanMode(false);
+    setViewState({ activeTool: "polygon", inspectorTab: "selection", polygonDraft: [], lineDraft: [] });
+  });
+  lineToolButton.addEventListener("click", () => {
+    setPanMode(false);
+    setViewState({ activeTool: "line", inspectorTab: "selection", lineDraft: [], polygonDraft: [] });
+  });
+  vertexAddToolButton.addEventListener("click", () => activateTool("vertex-add", "selection"));
+  vertexBindToolButton.addEventListener("click", () => activateTool("vertex-bind", "selection"));
   colorToolButton.addEventListener("click", () => activateTool("color", "color"));
   layerOrderToolButton.addEventListener("click", () => activateTool("layer-order", "layers"));
   paletteGrid.addEventListener("click", (event) => {
@@ -751,6 +885,7 @@ export function createApp(container: HTMLDivElement): void {
       pose: true,
       proportions: true,
       colors: true,
+      shapes: true,
     }), null, 2);
     const link = document.createElement("a");
     const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
@@ -758,7 +893,7 @@ export function createApp(container: HTMLDivElement): void {
     link.download = "pose-mesh-preset.json";
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    presetStatus.textContent = "포즈 · 비율 · 색상을 포함한 JSON 저장을 시작했습니다.";
+    presetStatus.textContent = "포즈 · 비율 · 색상 · 자유 도형을 포함한 JSON 저장을 시작했습니다.";
   });
   loadPresetButton.addEventListener("click", () => presetFileInput.click());
   presetFileInput.addEventListener("change", async () => {
@@ -838,11 +973,13 @@ export function createApp(container: HTMLDivElement): void {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "[") {
       event.preventDefault();
-      if (viewState.selectedTarget === "face") state.moveFaceInLayerStack(viewState.selectedFaceId, -1);
+      if (viewState.selectedShapeId) state.moveBodyItemInStack("shape", viewState.selectedShapeId, -1, false);
+      else if (viewState.selectedTarget === "face") state.moveFaceInLayerStack(viewState.selectedFaceId, -1);
       else if (selection.jointIds.length > 0) state.moveJointsInLayerStack(selection.jointIds, -1);
     } else if (event.key === "]") {
       event.preventDefault();
-      if (viewState.selectedTarget === "face") state.moveFaceInLayerStack(viewState.selectedFaceId, 1);
+      if (viewState.selectedShapeId) state.moveBodyItemInStack("shape", viewState.selectedShapeId, 1, false);
+      else if (viewState.selectedTarget === "face") state.moveFaceInLayerStack(viewState.selectedFaceId, 1);
       else if (selection.jointIds.length > 0) state.moveJointsInLayerStack(selection.jointIds, 1);
     }
   });

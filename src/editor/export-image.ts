@@ -74,11 +74,14 @@ export function getDrawingContentBounds(source: SVGSVGElement): DrawingExportBou
   const body = source.querySelector<SVGGElement>('[data-layer="body"]');
   if (!body) throw new Error("Body layer was not found");
   const content = body.getBBox();
+  const linePadding = [...body.querySelectorAll<SVGLineElement>(".body-art-line")]
+    .reduce((largest, line) => Math.max(largest, Number(line.getAttribute("stroke-width")) / 2 || 0), 0);
+  const padding = Math.max(EXPORT_PADDING, linePadding + 2);
   return {
-    x: content.x - EXPORT_PADDING,
-    y: content.y - EXPORT_PADDING,
-    width: Math.max(1, content.width + EXPORT_PADDING * 2),
-    height: Math.max(1, content.height + EXPORT_PADDING * 2),
+    x: content.x - padding,
+    y: content.y - padding,
+    width: Math.max(1, content.width + padding * 2),
+    height: Math.max(1, content.height + padding * 2),
   };
 }
 
@@ -111,14 +114,20 @@ function createExportSvg(source: SVGSVGElement, bounds: DrawingExportBoundsMode 
     .body-face-outline { fill: none; stroke: none; pointer-events: none; }
     .body-joint { stroke: none; }
     .body-joint-outline { fill: none; stroke: none; pointer-events: none; }
+    .body-art-shape { stroke: none; }
+    .body-art-shape-outline { fill: none; stroke: none; pointer-events: none; }
+    .body-art-line { fill: none; stroke-linecap: round; }
+    .body-art-line-outline { fill: none; stroke: none; stroke-linecap: round; pointer-events: none; }
     .show-outlines .body-face-outline,
-    .show-outlines .body-joint-outline {
+    .show-outlines .body-joint-outline,
+    .show-outlines .body-art-shape-outline {
       stroke: #684936;
       stroke-width: 1.5;
       stroke-opacity: .58;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
+    .show-outlines .body-art-line-outline { stroke: #684936; stroke-opacity: .58; }
   `;
   svg.append(style, body.cloneNode(true));
   return { svg, width, height };

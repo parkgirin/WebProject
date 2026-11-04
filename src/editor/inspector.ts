@@ -23,6 +23,11 @@ export function renderInspector(
     : null;
   const selectedAxisDisplayAngle = selectedAxisWorldAngle === null ? null : toSignedAngle(selectedAxisWorldAngle);
   const selectedFace = state.getFace(viewState.selectedFaceId);
+  const selectedShape = viewState.selectedShapeId ? state.rig.artShapes?.find((shape) => shape.id === viewState.selectedShapeId) ?? null : null;
+  const selectedShapeVertex = selectedShape?.vertices.find((vertex) => vertex.id === viewState.selectedShapeVertexId) ?? null;
+  const shapeBindingOptions = state.rig.joints.flatMap((candidateJoint) => candidateJoint.axes.flatMap((axis) => (
+    axis.pointSides.map((side) => ({ jointId: candidateJoint.id, axisId: axis.id, side }))
+  )));
   const selectedFaceColor = selectedFace.color ?? state.rig.defaultColor;
   const hasFaceColorOverride = selectedFace.color !== undefined;
   const selectedJointColor = joint?.color ?? state.rig.defaultColor;
@@ -32,13 +37,17 @@ export function renderInspector(
   const groupOrder = (groupId: string | undefined) => (
     groupId ? state.rig.groups.find((group) => group.id === groupId)?.order ?? 0 : 0
   );
+  const elementLayers = state.rig.elementLayers ?? { joints: true, axes: true, faces: true, shapes: true };
   const jointLayerOrder = joint?.renderOrder ?? 0;
   const jointFinalOrder = joint ? groupOrder(joint.groupId) + jointLayerOrder : 0;
   const faceLayerOrder = state.getFaceLayerOrder(selectedFace.id);
   const faceFinalOrder = groupOrder(selectedFace.groupId) + faceLayerOrder;
-  const selectedTargetName = viewState.selectedTarget === "joint"
+  const shapeLayerOrder = selectedShape?.layerOrder ?? 0;
+  const shapeFinalOrder = selectedShape ? groupOrder(selectedShape.groupId) + shapeLayerOrder : 0;
+  const selectedTargetType = selectedShape ? "shape" : viewState.selectedTarget;
+  const selectedTargetName = selectedShape?.id ?? (viewState.selectedTarget === "joint"
     ? joint?.id ?? "선택 없음"
-    : selectedFace.id;
+    : selectedFace.id);
   const relations = joint ? [
     ...(joint.parentJointId ? [{ label: `부모 ${joint.parentJointId}`, movingId: joint.id, anchorId: joint.parentJointId }] : []),
     ...state.rig.joints.filter((candidate) => candidate.parentJointId === joint.id)
@@ -48,8 +57,8 @@ export function renderInspector(
     && group.jointIds.includes(joint.id)) : [];
 
   const targetSummary = `
-    <div class="selection-target-summary is-${viewState.selectedTarget}">
-      <span class="target-kind">${viewState.selectedTarget === "joint" ? "관절" : "면"}</span>
+    <div class="selection-target-summary is-${selectedTargetType}">
+      <span class="target-kind is-${selectedTargetType}">${selectedTargetType === "joint" ? "관절" : selectedTargetType === "face" ? "면" : "도형"}</span>
       <div><small>현재 편집 대상</small><strong>${escapeHtml(selectedTargetName)}</strong></div>
     </div>`;
 
@@ -68,6 +77,7 @@ export function renderInspector(
         <span>겹침 순서</span>
         <div>${renderLayerStepButtons("joint", true)}</div>
       </div>
+      <button type="button" data-face-to-shape>면 데이터로 자유 도형 생성</button>
     </div>
     <label class="field-label" for="parent-joint">부모 관절</label>
     <select id="parent-joint" class="parent-select">
@@ -111,6 +121,7 @@ export function renderInspector(
       <div class="section-heading">
         <h3>축선</h3>
         <span>${joint.axes.length}/${state.limits.maxAxesPerJoint}</span>
+        <button type="button" data-add-axis${joint.axes.length >= state.limits.maxAxesPerJoint ? " disabled" : ""}>축 추가</button>
       </div>
       ${joint.axes.length === 0 ? `<p class="muted">이 관절에는 연결 축선이 없습니다.</p>` : `
         <div class="axis-tabs">
@@ -126,6 +137,13 @@ export function renderInspector(
           <input id="axis-angle" type="range" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle}"${selectedAxis.alignment ? " disabled" : ""} />
           <span><input id="axis-angle-number" type="number" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment ? " disabled" : ""} />°</span>
         </div>
+        <label class="field-label">축 끝점 길이</label>
+        <input type="number" min="1" step="1" value="${(selectedAxis.length ?? joint.radius).toFixed(1)}" data-axis-length />
+        <div class="axis-side-options" aria-label="활성 축 끝점">
+          <label><input type="checkbox" data-axis-side="-1"${selectedAxis.pointSides.includes(-1) ? " checked" : ""} />− 끝점</label>
+          <label><input type="checkbox" data-axis-side="1"${selectedAxis.pointSides.includes(1) ? " checked" : ""} />＋ 끝점</label>
+        </div>
+        <p class="hint">관절 반지름과 독립적으로 설정됩니다. 한쪽 끝점만 활성화하면 단일 축, 양쪽을 활성화하면 대칭 축으로 사용합니다.</p>
         <p class="hint">${selectedAxis.alignment
           ? selectedAxis.alignment === "reference-axis-outer-tangent"
             ? "이 축은 허리 축 끝점에서 고관절 원으로 이어지는 외측 접점을 자동 추적합니다."
@@ -156,8 +174,34 @@ export function renderInspector(
     </div>
     <p class="hint">면을 선택한 상태에서는 순서 변경과 색상 설정이 이 면에 적용됩니다.</p>`;
 
+  const shapeMarkup = selectedShape ? `
+    <section class="property-group art-shape-properties">
+      <span class="eyebrow">${selectedShape.kind === "line" ? "두께 선분" : "자유 다각형"}</span><strong class="selection-name">${escapeHtml(selectedShape.id)}</strong>
+      <p class="hint">${selectedShape.vertices.length}개 ${selectedShape.kind === "line" ? "끝점" : "꼭짓점"} · 선택 점 ${escapeHtml(selectedShapeVertex?.id ?? "없음")} · ${selectedShapeVertex ? escapeHtml(selectedShapeVertex.source) : ""}</p>
+      ${selectedShapeVertex ? `
+        <div class="shape-vertex-actions">
+          <label><span>연결 대상</span><select data-shape-bind-target>
+            ${shapeBindingOptions.map((target) => {
+              const value = `${target.jointId}|${target.axisId}|${target.side}`;
+              const active = selectedShapeVertex.source === "axis-point"
+                && selectedShapeVertex.jointId === target.jointId
+                && selectedShapeVertex.axisId === target.axisId
+                && selectedShapeVertex.side === target.side;
+              return `<option value="${escapeHtml(value)}"${active ? " selected" : ""}>${escapeHtml(target.jointId)} / ${escapeHtml(target.axisId)} / ${target.side < 0 ? "−" : "＋"}</option>`;
+            }).join("")}
+          </select></label>
+          <div><button type="button" data-bind-shape-vertex${shapeBindingOptions.length ? "" : " disabled"}>위치 유지 연결</button><button type="button" data-snap-shape-vertex${shapeBindingOptions.length ? "" : " disabled"}>끝점 스냅</button></div>
+          <div><button type="button" data-unbind-shape-vertex${selectedShapeVertex.source === "axis-point" ? "" : " disabled"}>연결 해제</button><button type="button" data-delete-shape-vertex${selectedShape.kind === "polygon" && selectedShape.vertices.length > 3 ? "" : " disabled"}>점 삭제</button></div>
+        </div>` : ""}
+      <label class="color-setting-row"><span>${selectedShape.kind === "line" ? "선 색상" : "채우기"}</span><input type="color" value="${escapeHtml(resolveInspectorColor(state, selectedShape.color, selectedShape.paletteId))}" data-shape-color /></label>
+      ${selectedShape.kind === "line" ? `<label class="field-label">선 두께</label><input type="number" min="1" step="1" value="${selectedShape.strokeWidth ?? 16}" data-shape-stroke-width />` : ""}
+      <div class="joint-layer-actions"><span>겹침 순서</span><div><button type="button" data-shape-back>← 뒤로</button><button type="button" data-shape-forward>앞으로 →</button></div></div>
+      <button type="button" data-delete-shape>선택 도형 삭제</button>
+    </section>` : "";
+
   const selectionPanel = `
     ${targetSummary}
+    ${shapeMarkup}
     ${renderPoseNavigator(state, selection, viewState.selectedFaceId, viewState.selectedTarget)}
     <label class="face-override-toggle"><input type="checkbox" data-move-selected-individually${viewState.moveSelectedIndividually ? " checked" : ""} />선택 관절만 이동</label>
     <p class="hint">목·허리처럼 부모 관절을 옮겨도 자식 관절은 현재 위치에 남깁니다. 한 관절만 선택했을 때 적용됩니다.</p>
@@ -177,6 +221,11 @@ export function renderInspector(
       type: "face" as const,
       id: face.id,
       order: groupOrder(face.groupId) + state.getFaceLayerOrder(face.id),
+    })),
+    ...(state.rig.artShapes ?? []).map((shape) => ({
+      type: "shape" as const,
+      id: shape.id,
+      order: groupOrder(shape.groupId) + shape.layerOrder,
     })),
   ].sort((first, second) => second.order - first.order || first.id.localeCompare(second.id));
 
@@ -205,14 +254,43 @@ export function renderInspector(
         layerOrder: faceLayerOrder,
         finalOrder: faceFinalOrder,
       })}
+      ${selectedShape ? renderLayerEditorRow({
+        type: "shape",
+        id: selectedShape.id,
+        active: true,
+        groupOptions: renderGroupOptions(state, selectedShape.groupId),
+        groupOrder: groupOrder(selectedShape.groupId),
+        layerOrder: shapeLayerOrder,
+        finalOrder: shapeFinalOrder,
+      }) : ""}
+      <div class="element-layer-groups">
+        <section class="element-layer-group">
+          <div class="section-heading"><label class="element-layer-toggle"><input type="checkbox" data-element-layer="joints"${elementLayers.joints ? " checked" : ""} /><strong>관절 레이어</strong></label><span>${state.rig.joints.filter((item) => !item.isVirtual).length}</span></div>
+          ${state.rig.joints.filter((item) => !item.isVirtual).map((item) => `<div class="element-layer-item"><button type="button" data-stack-joint="${escapeHtml(item.id)}">${escapeHtml(item.id)}</button><small>${groupOrder(item.groupId) + item.renderOrder}</small></div>`).join("")}
+        </section>
+        <section class="element-layer-group">
+          <div class="section-heading"><label class="element-layer-toggle"><input type="checkbox" data-element-layer="axes"${elementLayers.axes ? " checked" : ""} /><strong>축 가이드 레이어</strong></label><span>${state.rig.joints.reduce((count, item) => count + item.axes.length, 0)}</span></div>
+          ${state.rig.joints.flatMap((item) => item.axes.map((axis) => `<div class="element-layer-item"><button type="button" data-stack-axis data-axis-joint-id="${escapeHtml(item.id)}" data-axis-id="${escapeHtml(axis.id)}">${escapeHtml(item.id)} / ${escapeHtml(axis.id)}</button></div>`)).join("")}
+        </section>
+        <section class="element-layer-group">
+          <div class="section-heading"><label class="element-layer-toggle"><input type="checkbox" data-element-layer="faces"${elementLayers.faces ? " checked" : ""} /><strong>연결 면 레이어</strong></label><span>${state.rig.faces.length}</span></div>
+          ${state.rig.faces.map((item) => `<div class="element-layer-item"><button type="button" data-stack-face="${escapeHtml(item.id)}">${escapeHtml(item.id)}</button><small>${groupOrder(item.groupId) + state.getFaceLayerOrder(item.id)}</small></div>`).join("")}
+        </section>
+        <section class="element-layer-group">
+          <div class="section-heading"><label class="element-layer-toggle"><input type="checkbox" data-element-layer="shapes"${elementLayers.shapes ? " checked" : ""} /><strong>도형 레이어</strong></label><span>${state.rig.artShapes?.length ?? 0}</span></div>
+          ${(state.rig.artShapes ?? []).map((item) => `<div class="element-layer-item"><button type="button" data-stack-shape="${escapeHtml(item.id)}">${escapeHtml(item.id)}</button><small>${groupOrder(item.groupId) + item.layerOrder}</small></div>`).join("") || `<p class="hint">추가된 도형이 없습니다.</p>`}
+        </section>
+      </div>
       <div class="render-stack-section">
-        <div class="section-heading"><h3>관절·면 렌더 순서</h3><span>앞 → 뒤</span></div>
+        <div class="section-heading"><h3>통합 출력 순서</h3><span>앞 → 뒤</span></div>
         <div class="render-stack-list">
           ${stackEntries.map((entry) => {
-            const active = entry.type === viewState.selectedTarget
-              && (entry.type === "joint" ? entry.id === joint?.id : entry.id === selectedFace.id);
+            const active = entry.type === "shape" ? entry.id === selectedShape?.id
+              : entry.type === viewState.selectedTarget
+                && (entry.type === "joint" ? entry.id === joint?.id : entry.id === selectedFace.id);
+            const label = entry.type === "joint" ? "관절" : entry.type === "face" ? "면" : "도형";
             return `<button type="button" class="render-stack-item${active ? " is-active" : ""}" data-stack-${entry.type}="${escapeHtml(entry.id)}">
-              <span class="target-kind is-${entry.type}">${entry.type === "joint" ? "관절" : "면"}</span>
+              <span class="target-kind is-${entry.type}">${label}</span>
               <strong>${escapeHtml(entry.id)}</strong>
               <small>최종 ${entry.order}</small>
             </button>`;
@@ -325,6 +403,78 @@ export function renderInspector(
       });
     });
   });
+  element.querySelector<HTMLInputElement>("[data-axis-length]")?.addEventListener("change", (event) => {
+    if (joint && selectedAxis) state.setAxisLength(joint.id, selectedAxis.id, (event.target as HTMLInputElement).valueAsNumber);
+  });
+  element.querySelector<HTMLButtonElement>("[data-add-axis]")?.addEventListener("click", () => {
+    if (!joint) return;
+    const axisId = state.addAxis(joint.id);
+    setSelection({ jointId: joint.id, axisId, jointIds: selection.jointIds.includes(joint.id) ? selection.jointIds : [joint.id] });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-axis-side]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!joint || !selectedAxis) return;
+      const sides = [...element.querySelectorAll<HTMLInputElement>("[data-axis-side]:checked")]
+        .map((candidate) => Number(candidate.dataset.axisSide))
+        .filter((side): side is -1 | 1 => side === -1 || side === 1);
+      try {
+        state.setAxisPointSides(joint.id, selectedAxis.id, sides);
+      } catch (error) {
+        input.checked = !input.checked;
+        input.setCustomValidity(error instanceof Error ? error.message : "축 끝점을 변경할 수 없습니다.");
+        input.reportValidity();
+        input.setCustomValidity("");
+      }
+    });
+  });
+  element.querySelector<HTMLInputElement>("[data-shape-color]")?.addEventListener("change", (event) => {
+    if (selectedShape) state.paintArtShapeWithColor(selectedShape.id, (event.target as HTMLInputElement).value);
+  });
+  element.querySelector<HTMLInputElement>("[data-shape-stroke-width]")?.addEventListener("change", (event) => {
+    if (selectedShape) state.setArtShapeStrokeWidth(selectedShape.id, (event.target as HTMLInputElement).valueAsNumber);
+  });
+  element.querySelector<HTMLButtonElement>("[data-face-to-shape]")?.addEventListener("click", () => {
+    const shapeId = state.addArtShapeFromFace(selectedFace.id);
+    setViewState({ selectedShapeId: shapeId, selectedShapeVertexId: null, inspectorTab: "selection" });
+  });
+  element.querySelector<HTMLButtonElement>("[data-shape-back]")?.addEventListener("click", () => {
+    if (selectedShape) state.moveBodyItemInStack("shape", selectedShape.id, -1, false);
+  });
+  element.querySelector<HTMLButtonElement>("[data-shape-forward]")?.addEventListener("click", () => {
+    if (selectedShape) state.moveBodyItemInStack("shape", selectedShape.id, 1, false);
+  });
+  element.querySelector<HTMLButtonElement>("[data-delete-shape]")?.addEventListener("click", () => {
+    if (!selectedShape) return;
+    state.removeArtShape(selectedShape.id);
+    setViewState({ selectedShapeId: null, selectedShapeVertexId: null });
+  });
+  const readShapeBindingTarget = () => {
+    const value = element.querySelector<HTMLSelectElement>("[data-shape-bind-target]")?.value;
+    if (!value) return null;
+    const [jointId, axisId, rawSide] = value.split("|");
+    const side = Number(rawSide);
+    return jointId && axisId && (side === -1 || side === 1) ? { jointId, axisId, side: side as -1 | 1 } : null;
+  };
+  element.querySelector<HTMLButtonElement>("[data-bind-shape-vertex]")?.addEventListener("click", () => {
+    const target = readShapeBindingTarget();
+    if (selectedShape && selectedShapeVertex && target) {
+      state.bindArtShapeVertexToAxis(selectedShape.id, selectedShapeVertex.id, target.jointId, target.axisId, target.side, false);
+    }
+  });
+  element.querySelector<HTMLButtonElement>("[data-snap-shape-vertex]")?.addEventListener("click", () => {
+    const target = readShapeBindingTarget();
+    if (selectedShape && selectedShapeVertex && target) {
+      state.bindArtShapeVertexToAxis(selectedShape.id, selectedShapeVertex.id, target.jointId, target.axisId, target.side, true);
+    }
+  });
+  element.querySelector<HTMLButtonElement>("[data-unbind-shape-vertex]")?.addEventListener("click", () => {
+    if (selectedShape && selectedShapeVertex) state.unbindArtShapeVertex(selectedShape.id, selectedShapeVertex.id);
+  });
+  element.querySelector<HTMLButtonElement>("[data-delete-shape-vertex]")?.addEventListener("click", () => {
+    if (!selectedShape || !selectedShapeVertex) return;
+    const nextVertexId = state.removeArtShapeVertex(selectedShape.id, selectedShapeVertex.id);
+    setViewState({ selectedShapeVertexId: nextVertexId });
+  });
   element.querySelectorAll<HTMLButtonElement>("[data-add-peer-center]").forEach((button) => {
     button.addEventListener("click", () => {
       const groupId = button.dataset.addPeerCenter;
@@ -350,7 +500,7 @@ export function renderInspector(
     });
   });
   element.querySelector<HTMLSelectElement>("[data-face-shortcut]")?.addEventListener("change", (event) => {
-    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face" });
+    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face", selectedShapeId: null, selectedShapeVertexId: null });
   });
 
   bindLiveRange(element, state, "#joint-radius", "#joint-radius-number", (value) => {
@@ -401,7 +551,7 @@ export function renderInspector(
     });
   });
   element.querySelector<HTMLSelectElement>("[data-face-select]")?.addEventListener("change", (event) => {
-    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face" });
+    setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face", selectedShapeId: null, selectedShapeVertexId: null });
   });
   element.querySelector<HTMLInputElement>("[data-default-color]")?.addEventListener("change", (event) => {
     state.setDefaultColor((event.target as HTMLInputElement).value);
@@ -453,6 +603,9 @@ export function renderInspector(
   element.querySelector<HTMLSelectElement>("[data-face-group]")?.addEventListener("change", (event) => {
     state.setFaceGroup(selectedFace.id, (event.target as HTMLSelectElement).value || null);
   });
+  element.querySelector<HTMLSelectElement>("[data-shape-group]")?.addEventListener("change", (event) => {
+    if (selectedShape) state.setArtShapeGroup(selectedShape.id, (event.target as HTMLSelectElement).value || null);
+  });
   element.querySelector<HTMLInputElement>("[data-joint-layer]")?.addEventListener("change", (event) => {
     if (!joint) return;
     state.setJointRenderOrder(joint.id, (event.target as HTMLInputElement).valueAsNumber);
@@ -460,8 +613,22 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("[data-face-layer]")?.addEventListener("change", (event) => {
     state.setFaceLayerOrder(selectedFace.id, (event.target as HTMLInputElement).valueAsNumber);
   });
+  element.querySelector<HTMLInputElement>("[data-shape-layer]")?.addEventListener("change", (event) => {
+    if (selectedShape) state.setArtShapeLayerOrder(selectedShape.id, (event.target as HTMLInputElement).valueAsNumber);
+  });
   bindLayerStepActions(element, "face", (direction) => {
     state.moveFaceInLayerStack(selectedFace.id, direction);
+  });
+  bindLayerStepActions(element, "shape", (direction) => {
+    if (selectedShape) state.moveBodyItemInStack("shape", selectedShape.id, direction, false);
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-element-layer]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const layer = input.dataset.elementLayer;
+      if (layer === "joints" || layer === "axes" || layer === "faces" || layer === "shapes") {
+        state.setElementLayerVisibility(layer, input.checked);
+      }
+    });
   });
   element.querySelectorAll<HTMLInputElement>("[data-layer-group-visible]").forEach((input) => {
     input.addEventListener("change", () => {
@@ -510,12 +677,25 @@ export function renderInspector(
   element.querySelectorAll<HTMLButtonElement>("[data-stack-face]").forEach((button) => {
     button.addEventListener("click", () => {
       const faceId = button.dataset.stackFace;
-      if (faceId) setViewState({ selectedFaceId: faceId, selectedTarget: "face" });
+      if (faceId) setViewState({ selectedFaceId: faceId, selectedTarget: "face", selectedShapeId: null, selectedShapeVertexId: null });
+    });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-stack-shape]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const shapeId = button.dataset.stackShape;
+      if (shapeId) setViewState({ selectedShapeId: shapeId, selectedShapeVertexId: null, inspectorTab: "layers" });
+    });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-stack-axis]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const jointId = button.dataset.axisJointId;
+      const axisId = button.dataset.axisId;
+      if (jointId && axisId) setSelection({ jointId, axisId, jointIds: [jointId] });
     });
   });
 }
 
-type LayerTarget = "joint" | "face";
+type LayerTarget = "joint" | "face" | "shape";
 
 interface LayerEditorRowOptions {
   type: LayerTarget;
@@ -529,7 +709,7 @@ interface LayerEditorRowOptions {
 
 function renderLayerEditorRow(options: LayerEditorRowOptions): string {
   const { type, id, active, groupOptions, groupOrder, layerOrder, finalOrder } = options;
-  const label = type === "joint" ? "관절" : "면";
+  const label = type === "joint" ? "관절" : type === "face" ? "면" : "도형";
   return `
     <div class="layer-editor-row${active ? " is-active-target" : ""}">
       <div class="layer-editor-heading"><span class="target-kind is-${type}">${label}</span><strong>${escapeHtml(id)}</strong>${active ? "<em>현재 선택</em>" : ""}</div>
@@ -541,7 +721,7 @@ function renderLayerEditorRow(options: LayerEditorRowOptions): string {
 }
 
 function renderLayerStepButtons(type: LayerTarget, withShortcuts = false): string {
-  const label = type === "joint" ? "관절" : "면";
+  const label = type === "joint" ? "관절" : type === "face" ? "면" : "도형";
   const backShortcut = withShortcuts ? " ([)" : "";
   const forwardShortcut = withShortcuts ? " (])" : "";
   return `
@@ -651,4 +831,8 @@ function escapeHtml(value: string): string {
 function toSignedAngle(angle: number): number {
   const normalized = ((angle % 360) + 360) % 360;
   return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function resolveInspectorColor(state: RigState, color?: string, paletteId?: string): string {
+  return color ?? state.rig.palette.find((entry) => entry.id === paletteId)?.color ?? state.rig.defaultColor;
 }

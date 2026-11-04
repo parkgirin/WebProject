@@ -76,6 +76,9 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
       const endAxis = endJoint.axes.find((candidate) => candidate.id === axis.id);
       if (!startAxis || !endAxis) throw new Error("보간할 두 포즈의 축선 구조가 일치하지 않습니다.");
       axis.angle = interpolateAngle(startAxis.angle, endAxis.angle, t);
+      if (startAxis.length !== undefined || endAxis.length !== undefined) {
+        axis.length = lerp(startAxis.length ?? startJoint.radius, endAxis.length ?? endJoint.radius, t);
+      }
     }
   }
 
@@ -86,6 +89,27 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
     if (!endFace) throw new Error("보간할 두 포즈의 면 구조가 일치하지 않습니다.");
     face.color = interpolateColor(resolveFaceColor(start, face.id), resolveFaceColor(end, face.id), t);
     delete face.paletteId;
+  }
+  const endShapes = new Map((end.artShapes ?? []).map((shape) => [shape.id, shape]));
+  for (const shape of result.artShapes ?? []) {
+    const endShape = endShapes.get(shape.id);
+    if (!endShape || shape.kind !== endShape.kind || shape.vertices.length !== endShape.vertices.length) throw new Error("보간할 두 포즈의 도형 구조가 일치하지 않습니다.");
+    for (const vertex of shape.vertices) {
+      const other = endShape.vertices.find((candidate) => candidate.id === vertex.id);
+      if (!other || other.source !== vertex.source) throw new Error("보간할 두 포즈의 도형 꼭짓점 구조가 일치하지 않습니다.");
+      if (vertex.source === "self" && other.source === "self" || vertex.source === "root" && other.source === "root") {
+        vertex.x = lerp(vertex.x, other.x, t);
+        vertex.y = lerp(vertex.y, other.y, t);
+      } else if (vertex.source === "axis-point" && other.source === "axis-point") {
+        vertex.offsetX = lerp(vertex.offsetX, other.offsetX, t);
+        vertex.offsetY = lerp(vertex.offsetY, other.offsetY, t);
+      }
+    }
+    shape.color = interpolateColor(resolveColor(start, shape.color, shape.paletteId), resolveColor(end, endShape.color, endShape.paletteId), t);
+    if (shape.kind === "line" && endShape.kind === "line") {
+      shape.strokeWidth = lerp(shape.strokeWidth ?? 1, endShape.strokeWidth ?? 1, t);
+    }
+    delete shape.paletteId;
   }
   return result;
 }
@@ -221,7 +245,8 @@ export function interpolateColor(from: string, to: string, amount: number): stri
 }
 
 function assertCompatibleRig(start: Rig, end: Rig): void {
-  if (start.joints.length !== end.joints.length || start.faces.length !== end.faces.length) {
+  if (start.joints.length !== end.joints.length || start.faces.length !== end.faces.length
+    || (start.artShapes ?? []).length !== (end.artShapes ?? []).length) {
     throw new Error("키프레임의 리그 구조가 일치하지 않습니다.");
   }
   const endJoints = new Map(end.joints.map((joint) => [joint.id, joint]));
@@ -234,6 +259,20 @@ function assertCompatibleRig(start: Rig, end: Rig): void {
   }
   const endFaceIds = new Set(end.faces.map((face) => face.id));
   if (start.faces.some((face) => !endFaceIds.has(face.id))) throw new Error("키프레임의 면 구조가 일치하지 않습니다.");
+  const endShapes = new Map((end.artShapes ?? []).map((shape) => [shape.id, shape]));
+  if ((start.artShapes ?? []).some((shape) => {
+    const other = endShapes.get(shape.id);
+    return !other || shape.kind !== other.kind || shape.vertices.length !== other.vertices.length || shape.vertices.some((vertex) => {
+      const candidate = other.vertices.find((endVertex) => endVertex.id === vertex.id);
+      return !candidate || JSON.stringify(structuralVertex(vertex)) !== JSON.stringify(structuralVertex(candidate));
+    });
+  })) throw new Error("키프레임의 도형 구조가 일치하지 않습니다.");
+}
+
+function structuralVertex(vertex: NonNullable<Rig["artShapes"]>[number]["vertices"][number]) {
+  if (vertex.source === "self") return { source: vertex.source };
+  if (vertex.source === "root") return { source: vertex.source, rootJointId: vertex.rootJointId };
+  return { source: vertex.source, jointId: vertex.jointId, axisId: vertex.axisId, side: vertex.side };
 }
 
 function resolveJointColor(rig: Rig, jointId: string): string {

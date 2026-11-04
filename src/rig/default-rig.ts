@@ -3,6 +3,7 @@ import type { Rig } from "./types.ts";
 export function createDefaultRig(): Rig {
   const rig: Rig = {
     defaultColor: "#dca27b",
+    elementLayers: { joints: true, axes: true, faces: true, shapes: true },
     projectionStrength: 35,
     viewYRotation: 0,
     palette: [],
@@ -37,6 +38,7 @@ export function createDefaultRig(): Rig {
       { id: "shoulder-band", jointIds: ["left-shoulder", "right-shoulder"] },
       { id: "hip-band", jointIds: ["left-hip", "right-hip"], centerJointId: "pelvis-pivot" },
     ],
+    artShapes: [],
     faces: [
       {
         id: "neck",
