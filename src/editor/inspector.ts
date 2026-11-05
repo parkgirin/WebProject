@@ -16,6 +16,8 @@ export function renderInspector(
   viewState: EditorViewState,
   setViewState: (next: Partial<EditorViewState>) => void,
 ): void {
+  const collapsedSections = new Set((element.dataset?.collapsedSections ?? "").split(",").filter(Boolean));
+  const sectionId = viewState.inspectorTab;
   const joint = selection.jointId ? state.getJoint(selection.jointId) : null;
   const selectedAxis = joint?.axes.find((axis) => axis.id === selection.axisId);
   const selectedAxisWorldAngle = joint && selectedAxis
@@ -367,13 +369,28 @@ export function renderInspector(
       <button type="button" data-inspector-tab="color" class="${viewState.inspectorTab === "color" ? "is-active" : ""}">색상</button>
     </div>
     <div class="inspector-panel">
-      ${viewState.inspectorTab === "selection" ? selectionPanel : viewState.inspectorTab === "layers" ? layerPanel : colorPanel}
+      <details class="inspector-details" data-inspector-details="${sectionId}"${collapsedSections.has(sectionId) ? "" : " open"}>
+        <summary>${sectionId === "selection" ? "선택 상세" : sectionId === "layers" ? "레이어 상세" : "색상 상세"}</summary>
+        <div class="inspector-details-content">
+          ${viewState.inspectorTab === "selection" ? selectionPanel : viewState.inspectorTab === "layers" ? layerPanel : colorPanel}
+        </div>
+      </details>
     </div>`;
 
   element.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const inspectorTab = button.dataset.inspectorTab as EditorViewState["inspectorTab"];
       setViewState({ inspectorTab });
+    });
+  });
+  element.querySelectorAll<HTMLDetailsElement>("[data-inspector-details]").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      const id = details.dataset.inspectorDetails;
+      if (!id) return;
+      const next = new Set((element.dataset?.collapsedSections ?? "").split(",").filter(Boolean));
+      if (details.open) next.delete(id);
+      else next.add(id);
+      if (element.dataset) element.dataset.collapsedSections = [...next].join(",");
     });
   });
   element.querySelector<HTMLInputElement>("[data-preserve-proportions]")?.addEventListener("change", (event) => {

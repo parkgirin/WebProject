@@ -41,8 +41,10 @@ test("front tool moves a joint above visible faces and joints and ignores hidden
 });
 
 test("clicking an item already at the front does not create a history entry", () => {
-  const state = new RigState(createDefaultRig());
-  const [type, id] = renderedStack(state).at(-1)!.split(":") as ["joint" | "face", string];
+  const rig = createDefaultRig();
+  rig.groups.find((group) => group.id === "head")!.visible = false;
+  const state = new RigState(rig);
+  const [type, id] = renderedStack(state).at(-1)!.split(":") as ["joint" | "face" | "shape", string];
   state.moveBodyItemInStack(type, id, 1, false);
   assert.equal(state.canUndo, false);
 });

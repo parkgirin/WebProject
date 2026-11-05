@@ -157,6 +157,14 @@ export function getArtShapeVertexPoint(rig: Rig, vertex: ArtShapeVertex): Point 
       y: root.y + Math.sin(radians) * vertex.x + Math.cos(radians) * vertex.y,
     };
   }
+  if (vertex.source === "joint-center") {
+    const joint = getJointWorldTransform(rig, vertex.jointId);
+    const radians = joint.rotation * Math.PI / 180;
+    return {
+      x: joint.x + Math.cos(radians) * vertex.offsetX - Math.sin(radians) * vertex.offsetY,
+      y: joint.y + Math.sin(radians) * vertex.offsetX + Math.cos(radians) * vertex.offsetY,
+    };
+  }
   const joint = rig.joints.find((candidate) => candidate.id === vertex.jointId);
   const axis = joint?.axes.find((candidate) => candidate.id === vertex.axisId);
   if (!joint || !axis) throw new Error(`Unknown art shape axis point: ${vertex.jointId}.${vertex.axisId}`);

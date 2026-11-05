@@ -9,6 +9,9 @@ export type AvatarPresetId =
   | "neutral-straight"
   | "child-neutral";
 
+/** New documents are constructed directly from this preset. */
+export const DEFAULT_AVATAR_PRESET_ID: AvatarPresetId = "neutral-straight";
+
 export interface AvatarProportionPreset {
   id: AvatarPresetId;
   name: string;
@@ -91,7 +94,7 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
       state.setJointRadius(`${side}-ankle`, preset.kneeRadius);
     }
     const head = state.getJoint("head");
-    state.applyJointProportions("head", { x: head.x, y: head.y, radius: 18, bodyRadius: 60 });
+    state.applyJointProportions("head", { x: head.x, y: head.y, radius: 18 });
   } finally {
     state.endHistoryTransaction();
   }

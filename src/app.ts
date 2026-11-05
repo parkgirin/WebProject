@@ -1,5 +1,5 @@
 import { createDefaultRig } from "./rig/default-rig.ts";
-import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS } from "./rig/avatar-presets.ts";
+import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID } from "./rig/avatar-presets.ts";
 import { RigState } from "./rig/rig-state.ts";
 import { renderSvgEditor } from "./editor/svg-editor.ts";
 import { enablePointerInput } from "./editor/pointer-input.ts";
@@ -24,7 +24,6 @@ import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
 export function createApp(container: HTMLDivElement): void {
   const state = new RigState(createDefaultRig());
-  applyAvatarProportionPreset(state, "neutral-straight");
   let selection: EditorSelection = {
     jointId: "right-elbow",
     axisId: "upper-arm",
@@ -78,27 +77,33 @@ export function createApp(container: HTMLDivElement): void {
             <button type="button" class="toolbox-button is-active" data-tool-select aria-label="선택과 직접 조작" title="선택과 직접 조작">
               선택
             </button>
-            <button type="button" class="toolbox-button" data-tool-polygon aria-label="직선 다각형 펜툴" title="클릭으로 꼭짓점 추가 · 첫 점 또는 Enter로 닫기 · Esc 취소">다각형</button>
-            <button type="button" class="toolbox-button" data-tool-line aria-label="두께가 있는 선분 추가" title="두 끝점을 차례로 클릭 · 축 끝점 연결 지원">선분</button>
-            <button type="button" class="toolbox-button" data-tool-vertex-add aria-label="다각형 꼭짓점 추가" title="선택한 다각형의 변을 클릭해 꼭짓점 추가">점 추가</button>
-            <button type="button" class="toolbox-button" data-tool-vertex-bind aria-label="꼭짓점 축 연결" title="꼭짓점을 선택한 뒤 축 끝점 클릭 · Alt+클릭은 끝점에 스냅">점 연결</button>
-            <div class="toolbox-color-control">
-              <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
-                색상
-              </button>
-              <div class="palette-grid" aria-label="작업 색상 팔레트">
-                ${state.rig.palette.map((entry) => `<button type="button" class="palette-swatch" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("")}
+            <details class="toolbox-section" open>
+              <summary>도형</summary>
+              <button type="button" class="toolbox-button" data-tool-polygon aria-label="직선 다각형 펜툴" title="클릭으로 꼭짓점 추가 · 첫 점 또는 Enter로 닫기 · Esc 취소">다각형</button>
+              <button type="button" class="toolbox-button" data-tool-circle aria-label="원 도형 추가" title="캔버스를 클릭해 원 도형 추가">원</button>
+              <button type="button" class="toolbox-button" data-tool-line aria-label="두께가 있는 선분 추가" title="두 끝점을 차례로 클릭 · 축 끝점 연결 지원">선분</button>
+              <button type="button" class="toolbox-button" data-tool-vertex-add aria-label="다각형 꼭짓점 추가" title="선택한 다각형의 변을 클릭해 꼭짓점 추가">점 추가</button>
+              <button type="button" class="toolbox-button" data-tool-vertex-bind aria-label="꼭짓점 축 연결" title="꼭짓점을 선택한 뒤 축 끝점 클릭 · Alt+클릭은 끝점에 스냅">점 연결</button>
+            </details>
+            <details class="toolbox-section" open>
+              <summary>색상</summary>
+              <div class="toolbox-color-control">
+                <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
+                  색상
+                </button>
+                <div class="palette-grid" aria-label="작업 색상 팔레트">
+                  ${state.rig.palette.map((entry) => `<button type="button" class="palette-swatch" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("")}
+                </div>
+                <button type="button" class="new-color-button" data-new-palette-color>새 색</button>
+                <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="선택한 팔레트 또는 새 색상" title="선택한 팔레트 또는 새 색상" />
               </div>
-              <button type="button" class="new-color-button" data-new-palette-color>새 색</button>
-              <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="선택한 팔레트 또는 새 색상" title="선택한 팔레트 또는 새 색상" />
-            </div>
-            <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">
-              확대
-            </button>
-            <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">
-              화면
-            </button>
-            <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
+            </details>
+            <details class="toolbox-section" open>
+              <summary>보기</summary>
+              <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">확대</button>
+              <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">화면</button>
+              <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
+            </details>
           </div>
         </nav>
         <div class="editor-column">
@@ -267,6 +272,7 @@ export function createApp(container: HTMLDivElement): void {
   const globalAngleInput = requireElement<HTMLInputElement>(container, "[data-global-angle]");
   const globalAngleNumber = requireElement<HTMLInputElement>(container, "[data-global-angle-number]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
+  avatarPresetSelect.value = DEFAULT_AVATAR_PRESET_ID;
   const applyAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-avatar-preset]");
   const avatarPresetStatus = requireElement<HTMLElement>(container, "[data-avatar-preset-status]");
   const undoButton = requireElement<HTMLButtonElement>(container, "[data-undo]");
@@ -277,6 +283,7 @@ export function createApp(container: HTMLDivElement): void {
   const fitSelectionButton = requireElement<HTMLButtonElement>(container, "[data-fit-selection]");
   const selectToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-select]");
   const polygonToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-polygon]");
+  const circleToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-circle]");
   const lineToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-line]");
   const vertexAddToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-vertex-add]");
   const vertexBindToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-vertex-bind]");
@@ -417,6 +424,7 @@ export function createApp(container: HTMLDivElement): void {
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
     svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
     svg.classList.toggle("is-polygon-mode", viewState.activeTool === "polygon");
+    svg.classList.toggle("is-circle-mode", viewState.activeTool === "circle");
     svg.classList.toggle("is-line-mode", viewState.activeTool === "line");
     svg.classList.toggle("is-vertex-add-mode", viewState.activeTool === "vertex-add");
     svg.classList.toggle("is-vertex-bind-mode", viewState.activeTool === "vertex-bind");
@@ -521,6 +529,7 @@ export function createApp(container: HTMLDivElement): void {
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
     getLayerToolActive: () => viewState.activeTool === "layer-order",
     getPolygonToolActive: () => viewState.activeTool === "polygon",
+    getCircleToolActive: () => viewState.activeTool === "circle",
     getLineToolActive: () => viewState.activeTool === "line",
     getVertexAddToolActive: () => viewState.activeTool === "vertex-add",
     getVertexBindToolActive: () => viewState.activeTool === "vertex-bind",
@@ -540,6 +549,10 @@ export function createApp(container: HTMLDivElement): void {
     },
     cancelPolygon: () => { viewState.polygonDraft = []; render(); },
     removeLastPolygonPoint: () => { viewState.polygonDraft = (viewState.polygonDraft ?? []).slice(0, -1); render(); },
+    addCircle: (point) => {
+      const shapeId = state.addCircle(point.x, point.y);
+      setViewState({ activeTool: "select", selectedShapeId: shapeId, selectedShapeVertexId: "center", inspectorTab: "selection" });
+    },
     addLinePoint: (point) => {
       const points = [...(viewState.lineDraft ?? []), point];
       if (points.length < 2) {
@@ -816,6 +829,7 @@ export function createApp(container: HTMLDivElement): void {
     setPanMode(false);
     setViewState({ activeTool: "polygon", inspectorTab: "selection", polygonDraft: [], lineDraft: [] });
   });
+  circleToolButton.addEventListener("click", () => activateTool("circle", "selection"));
   lineToolButton.addEventListener("click", () => {
     setPanMode(false);
     setViewState({ activeTool: "line", inspectorTab: "selection", lineDraft: [], polygonDraft: [] });

@@ -33,6 +33,24 @@ test("polygon root vertices preserve clicked world positions and follow the mode
   assert.notDeepEqual(getArtShapeVertexPoint(state.rig, shape.vertices[0]), before);
 });
 
+test("circle shapes render from one centre, and the default head follows its head joint", () => {
+  const state = new RigState(createDefaultRig());
+  const head = state.getArtShape("head-base");
+  assert.equal(head.kind, "circle");
+  assert.equal(head.vertices[0].source, "joint-center");
+  const before = getArtShapeVertexPoint(state.rig, head.vertices[0]);
+  state.moveJoint("head", before.x + 24, before.y + 12);
+  assert.deepEqual(getArtShapeVertexPoint(state.rig, head.vertices[0]), { x: before.x + 24, y: before.y + 12 });
+
+  const id = state.addCircle(180, 240, 32);
+  const circle = state.getArtShape(id);
+  assert.equal(circle.kind, "circle");
+  assert.equal(circle.vertices.length, 1);
+  assert.equal(circle.radiusX, 32);
+  assert.equal(circle.radiusY, 32);
+  assert.deepEqual(validateRig(state.rig), []);
+});
+
 test("axis-point polygon vertices follow an extended endpoint while retaining local offsets", () => {
   const state = new RigState(createDefaultRig());
   const head = state.getJoint("head");
@@ -57,12 +75,13 @@ test("compatible polygon vertices and colors interpolate without changing their 
   const shape = state.getArtShape(state.addPolygon([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 100 }]));
   shape.color = "#000000";
   const end = structuredClone(start);
-  const endVertex = end.artShapes![0].vertices[0];
+  const endShape = end.artShapes!.find((candidate) => candidate.id === shape.id)!;
+  const endVertex = endShape.vertices[0];
   if (endVertex.source !== "root") throw new Error("Expected root vertex");
   endVertex.x += 20;
-  end.artShapes![0].color = "#ffffff";
+  endShape.color = "#ffffff";
 
-  const middle = interpolatePoseRig(start, end, .5).artShapes![0];
+  const middle = interpolatePoseRig(start, end, .5).artShapes!.find((candidate) => candidate.id === shape.id)!;
   const middleVertex = middle.vertices[0];
   assert.equal(middleVertex.source, "root");
   if (middleVertex.source === "root" && shape.vertices[0].source === "root") assert.equal(middleVertex.x, shape.vertices[0].x + 10);
@@ -142,7 +161,7 @@ test("new art axes expose configurable endpoints and protect endpoints used by p
   const restored = new RigState(createDefaultRig());
   applyRigPreset(restored, preset, { pose: false, proportions: false, colors: false, shapes: true });
   assert.ok(restored.getJoint(head.id).axes.some((candidate) => candidate.id === axis.id));
-  assert.equal(restored.rig.artShapes?.[0].vertices[0].source, "axis-point");
+  assert.equal(restored.rig.artShapes?.find((shape) => shape.id === shapeId)?.vertices[0].source, "axis-point");
 });
 
 test("a body face can be promoted to an art polygon with the same axis references and appearance", () => {
@@ -176,8 +195,8 @@ test("thick line segments retain endpoint bindings and interpolate their width",
   assert.equal(line.vertices[0].source, "axis-point");
 
   const end = structuredClone(start);
-  end.artShapes![0].strokeWidth = 28;
-  const middle = interpolatePoseRig(start, end, .5).artShapes![0];
+  end.artShapes!.find((candidate) => candidate.id === line.id)!.strokeWidth = 28;
+  const middle = interpolatePoseRig(start, end, .5).artShapes!.find((candidate) => candidate.id === line.id)!;
   assert.equal(middle.strokeWidth, 20);
   state.setArtShapeStrokeWidth(line.id, 18);
   assert.equal(line.strokeWidth, 18);

@@ -239,7 +239,9 @@ export function validateRig(
     if (shape.kind === "line" && (shape.vertices.length !== 2 || !(shape.strokeWidth! > 0) || !Number.isFinite(shape.strokeWidth))) {
       errors.push(`Art line needs two vertices and a positive width: ${shape.id}`);
     }
-    if (shape.kind !== "polygon" && shape.kind !== "line") errors.push(`Unknown art shape kind: ${shape.id}`);
+    if (shape.kind === "circle" && (shape.vertices.length !== 1 || !(shape.radiusX! > 0) || !(shape.radiusY! > 0)
+      || !Number.isFinite(shape.radiusX) || !Number.isFinite(shape.radiusY))) errors.push(`Art circle needs one center and positive radii: ${shape.id}`);
+    if (shape.kind !== "polygon" && shape.kind !== "line" && shape.kind !== "circle") errors.push(`Unknown art shape kind: ${shape.id}`);
     if (!Number.isFinite(shape.layerOrder)) errors.push(`Art shape layer order must be finite: ${shape.id}`);
     if (shape.color !== undefined && !isHexColor(shape.color)) errors.push(`Invalid art shape color: ${shape.id}.${shape.color}`);
     if (shape.paletteId && !paletteIds.has(shape.paletteId)) errors.push(`Unknown art shape palette: ${shape.id}.${shape.paletteId}`);
@@ -251,6 +253,9 @@ export function validateRig(
       if (vertex.source === "self" && (!Number.isFinite(vertex.x) || !Number.isFinite(vertex.y))) errors.push(`Invalid self vertex: ${shape.id}.${vertex.id}`);
       if (vertex.source === "root") {
         if (!jointIds.has(vertex.rootJointId) || !Number.isFinite(vertex.x) || !Number.isFinite(vertex.y)) errors.push(`Invalid root vertex: ${shape.id}.${vertex.id}`);
+      }
+      if (vertex.source === "joint-center") {
+        if (!jointIds.has(vertex.jointId) || !Number.isFinite(vertex.offsetX) || !Number.isFinite(vertex.offsetY)) errors.push(`Invalid joint-center vertex: ${shape.id}.${vertex.id}`);
       }
       if (vertex.source === "axis-point") {
         const joint = rig.joints.find((candidate) => candidate.id === vertex.jointId);
@@ -379,6 +384,19 @@ export class RigState {
     return id;
   }
 
+  public addCircle(x: number, y: number, radius = 36, rootJointId = "scene-root"): string {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !(radius > 0)) throw new Error("원의 중심과 반지름이 올바르지 않습니다.");
+    const root = this.getJoint(rootJointId);
+    let index = (this.rig.artShapes?.filter((shape) => shape.kind === "circle").length ?? 0) + 1;
+    let id = `circle-${index}`;
+    while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `circle-${++index}`;
+    const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
+    this.rig.artShapes ??= [];
+    this.rig.artShapes.push({ id, kind: "circle", vertices: [{ id: "center", source: "root", rootJointId, ...this.worldToLocal(root.id, x, y) }], radiusX: radius, radiusY: radius, layerOrder: clampLayerValue(maxOrder + 1) });
+    this.notify();
+    return id;
+  }
+
   public addArtShapeFromFace(faceId: string): string {
     const face = this.getFace(faceId);
     let index = 1;
@@ -427,7 +445,7 @@ export class RigState {
 
   public removeArtShapeVertex(shapeId: string, vertexId: string): string | null {
     const shape = this.getArtShape(shapeId);
-    const minimum = shape.kind === "line" ? 2 : 3;
+    const minimum = shape.kind === "line" ? 2 : shape.kind === "circle" ? 1 : 3;
     if (shape.vertices.length <= minimum) throw new Error(shape.kind === "line" ? "선분에는 두 개의 끝점이 필요합니다." : "다각형에는 최소 3개의 꼭짓점이 필요합니다.");
     const index = shape.vertices.findIndex((vertex) => vertex.id === vertexId);
     if (index < 0) return null;
@@ -1433,6 +1451,15 @@ export class RigState {
     }
     if (vertex.source === "root") {
       Object.assign(vertex, this.worldToLocal(vertex.rootJointId, x, y));
+      return;
+    }
+    if (vertex.source === "joint-center") {
+      const joint = getJointWorldTransform(this.rig, vertex.jointId);
+      const radians = -joint.rotation * Math.PI / 180;
+      const dx = x - joint.x;
+      const dy = y - joint.y;
+      vertex.offsetX = Math.cos(radians) * dx - Math.sin(radians) * dy;
+      vertex.offsetY = Math.sin(radians) * dx + Math.cos(radians) * dy;
       return;
     }
     const joint = getJointWorldTransform(this.rig, vertex.jointId);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS } from "../src/rig/avatar-presets.ts";
+import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/rig/avatar-presets.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
@@ -32,7 +32,9 @@ test("all seven avatar presets apply their app dimensions to a valid rig", () =>
     close(distance(state, "left-shoulder", "left-elbow"), preset.armSegmentLength);
     close(distance(state, "left-hip", "left-knee"), preset.upperLegLength);
     close(distance(state, "left-knee", "left-ankle"), preset.lowerLegLength);
-    close(state.getJoint("head").bodyRadius!, 60);
+    const headShape = state.rig.artShapes?.find((shape) => shape.id === "head-base");
+    assert.equal(headShape?.kind, "circle");
+    close(headShape?.radiusX ?? 0, 60);
     const leftShoulder = getJointWorldTransform(state.rig, "left-shoulder");
     const leftElbow = getJointWorldTransform(state.rig, "left-elbow");
     const leftWrist = getJointWorldTransform(state.rig, "left-wrist");
@@ -92,4 +94,19 @@ test("straight neutral aligns shoulder centers with both waist edges", () => {
   assert.equal(preset.shoulderDistance, preset.waistRadius * 2);
   assert.equal(preset.shoulderDistance, 120);
   assert.equal(preset.waistRadius, 60);
+});
+
+test("new rigs are constructed directly with the straight neutral preset", () => {
+  assert.equal(DEFAULT_AVATAR_PRESET_ID, "neutral-straight");
+  const preset = getAvatarProportionPreset(DEFAULT_AVATAR_PRESET_ID)!;
+  const state = new RigState(createDefaultRig());
+  close(state.getPeerGroupDistance("shoulder-band")!, preset.shoulderDistance);
+  close(state.getPeerGroupDistance("hip-band")!, preset.hipDistance);
+  close(state.getJoint("waist").radius, preset.waistRadius);
+  close(state.getJoint("left-shoulder").radius, preset.armRadius);
+  close(state.getJoint("left-hip").radius, preset.hipRadius);
+  close(getJointWorldTransform(state.rig, "scene-root").y, preset.rootY);
+  close(distance(state, "waist", "chest"), preset.chestDistance);
+  close(distance(state, "chest", "head"), preset.headDistance);
+  assert.equal(state.canUndo, false);
 });

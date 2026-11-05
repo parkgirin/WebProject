@@ -100,7 +100,7 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
       if (vertex.source === "self" && other.source === "self" || vertex.source === "root" && other.source === "root") {
         vertex.x = lerp(vertex.x, other.x, t);
         vertex.y = lerp(vertex.y, other.y, t);
-      } else if (vertex.source === "axis-point" && other.source === "axis-point") {
+      } else if ((vertex.source === "axis-point" && other.source === "axis-point") || (vertex.source === "joint-center" && other.source === "joint-center")) {
         vertex.offsetX = lerp(vertex.offsetX, other.offsetX, t);
         vertex.offsetY = lerp(vertex.offsetY, other.offsetY, t);
       }
@@ -108,6 +108,10 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
     shape.color = interpolateColor(resolveColor(start, shape.color, shape.paletteId), resolveColor(end, endShape.color, endShape.paletteId), t);
     if (shape.kind === "line" && endShape.kind === "line") {
       shape.strokeWidth = lerp(shape.strokeWidth ?? 1, endShape.strokeWidth ?? 1, t);
+    }
+    if (shape.kind === "circle" && endShape.kind === "circle") {
+      shape.radiusX = lerp(shape.radiusX ?? 1, endShape.radiusX ?? 1, t);
+      shape.radiusY = lerp(shape.radiusY ?? 1, endShape.radiusY ?? 1, t);
     }
     delete shape.paletteId;
   }
@@ -272,6 +276,7 @@ function assertCompatibleRig(start: Rig, end: Rig): void {
 function structuralVertex(vertex: NonNullable<Rig["artShapes"]>[number]["vertices"][number]) {
   if (vertex.source === "self") return { source: vertex.source };
   if (vertex.source === "root") return { source: vertex.source, rootJointId: vertex.rootJointId };
+  if (vertex.source === "joint-center") return { source: vertex.source, jointId: vertex.jointId };
   return { source: vertex.source, jointId: vertex.jointId, axisId: vertex.axisId, side: vertex.side };
 }
 

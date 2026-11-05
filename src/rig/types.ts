@@ -88,14 +88,18 @@ export interface ColorPaletteEntry {
 export type ArtShapeVertex =
   | { id: string; source: "self"; x: number; y: number }
   | { id: string; source: "root"; rootJointId: string; x: number; y: number }
+  | { id: string; source: "joint-center"; jointId: string; offsetX: number; offsetY: number }
   | { id: string; source: "axis-point"; jointId: string; axisId: string; side: AxisPointSide; offsetX: number; offsetY: number };
 
 export interface ArtShape {
   id: string;
-  kind: "polygon" | "line";
+  kind: "polygon" | "line" | "circle";
   vertices: ArtShapeVertex[];
   /** Line thickness in model units. Used only when kind is line. */
   strokeWidth?: number;
+  /** Horizontal and vertical radii for circle shapes. */
+  radiusX?: number;
+  radiusY?: number;
   color?: string;
   paletteId?: string;
   groupId?: string;

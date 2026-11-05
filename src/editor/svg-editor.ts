@@ -97,7 +97,7 @@ export function renderSvgEditor(
 
   const vertexDepth = (vertex: ArtShapeVertex) => {
     const jointId = vertex.source === "axis-point" ? vertex.jointId
-      : vertex.source === "root" ? vertex.rootJointId : null;
+      : vertex.source === "root" ? vertex.rootJointId : vertex.source === "joint-center" ? vertex.jointId : null;
     return jointId ? depthOf(jointId) : 0;
   };
   const shapeItems = (rig.artShapes ?? []).filter((shape) => showShapeLayer && isGroupVisible(rig, shape.groupId)).map((shape) => {
@@ -106,6 +106,8 @@ export function renderSvgEditor(
     const selectedClass = shape.id === viewState.selectedShapeId ? " is-selected" : "";
     const markup = shape.kind === "line"
       ? `<g class="body-art-shape-item"><line class="body-art-line-outline" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke-width="${(shape.strokeWidth ?? 1) + 3}" /><line class="body-art-line${selectedClass}" data-shape-id="${escapeXml(shape.id)}" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke="${color}" stroke-width="${shape.strokeWidth ?? 1}" /></g>`
+      : shape.kind === "circle"
+        ? `<g class="body-art-shape-item"><ellipse class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${color}" /><ellipse class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" /></g>`
       : `<g class="body-art-shape-item"><polygon class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" /><polygon class="body-art-shape-outline" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" /></g>`;
     return {
       id: `shape:${shape.id}`,

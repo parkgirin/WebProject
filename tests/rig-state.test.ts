@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
+import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/rig/avatar-presets.ts";
 import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointViewRadius, getJointWorldTransform, getPeerGroupCentroid, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
@@ -49,8 +50,8 @@ test("side radius interpolates from front to side without mutating the base rig"
   const waist = rig.joints.find((joint) => joint.id === "waist")!;
   waist.sideRadius = 24;
   rig.viewYRotation = 45;
-  assert.equal(waist.radius, 48);
-  assert.equal(getJointViewRadius(rig, waist), 36);
+  assert.equal(waist.radius, getAvatarProportionPreset(DEFAULT_AVATAR_PRESET_ID)!.waistRadius);
+  assert.equal(getJointViewRadius(rig, waist), 42);
   rig.viewYRotation = 90;
   assert.equal(getJointViewRadius(rig, waist), 24);
 });

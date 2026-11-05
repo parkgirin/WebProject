@@ -21,7 +21,7 @@ export interface EditorViewState {
   preserveProportions: boolean;
   /** Move one selected joint while keeping its direct children in place. */
   moveSelectedIndividually: boolean;
-  activeTool: "select" | "color" | "layer-order" | "polygon" | "line" | "vertex-add" | "vertex-bind";
+  activeTool: "select" | "color" | "layer-order" | "polygon" | "line" | "circle" | "vertex-add" | "vertex-bind";
   paintColor: string;
   paintPaletteId: string | null;
 }

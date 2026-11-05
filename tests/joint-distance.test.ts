@@ -4,6 +4,7 @@ import test from "node:test";
 import { renderInspector } from "../src/editor/inspector.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
+import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/rig/avatar-presets.ts";
 import { getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
@@ -71,7 +72,7 @@ test("peer group distance moves both joints symmetrically and preserves their mi
   close(position(state, "left-wrist").x - leftWrist.x, nextLeft.x - left.x);
   close(position(state, "right-wrist").x - rightWrist.x, nextRight.x - right.x);
   state.undo();
-  close(distance(state, "left-shoulder", "right-shoulder"), 156);
+  close(distance(state, "left-shoulder", "right-shoulder"), getAvatarProportionPreset(DEFAULT_AVATAR_PRESET_ID)!.shoulderDistance);
   state.redo();
   close(distance(state, "left-shoulder", "right-shoulder"), 200);
 });

@@ -10,6 +10,7 @@ interface PointerInputOptions {
   getPaintColor: () => string | null;
   getLayerToolActive: () => boolean;
   getPolygonToolActive?: () => boolean;
+  getCircleToolActive?: () => boolean;
   getLineToolActive?: () => boolean;
   getVertexAddToolActive?: () => boolean;
   getVertexBindToolActive?: () => boolean;
@@ -18,6 +19,7 @@ interface PointerInputOptions {
   finishPolygon?: () => void;
   cancelPolygon?: () => void;
   removeLastPolygonPoint?: () => void;
+  addCircle?: (point: { x: number; y: number }) => void;
   cancelLine?: () => void;
   removeLastLinePoint?: () => void;
   insertShapeVertex?: (shapeId: string, afterVertexId: string, point: { x: number; y: number }) => void;
@@ -144,6 +146,10 @@ export function enablePointerInput(
             ? { axisPoint: { jointId, axisId, side: side as -1 | 1 } } : {}),
         });
       }
+      event.preventDefault();
+      return;
+    } else if (event.button === 0 && options.getCircleToolActive?.() && !spacePressed && !panMode) {
+      options.addCircle?.(point);
       event.preventDefault();
       return;
     } else if (event.button === 0 && options.getLineToolActive?.() && !spacePressed && !panMode) {
