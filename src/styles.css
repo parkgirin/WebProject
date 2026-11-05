@@ -282,11 +282,13 @@ button, input { font: inherit; }
 .rig-canvas.is-pan-mode:active { cursor: grabbing; }
 .rig-canvas.is-color-mode .body-face,
 .rig-canvas.is-color-mode .body-art-shape,
+.rig-canvas.is-color-mode .body-art-cutout-guide,
 .rig-canvas.is-color-mode .body-art-line { cursor: crosshair; }
 .rig-canvas.is-color-mode .joint-hit { cursor: crosshair; }
 .rig-canvas.is-layer-mode .body-face,
 .rig-canvas.is-layer-mode .body-joint,
 .rig-canvas.is-layer-mode .body-art-shape,
+.rig-canvas.is-layer-mode .body-art-cutout-guide,
 .rig-canvas.is-layer-mode .body-art-line,
 .rig-canvas.is-layer-mode .joint-hit { cursor: pointer; }
 .rig-canvas.is-layer-mode .axis-hit,
@@ -334,6 +336,17 @@ button, input { font: inherit; }
 .body-face.is-selected { stroke: #7653a6; stroke-width: 3; filter: brightness(1.06); }
 .body-art-shape.is-selected { stroke: #2c8ca2; stroke-width: 3; filter: brightness(1.04); }
 .body-art-line.is-selected { filter: drop-shadow(0 0 2px #2c8ca2) brightness(1.05); }
+.body-art-cutout-guide { fill: rgba(182,95,59,.14); stroke: #b65f3b; stroke-width: 2; stroke-dasharray: 6 4; cursor: move; }
+.body-art-cutout-guide.is-selected { fill: rgba(44,140,162,.18); stroke: #2c8ca2; stroke-width: 3; }
+
+.shape-composite-settings { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.45); }
+.shape-composite-settings label { display: grid; grid-template-columns: minmax(72px, auto) 1fr; align-items: center; gap: 8px; }
+.shape-composite-settings select { min-width: 0; }
+.shape-composite-settings button { justify-self: start; }
+.composite-warning { margin: 0; color: #9a4d2f; font-size: 12px; line-height: 1.45; }
+.joint-output-options { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.42); }
+.joint-output-options > strong { font-size: 12px; }
+.joint-output-options .hint { margin: 0; }
 .joint-hit { fill: transparent; cursor: grab; }
 .joint-hit:active { cursor: grabbing; }
 .joint-outline { fill: none; stroke: #847f77; stroke-width: 1.25; stroke-dasharray: 4 3; pointer-events: none; }

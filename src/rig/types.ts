@@ -42,6 +42,10 @@ export interface Joint {
   renderOrder: number;
   guideVisible: boolean;
   bodyVisible: boolean;
+  /** Controls the joint circle and hidden-joint closing outline. Missing values are visible. */
+  outlineVisible?: boolean;
+  /** Allows connected faces to extend to their boundary intersection. Missing values are enabled. */
+  faceExtensionEnabled?: boolean;
 }
 
 export interface PeerGroup {
@@ -104,6 +108,10 @@ export interface ArtShape {
   paletteId?: string;
   groupId?: string;
   layerOrder: number;
+  /** Missing values from older files are treated as paint. */
+  compositeMode?: "paint" | "cutout";
+  /** Editing-only composition identity, independent from the output layer group. */
+  compositeGroupId?: string;
 }
 
 export type ElementLayerId = "joints" | "axes" | "faces" | "shapes";

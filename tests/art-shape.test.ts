@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { renderSvgEditor } from "../src/editor/svg-editor.ts";
+import type { EditorViewState } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { getArtShapeVertexPoint, getAxisPoint } from "../src/rig/geometry.ts";
 import { interpolatePoseRig } from "../src/rig/pose-interpolation.ts";
@@ -217,4 +219,118 @@ test("joint, axis, face and art-shape layers toggle their categories as a batch"
   assert.equal(shape.groupId, "head");
   assert.equal(shape.layerOrder, 77);
   assert.deepEqual(validateRig(state.rig), []);
+});
+
+test("legacy art shapes remain valid without composite metadata and new shapes default to paint", () => {
+  const rig = createDefaultRig();
+  delete rig.artShapes![0].compositeMode;
+  delete rig.artShapes![0].compositeGroupId;
+
+  assert.deepEqual(validateRig(rig), []);
+  const state = new RigState(rig);
+  const shape = state.getArtShape(state.addPolygon([{ x: 10, y: 10 }, { x: 90, y: 10 }, { x: 50, y: 90 }]));
+  assert.equal(shape.compositeMode, "paint");
+  assert.equal(shape.compositeGroupId, `composite-${shape.id}`);
+});
+
+test("paint and cutout shapes can share a composite group while lines cannot become cutouts", () => {
+  const state = new RigState(createDefaultRig());
+  const paint = state.getArtShape(state.addCircle(300, 300, 80));
+  const cutout = state.getArtShape(state.addCircle(300, 300, 36));
+  state.setArtShapeGroup(cutout.id, "head");
+  state.setArtShapeComposite(paint.id, "paint", "donut");
+  state.setArtShapeComposite(cutout.id, "cutout", "donut");
+
+  assert.equal(paint.compositeGroupId, "donut");
+  assert.equal(cutout.compositeMode, "cutout");
+  assert.equal(cutout.groupId, "head");
+  assert.deepEqual(validateRig(state.rig), []);
+
+  const lineId = state.addLine([{ x: 10, y: 10 }, { x: 90, y: 90 }], 12);
+  assert.throws(() => state.setArtShapeComposite(lineId, "cutout", "donut"), /선분/);
+});
+
+test("the SVG renderer masks only earlier paint shapes in the same composite group", () => {
+  const state = new RigState(createDefaultRig());
+  const painted = state.getArtShape(state.addCircle(300, 300, 80));
+  const unrelated = state.getArtShape(state.addCircle(300, 300, 70));
+  const cutout = state.getArtShape(state.addCircle(300, 300, 30));
+  state.setArtShapeComposite(painted.id, "paint", "donut");
+  state.setArtShapeComposite(cutout.id, "cutout", "donut");
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  assert.equal(host.innerHTML.match(/mask="url\(#art-composite-mask-/g)?.length, 1);
+  assert.match(host.innerHTML, new RegExp(`data-shape-id="${painted.id}"`));
+  assert.match(host.innerHTML, new RegExp(`data-shape-id="${unrelated.id}"`));
+  assert.match(host.innerHTML, new RegExp(`class="body-art-cutout-guide" data-shape-id="${cutout.id}"`));
+});
+
+test("paint shapes in one composite group render only their shared intersection", () => {
+  const state = new RigState(createDefaultRig());
+  const first = state.addCircle(270, 300, 60);
+  const second = state.addCircle(330, 300, 60);
+  const groupId = state.createArtShapeCompositeGroup([first, second, first]);
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedShapeIds: [first, second], selectedTarget: "joint", inspectorTab: "selection",
+    preserveProportions: false, moveSelectedIndividually: false, activeTool: "select",
+    paintColor: "#000000", paintPaletteId: null,
+  };
+
+  assert.equal(state.getArtShape(first).compositeGroupId, groupId);
+  assert.equal(state.getArtShape(second).compositeGroupId, groupId);
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.equal(host.innerHTML.match(/id="art-composite-intersection-/g)?.length, 2);
+  assert.equal(host.innerHTML.match(/mask="url\(#art-composite-intersection-/g)?.length, 2);
+
+  state.undo();
+  assert.notEqual(state.getArtShape(first).compositeGroupId, state.getArtShape(second).compositeGroupId);
+});
+
+test("a composite group requires at least two selected shapes", () => {
+  const state = new RigState(createDefaultRig());
+  assert.throws(() => state.createArtShapeCompositeGroup(["head-base"]), /2개 이상/);
+});
+
+test("multiple selected shapes move and delete as single undoable keyboard operations", () => {
+  const state = new RigState(createDefaultRig());
+  const firstId = state.addCircle(200, 200, 20);
+  const secondId = state.addCircle(300, 300, 20);
+  const before = [firstId, secondId].map((id) => getArtShapeVertexPoint(state.rig, state.getArtShape(id).vertices[0]));
+
+  state.moveArtShapes([firstId, secondId, firstId], 10, -4);
+  assert.deepEqual([firstId, secondId].map((id) => getArtShapeVertexPoint(state.rig, state.getArtShape(id).vertices[0])),
+    before.map((point) => ({ x: point.x + 10, y: point.y - 4 })));
+  state.undo();
+  assert.deepEqual([firstId, secondId].map((id) => getArtShapeVertexPoint(state.rig, state.getArtShape(id).vertices[0])), before);
+
+  state.removeArtShapes([firstId, secondId]);
+  assert.equal(state.rig.artShapes?.some((shape) => shape.id === firstId || shape.id === secondId), false);
+  state.undo();
+  assert.ok(state.rig.artShapes?.some((shape) => shape.id === firstId));
+  assert.ok(state.rig.artShapes?.some((shape) => shape.id === secondId));
+});
+
+test("duplicating selected shapes preserves their internal composite group without joining the originals", () => {
+  const state = new RigState(createDefaultRig());
+  const firstId = state.addCircle(200, 200, 20);
+  const secondId = state.addCircle(220, 200, 20);
+  const originalGroup = state.createArtShapeCompositeGroup([firstId, secondId]);
+  const copyIds = state.duplicateArtShapes([firstId, secondId]);
+
+  assert.equal(copyIds.length, 2);
+  const copyGroups = copyIds.map((id) => state.getArtShape(id).compositeGroupId);
+  assert.equal(copyGroups[0], copyGroups[1]);
+  assert.notEqual(copyGroups[0], originalGroup);
+  assert.equal(state.getArtShape(copyIds[0]).layerOrder, state.getArtShape(firstId).layerOrder + 1);
+  state.undo();
+  assert.equal(state.rig.artShapes?.some((shape) => copyIds.includes(shape.id)), false);
 });

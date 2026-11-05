@@ -98,6 +98,32 @@ test("hidden joint extension makes two adjacent faces meet at their boundary int
   assert.deepEqual(upper[2], lower[3]);
 });
 
+test("a joint can opt out of face extension and use its endpoint bridge", () => {
+  const state = new RigState(createDefaultRig());
+  state.rotateChildAroundParent("left-wrist", 230);
+  state.setJointBodyVisible("left-elbow", false);
+  state.setJointsFaceExtensionEnabled(["left-elbow"], false);
+  const host = { innerHTML: "" } as SVGSVGElement;
+
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, {
+    ...viewState,
+    extendHiddenJointFaces: true,
+  });
+
+  assert.match(host.innerHTML, /data-bridge-joint-id="left-elbow"/);
+});
+
+test("a joint can hide only its own output outline", () => {
+  const state = new RigState(createDefaultRig());
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const render = () => renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  render();
+  const before = host.innerHTML.match(/class="body-joint-outline"/g)?.length ?? 0;
+  state.setJointsOutlineVisible(["left-shoulder"], false);
+  render();
+  assert.equal(host.innerHTML.match(/class="body-joint-outline"/g)?.length ?? 0, before - 1);
+});
+
 test("hidden shoulder extends a two-axis compound torso surface into the upper arm", () => {
   const state = new RigState(createDefaultRig());
   state.rotateChildAroundParent("right-elbow", 35);

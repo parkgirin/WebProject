@@ -13,6 +13,7 @@ export interface EditorViewState {
   extendHiddenJointFaces?: boolean;
   selectedFaceId: string;
   selectedShapeId?: string | null;
+  selectedShapeIds?: string[];
   selectedShapeVertexId?: string | null;
   polygonDraft?: PolygonDraftPoint[];
   lineDraft?: PolygonDraftPoint[];

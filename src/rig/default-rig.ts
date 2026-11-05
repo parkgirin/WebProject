@@ -46,7 +46,7 @@ export function createDefaultRig(): Rig {
       { id: "shoulder-band", jointIds: ["left-shoulder", "right-shoulder"] },
       { id: "hip-band", jointIds: ["left-hip", "right-hip"], centerJointId: "pelvis-pivot" },
     ],
-    artShapes: [{ id: "head-base", kind: "circle", vertices: [{ id: "center", source: "joint-center", jointId: "head", offsetX: 0, offsetY: 0 }], radiusX: 60, radiusY: 60, groupId: "head", layerOrder: 31 }],
+    artShapes: [{ id: "head-base", kind: "circle", vertices: [{ id: "center", source: "joint-center", jointId: "head", offsetX: 0, offsetY: 0 }], radiusX: 60, radiusY: 60, groupId: "head", layerOrder: 31, compositeMode: "paint", compositeGroupId: "composite-head-base" }],
     faces: [
       {
         id: "neck",

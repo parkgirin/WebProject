@@ -77,6 +77,12 @@ export function validateRig(
     if (!Number.isFinite(joint.renderOrder)) {
       errors.push(`Joint render order must be finite: ${joint.id}`);
     }
+    if (joint.outlineVisible !== undefined && typeof joint.outlineVisible !== "boolean") {
+      errors.push(`Invalid joint outline visibility: ${joint.id}`);
+    }
+    if (joint.faceExtensionEnabled !== undefined && typeof joint.faceExtensionEnabled !== "boolean") {
+      errors.push(`Invalid joint face extension: ${joint.id}`);
+    }
     if (joint.groupId && !groupIds.has(joint.groupId)) {
       errors.push(`Unknown joint layer group: ${joint.id}.${joint.groupId}`);
     }
@@ -246,6 +252,9 @@ export function validateRig(
     if (shape.color !== undefined && !isHexColor(shape.color)) errors.push(`Invalid art shape color: ${shape.id}.${shape.color}`);
     if (shape.paletteId && !paletteIds.has(shape.paletteId)) errors.push(`Unknown art shape palette: ${shape.id}.${shape.paletteId}`);
     if (shape.groupId && !groupIds.has(shape.groupId)) errors.push(`Unknown art shape layer group: ${shape.id}.${shape.groupId}`);
+    if (shape.compositeMode !== undefined && shape.compositeMode !== "paint" && shape.compositeMode !== "cutout") errors.push(`Invalid art shape composite mode: ${shape.id}`);
+    if (shape.compositeMode === "cutout" && shape.kind === "line") errors.push(`Art lines cannot be cutouts: ${shape.id}`);
+    if (shape.compositeGroupId !== undefined && !shape.compositeGroupId.trim()) errors.push(`Invalid art shape composite group: ${shape.id}`);
     const vertexIds = new Set<string>();
     for (const vertex of shape.vertices) {
       if (!vertex.id.trim() || vertexIds.has(vertex.id)) errors.push(`Invalid art shape vertex id: ${shape.id}.${vertex.id}`);
@@ -362,7 +371,7 @@ export class RigState {
       : { id: `vertex-${vertexIndex + 1}`, source: "root", rootJointId, ...this.worldToLocal(root.id, point.x, point.y) });
     const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
     this.rig.artShapes ??= [];
-    this.rig.artShapes.push({ id, kind: "polygon", vertices, layerOrder: clampLayerValue(maxOrder + 1) });
+    this.rig.artShapes.push({ id, kind: "polygon", vertices, layerOrder: clampLayerValue(maxOrder + 1), compositeMode: "paint", compositeGroupId: `composite-${id}` });
     this.notify();
     return id;
   }
@@ -379,7 +388,7 @@ export class RigState {
       : { id: `vertex-${vertexIndex + 1}`, source: "root", rootJointId, ...this.worldToLocal(root.id, point.x, point.y) });
     const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
     this.rig.artShapes ??= [];
-    this.rig.artShapes.push({ id, kind: "line", vertices, strokeWidth, layerOrder: clampLayerValue(maxOrder + 1) });
+    this.rig.artShapes.push({ id, kind: "line", vertices, strokeWidth, layerOrder: clampLayerValue(maxOrder + 1), compositeMode: "paint", compositeGroupId: `composite-${id}` });
     this.notify();
     return id;
   }
@@ -392,7 +401,7 @@ export class RigState {
     while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `circle-${++index}`;
     const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
     this.rig.artShapes ??= [];
-    this.rig.artShapes.push({ id, kind: "circle", vertices: [{ id: "center", source: "root", rootJointId, ...this.worldToLocal(root.id, x, y) }], radiusX: radius, radiusY: radius, layerOrder: clampLayerValue(maxOrder + 1) });
+    this.rig.artShapes.push({ id, kind: "circle", vertices: [{ id: "center", source: "root", rootJointId, ...this.worldToLocal(root.id, x, y) }], radiusX: radius, radiusY: radius, layerOrder: clampLayerValue(maxOrder + 1), compositeMode: "paint", compositeGroupId: `composite-${id}` });
     this.notify();
     return id;
   }
@@ -418,6 +427,8 @@ export class RigState {
       ...(face.paletteId ? { paletteId: face.paletteId } : {}),
       ...(face.groupId ? { groupId: face.groupId } : {}),
       layerOrder: clampLayerValue(this.getFaceLayerOrder(face.id) + 1),
+      compositeMode: "paint",
+      compositeGroupId: `composite-${id}`,
     });
     this.notify();
     return id;
@@ -487,10 +498,44 @@ export class RigState {
   }
 
   public removeArtShape(shapeId: string): void {
-    const index = this.rig.artShapes?.findIndex((shape) => shape.id === shapeId) ?? -1;
-    if (index < 0) return;
-    this.rig.artShapes!.splice(index, 1);
+    this.removeArtShapes([shapeId]);
+  }
+
+  public removeArtShapes(shapeIds: string[]): void {
+    const ids = new Set(shapeIds);
+    if (!ids.size || !this.rig.artShapes?.some((shape) => ids.has(shape.id))) return;
+    this.rig.artShapes = this.rig.artShapes.filter((shape) => !ids.has(shape.id));
     this.notify();
+  }
+
+  public duplicateArtShapes(shapeIds: string[]): string[] {
+    const sourceIds = [...new Set(shapeIds)];
+    if (!sourceIds.length) return [];
+    const sources = sourceIds.map((shapeId) => this.getArtShape(shapeId));
+    const existingIds = new Set((this.rig.artShapes ?? []).map((shape) => shape.id));
+    const existingCompositeGroups = new Set((this.rig.artShapes ?? [])
+      .map((shape) => shape.compositeGroupId ?? `composite-${shape.id}`));
+    const compositeCopies = new Map<string, string>();
+    const copies = sources.map((source) => {
+      let sequence = 1;
+      let id = `${source.id}-copy`;
+      while (existingIds.has(id)) id = `${source.id}-copy-${++sequence}`;
+      existingIds.add(id);
+      const sourceCompositeGroup = source.compositeGroupId ?? `composite-${source.id}`;
+      let compositeGroupId = compositeCopies.get(sourceCompositeGroup);
+      if (!compositeGroupId) {
+        let groupSequence = 1;
+        compositeGroupId = `${sourceCompositeGroup}-copy`;
+        while (existingCompositeGroups.has(compositeGroupId)) compositeGroupId = `${sourceCompositeGroup}-copy-${++groupSequence}`;
+        existingCompositeGroups.add(compositeGroupId);
+        compositeCopies.set(sourceCompositeGroup, compositeGroupId);
+      }
+      return { ...structuredClone(source), id, compositeGroupId, layerOrder: clampLayerValue(source.layerOrder + 1) };
+    });
+    this.rig.artShapes ??= [];
+    this.rig.artShapes.push(...copies);
+    this.notify();
+    return copies.map((shape) => shape.id);
   }
 
   public moveArtShapeVertex(shapeId: string, vertexId: string, x: number, y: number): void {
@@ -501,11 +546,19 @@ export class RigState {
   }
 
   public moveArtShape(shapeId: string, deltaX: number, deltaY: number): void {
+    this.moveArtShapes([shapeId], deltaX, deltaY);
+  }
+
+  public moveArtShapes(shapeIds: string[], deltaX: number, deltaY: number): void {
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
-    const shape = this.getArtShape(shapeId);
-    for (const vertex of shape.vertices) {
-      const world = getArtShapeVertexPoint(this.rig, vertex);
-      this.setArtShapeVertexWorldPosition(vertex, world.x + deltaX, world.y + deltaY);
+    const ids = [...new Set(shapeIds)];
+    if (!ids.length || deltaX === 0 && deltaY === 0) return;
+    for (const shapeId of ids) {
+      const shape = this.getArtShape(shapeId);
+      for (const vertex of shape.vertices) {
+        const world = getArtShapeVertexPoint(this.rig, vertex);
+        this.setArtShapeVertexWorldPosition(vertex, world.x + deltaX, world.y + deltaY);
+      }
     }
     this.notify();
   }
@@ -538,6 +591,29 @@ export class RigState {
     if (!Number.isFinite(layerOrder)) return;
     this.getArtShape(shapeId).layerOrder = clampLayerValue(layerOrder);
     this.notify();
+  }
+
+  public setArtShapeComposite(shapeId: string, mode: "paint" | "cutout", compositeGroupId?: string): void {
+    const shape = this.getArtShape(shapeId);
+    if (mode === "cutout" && shape.kind === "line") throw new Error("선분은 제외 도형으로 사용할 수 없습니다.");
+    const group = (compositeGroupId ?? shape.compositeGroupId ?? `composite-${shape.id}`).trim();
+    if (!group) throw new Error("합성 그룹 이름이 필요합니다.");
+    shape.compositeMode = mode;
+    shape.compositeGroupId = group;
+    this.notify();
+  }
+
+  public createArtShapeCompositeGroup(shapeIds: string[]): string {
+    const uniqueIds = [...new Set(shapeIds)];
+    if (uniqueIds.length < 2) throw new Error("합성 그룹에는 도형이 2개 이상 필요합니다.");
+    const shapes = uniqueIds.map((shapeId) => this.getArtShape(shapeId));
+    const used = new Set((this.rig.artShapes ?? []).map((shape) => shape.compositeGroupId).filter(Boolean));
+    let index = 1;
+    while (used.has(`composite-group-${index}`)) index += 1;
+    const groupId = `composite-group-${index}`;
+    for (const shape of shapes) shape.compositeGroupId = groupId;
+    this.notify();
+    return groupId;
   }
 
   public setElementLayerVisibility(layer: ElementLayerId, visible: boolean): void {
@@ -1009,7 +1085,27 @@ export class RigState {
   }
 
   public setJointBodyVisible(jointId: string, visible: boolean): void {
-    this.getJoint(jointId).bodyVisible = visible;
+    this.setJointsBodyVisible([jointId], visible);
+  }
+
+  public setJointsBodyVisible(jointIds: string[], visible: boolean): void {
+    const ids = [...new Set(jointIds)];
+    if (!ids.length) return;
+    for (const jointId of ids) this.getJoint(jointId).bodyVisible = visible;
+    this.notify();
+  }
+
+  public setJointsOutlineVisible(jointIds: string[], visible: boolean): void {
+    const ids = [...new Set(jointIds)];
+    if (!ids.length) return;
+    for (const jointId of ids) this.getJoint(jointId).outlineVisible = visible;
+    this.notify();
+  }
+
+  public setJointsFaceExtensionEnabled(jointIds: string[], enabled: boolean): void {
+    const ids = [...new Set(jointIds)];
+    if (!ids.length) return;
+    for (const jointId of ids) this.getJoint(jointId).faceExtensionEnabled = enabled;
     this.notify();
   }
 

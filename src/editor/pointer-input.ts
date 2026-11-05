@@ -24,10 +24,12 @@ interface PointerInputOptions {
   removeLastLinePoint?: () => void;
   insertShapeVertex?: (shapeId: string, afterVertexId: string, point: { x: number; y: number }) => void;
   bindSelectedShapeVertex?: (jointId: string, axisId: string, side: -1 | 1, snap: boolean) => void;
-  deleteSelectedShapeVertex?: () => void;
+  deleteSelectedShapeVertex?: () => boolean;
+  getSelectedShapeIds?: () => string[];
+  duplicateSelectedShapes?: (clickedShapeId: string) => string[];
   setSelection: (selection: EditorSelection) => void;
   setSelectedFace: (faceId: string) => void;
-  setSelectedShape?: (shapeId: string, vertexId?: string) => void;
+  setSelectedShape?: (shapeId: string, vertexId?: string, additive?: boolean) => void;
 }
 
 export interface ViewportController {
@@ -48,7 +50,8 @@ type Interaction =
   | { type: "rotate-child"; jointId: string; angleOffset: number }
   | { type: "rotate-peer"; peerGroupId: string; pivotX: number; pivotY: number; angleOffset: number }
   | { type: "rotate-selection"; jointIds: string[]; pivotX: number; pivotY: number; lastAngle: number }
-  | { type: "move-shape"; shapeId: string; lastX: number; lastY: number }
+  | { type: "pending-shift-shape"; shapeId: string; wasSelected: boolean; startX: number; startY: number; clientX: number; clientY: number }
+  | { type: "move-shapes"; shapeIds: string[]; startX: number; startY: number; appliedX: number; appliedY: number; axis: "x" | "y" | null; constrained: boolean }
   | { type: "move-shape-vertex"; shapeId: string; vertexId: string }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
   | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement };
@@ -218,9 +221,19 @@ export function enablePointerInput(
       options.setSelectedShape?.(shapeId);
       options.state.paintArtShapeWithColor(shapeId, options.getPaintColor()!);
     } else if (shapeId) {
-      options.setSelectedShape?.(shapeId);
-      interaction = { type: "move-shape", shapeId, lastX: point.x, lastY: point.y };
-      options.state.beginHistoryTransaction();
+      const currentShapeIds = options.getSelectedShapeIds?.() ?? [];
+      const wasSelected = currentShapeIds.includes(shapeId);
+      if (event.shiftKey && !event.altKey) {
+        interaction = { type: "pending-shift-shape", shapeId, wasSelected, startX: point.x, startY: point.y,
+          clientX: event.clientX, clientY: event.clientY };
+      } else {
+        if (!wasSelected) options.setSelectedShape?.(shapeId);
+        let shapeIds = options.getSelectedShapeIds?.() ?? [shapeId];
+        options.state.beginHistoryTransaction();
+        if (event.altKey) shapeIds = options.duplicateSelectedShapes?.(shapeId) ?? shapeIds;
+        interaction = { type: "move-shapes", shapeIds, startX: point.x, startY: point.y,
+          appliedX: point.x, appliedY: point.y, axis: null, constrained: event.shiftKey };
+      }
     } else if (target.hasAttribute("data-selection-rotation")) {
       const selected = options.getSelection().jointIds;
       const pivotX = Number(target.dataset.pivotX);
@@ -325,6 +338,14 @@ export function enablePointerInput(
       options.setSelection({ jointId, jointIds, axisId: previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null });
       startJointMove(jointId, jointIds, { x: startX, y: startY }, options.getPreserveProportions() || event.altKey);
       options.state.beginHistoryTransaction();
+    } else if (interaction.type === "pending-shift-shape") {
+      if (Math.hypot(event.clientX - interaction.clientX, event.clientY - interaction.clientY) < 3) return;
+      const { shapeId, wasSelected, startX, startY } = interaction;
+      if (!wasSelected) options.setSelectedShape?.(shapeId, undefined, true);
+      const shapeIds = options.getSelectedShapeIds?.() ?? [shapeId];
+      interaction = { type: "move-shapes", shapeIds, startX, startY,
+        appliedX: startX, appliedY: startY, axis: null, constrained: true };
+      options.state.beginHistoryTransaction();
     }
     if (interaction.type === "pan") {
       const bounds = element.getBoundingClientRect();
@@ -389,10 +410,15 @@ export function enablePointerInput(
       interaction.lastAngle = angle;
     } else if (interaction.type === "move-shape-vertex") {
       options.state.moveArtShapeVertex(interaction.shapeId, interaction.vertexId, point.x, point.y);
-    } else if (interaction.type === "move-shape") {
-      options.state.moveArtShape(interaction.shapeId, point.x - interaction.lastX, point.y - interaction.lastY);
-      interaction.lastX = point.x;
-      interaction.lastY = point.y;
+    } else if (interaction.type === "move-shapes") {
+      if (interaction.constrained && !interaction.axis) {
+        interaction.axis = Math.abs(point.x - interaction.startX) >= Math.abs(point.y - interaction.startY) ? "x" : "y";
+      }
+      const targetX = interaction.axis === "y" ? interaction.startX : point.x;
+      const targetY = interaction.axis === "x" ? interaction.startY : point.y;
+      options.state.moveArtShapes(interaction.shapeIds, targetX - interaction.appliedX, targetY - interaction.appliedY);
+      interaction.appliedX = targetX;
+      interaction.appliedY = targetY;
     } else if (interaction.type === "marquee") {
       const x = Math.min(interaction.startX, point.x);
       const y = Math.min(interaction.startY, point.y);
@@ -413,6 +439,8 @@ export function enablePointerInput(
         const jointId = jointIds.at(-1) ?? null;
         options.setSelection({ jointId, jointIds, axisId: jointId ? options.state.getJoint(jointId).axes[0]?.id ?? null : null });
       }
+    } else if (interaction.type === "pending-shift-shape") {
+      if (event?.type === "pointerup") options.setSelectedShape?.(interaction.shapeId, undefined, true);
     } else if (interaction.type === "marquee") {
       const point = event ? toSvgPoint(element, event, options.state.rig, interactionDepth) : { x: interaction.startX, y: interaction.startY };
       const left = Math.min(interaction.startX, point.x);
@@ -468,8 +496,7 @@ export function enablePointerInput(
       else return;
       event.preventDefault();
     } else if (!editingOrDialog && (event.key === "Delete" || event.key === "Backspace")) {
-      options.deleteSelectedShapeVertex?.();
-      event.preventDefault();
+      if (options.deleteSelectedShapeVertex?.()) event.preventDefault();
     }
   };
   const onKeyUp = (event: KeyboardEvent) => {

@@ -78,6 +78,8 @@ interface Joint {
   renderOrder: number;
   guideVisible: boolean;
   bodyVisible: boolean;
+  outlineVisible?: boolean;
+  faceExtensionEnabled?: boolean;
 }
 
 interface JointAxis {

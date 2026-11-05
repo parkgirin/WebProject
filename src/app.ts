@@ -1,4 +1,5 @@
 import { createDefaultRig } from "./rig/default-rig.ts";
+import { getArtShapeVertexPoint } from "./rig/geometry.ts";
 import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID } from "./rig/avatar-presets.ts";
 import { RigState } from "./rig/rig-state.ts";
 import { renderSvgEditor } from "./editor/svg-editor.ts";
@@ -35,6 +36,7 @@ export function createApp(container: HTMLDivElement): void {
     extendHiddenJointFaces: false,
     selectedFaceId: "torso",
     selectedShapeId: null,
+    selectedShapeIds: [],
     selectedShapeVertexId: null,
     polygonDraft: [],
     lineDraft: [],
@@ -190,7 +192,12 @@ export function createApp(container: HTMLDivElement): void {
             <dt>휠 / 확대 도구</dt><dd>화면을 확대·축소합니다. 확대 도구는 Shift 클릭으로 축소합니다.</dd>
             <dt>Space + 드래그 / 휠 버튼 드래그</dt><dd>화면을 이동합니다.</dd>
             <dt>Ctrl(⌘) + Z / Ctrl(⌘) + Shift + Z</dt><dd>실행 취소 / 다시 실행합니다.</dd>
-            <dt>[ / ]</dt><dd>선택한 관절이나 면의 순서를 뒤로 / 앞으로 이동합니다.</dd>
+            <dt>[ / ]</dt><dd>선택한 관절, 면 또는 도형의 순서를 뒤로 / 앞으로 이동합니다.</dd>
+            <dt>방향키 / Shift + 방향키</dt><dd>선택한 도형이나 꼭짓점을 1px / 10px 평행 이동합니다.</dd>
+            <dt>Shift + 도형 드래그</dt><dd>처음 움직인 방향을 기준으로 수평 또는 수직 평행 이동합니다. 짧게 클릭하면 다중 선택을 전환합니다.</dd>
+            <dt>Alt(Option) + 도형 드래그</dt><dd>현재 선택 도형을 복제하고 복제본을 이동합니다. Shift를 함께 누르면 수평·수직으로 제한합니다.</dd>
+            <dt>Delete / Backspace</dt><dd>선택한 꼭짓점 또는 선택한 도형들을 삭제합니다.</dd>
+            <dt>Ctrl(⌘) + A / Esc</dt><dd>도형 편집 중 모든 도형 선택 / 도형 선택 해제입니다.</dd>
           </dl></section>
           <p>운영체제나 브라우저가 Alt 드래그를 가로채는 경우 비율 유지 체크박스를 사용하세요.</p>
         </div>
@@ -352,10 +359,14 @@ export function createApp(container: HTMLDivElement): void {
     };
     viewState.selectedTarget = "joint";
     viewState.selectedShapeId = null;
+    viewState.selectedShapeIds = [];
     viewState.selectedShapeVertexId = null;
     render();
   };
   const setViewState = (next: Partial<EditorViewState>) => {
+    if ("selectedShapeId" in next && !("selectedShapeIds" in next)) {
+      next.selectedShapeIds = next.selectedShapeId ? [next.selectedShapeId] : [];
+    }
     Object.assign(viewState, next);
     render();
   };
@@ -371,6 +382,10 @@ export function createApp(container: HTMLDivElement): void {
     }
     const currentShapes = state.rig.artShapes ?? [];
     const currentShapeIds = new Set(currentShapes.map((shape) => shape.id));
+    viewState.selectedShapeIds = (viewState.selectedShapeIds ?? []).filter((id) => currentShapeIds.has(id));
+    if (!viewState.selectedShapeId && viewState.selectedShapeIds.length) {
+      viewState.selectedShapeId = viewState.selectedShapeIds.at(-1) ?? null;
+    }
     for (const key of poseClip.keys) {
       key.rig.artShapes ??= [];
       key.rig.elementLayers = structuredClone(state.rig.elementLayers);
@@ -383,6 +398,8 @@ export function createApp(container: HTMLDivElement): void {
           keyAxis.pointSides = [...currentAxis.pointSides];
           return keyAxis;
         });
+          keyJoint.outlineVisible = currentJoint.outlineVisible ?? true;
+          keyJoint.faceExtensionEnabled = currentJoint.faceExtensionEnabled ?? true;
       }
       key.rig.artShapes = key.rig.artShapes.filter((shape) => currentShapeIds.has(shape.id));
       for (const shape of currentShapes) {
@@ -400,6 +417,8 @@ export function createApp(container: HTMLDivElement): void {
                 && existing.jointId === vertex.jointId && existing.axisId === vertex.axisId && existing.side === vertex.side));
           return sameBinding ? existing : structuredClone(vertex);
         });
+        keyShape.compositeMode = shape.compositeMode ?? "paint";
+        keyShape.compositeGroupId = shape.compositeGroupId ?? `composite-${shape.id}`;
       }
     }
     const globalAngle = toSignedAngle(state.getGlobalRotation());
@@ -533,6 +552,19 @@ export function createApp(container: HTMLDivElement): void {
     getLineToolActive: () => viewState.activeTool === "line",
     getVertexAddToolActive: () => viewState.activeTool === "vertex-add",
     getVertexBindToolActive: () => viewState.activeTool === "vertex-bind",
+    getSelectedShapeIds: () => viewState.selectedShapeIds ?? (viewState.selectedShapeId ? [viewState.selectedShapeId] : []),
+    duplicateSelectedShapes: (clickedShapeId) => {
+      const selectedShapeIds = viewState.selectedShapeIds ?? [];
+      const sourceIds = selectedShapeIds.includes(clickedShapeId) ? selectedShapeIds : [clickedShapeId];
+      const copyIds = state.duplicateArtShapes(sourceIds);
+      if (copyIds.length) {
+        viewState.selectedShapeId = copyIds.at(-1) ?? null;
+        viewState.selectedShapeIds = copyIds;
+        viewState.selectedShapeVertexId = null;
+        render();
+      }
+      return copyIds;
+    },
     addPolygonPoint: (point) => {
       viewState.polygonDraft = [...(viewState.polygonDraft ?? []), point];
       render();
@@ -544,6 +576,7 @@ export function createApp(container: HTMLDivElement): void {
       viewState.polygonDraft = [];
       viewState.activeTool = "select";
       viewState.selectedShapeId = shapeId;
+      viewState.selectedShapeIds = [shapeId];
       viewState.selectedShapeVertexId = state.getArtShape(shapeId).vertices[0]?.id ?? null;
       render();
     },
@@ -564,6 +597,7 @@ export function createApp(container: HTMLDivElement): void {
       viewState.lineDraft = [];
       viewState.activeTool = "select";
       viewState.selectedShapeId = shapeId;
+      viewState.selectedShapeIds = [shapeId];
       viewState.selectedShapeVertexId = null;
       render();
     },
@@ -578,20 +612,31 @@ export function createApp(container: HTMLDivElement): void {
       state.bindArtShapeVertexToAxis(viewState.selectedShapeId, viewState.selectedShapeVertexId, jointId, axisId, side, snap);
     },
     deleteSelectedShapeVertex: () => {
-      if (!viewState.selectedShapeId || !viewState.selectedShapeVertexId) return;
+      if (!viewState.selectedShapeId || !viewState.selectedShapeVertexId) return false;
       const shape = state.getArtShape(viewState.selectedShapeId);
-      if (shape.vertices.length <= 3) return;
+      if (shape.kind !== "polygon" || shape.vertices.length <= 3) return false;
       viewState.selectedShapeVertexId = state.removeArtShapeVertex(shape.id, viewState.selectedShapeVertexId);
       render();
+      return true;
     },
     setSelection,
     setSelectedFace: (selectedFaceId) => setViewState({ selectedFaceId, selectedTarget: "face", selectedShapeId: null, selectedShapeVertexId: null }),
-    setSelectedShape: (selectedShapeId, selectedShapeVertexId) => setViewState({
-      selectedShapeId,
-      selectedShapeVertexId: selectedShapeVertexId ?? null,
-      selectedTarget: "joint",
-      inspectorTab: "selection",
-    }),
+    setSelectedShape: (selectedShapeId, selectedShapeVertexId, additive = false) => {
+      const selected = new Set(viewState.selectedShapeIds ?? []);
+      if (additive && selected.has(selectedShapeId)) selected.delete(selectedShapeId);
+      else {
+        if (!additive) selected.clear();
+        selected.add(selectedShapeId);
+      }
+      const selectedShapeIds = [...selected];
+      setViewState({
+        selectedShapeId: selected.has(selectedShapeId) ? selectedShapeId : selectedShapeIds.at(-1) ?? null,
+        selectedShapeIds,
+        selectedShapeVertexId: additive ? null : selectedShapeVertexId ?? null,
+        selectedTarget: "joint",
+        inspectorTab: "selection",
+      });
+    },
   });
   undoButton.addEventListener("click", () => state.undo());
   redoButton.addEventListener("click", () => state.redo());
@@ -974,9 +1019,11 @@ export function createApp(container: HTMLDivElement): void {
     }
   });
   window.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) return;
     if (controlsDialog.open || presetDialog.open || previewDialog.open) return;
     const target = event.target as HTMLElement | null;
-    const editingText = target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
+    const editingText = target instanceof HTMLElement
+      && target.matches("input, select, textarea, button, [contenteditable='true']");
     if (editingText) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
@@ -984,7 +1031,43 @@ export function createApp(container: HTMLDivElement): void {
       else state.undo();
       return;
     }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && viewState.selectedShapeId) {
+      event.preventDefault();
+      const selectedShapeIds = (state.rig.artShapes ?? []).map((shape) => shape.id);
+      setViewState({ selectedShapeId: viewState.selectedShapeId ?? selectedShapeIds.at(-1) ?? null,
+        selectedShapeIds, selectedShapeVertexId: null });
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const selectedShapeIds = viewState.selectedShapeIds ?? (viewState.selectedShapeId ? [viewState.selectedShapeId] : []);
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && selectedShapeIds.length) {
+      event.preventDefault();
+      const distance = event.shiftKey ? 10 : 1;
+      const deltaX = event.key === "ArrowLeft" ? -distance : event.key === "ArrowRight" ? distance : 0;
+      const deltaY = event.key === "ArrowUp" ? -distance : event.key === "ArrowDown" ? distance : 0;
+      if (viewState.selectedShapeId && viewState.selectedShapeVertexId) {
+        const shape = state.getArtShape(viewState.selectedShapeId);
+        const vertex = shape.vertices.find((candidate) => candidate.id === viewState.selectedShapeVertexId);
+        if (vertex) {
+          const point = getArtShapeVertexPoint(state.rig, vertex);
+          state.moveArtShapeVertex(shape.id, vertex.id, point.x + deltaX, point.y + deltaY);
+        }
+      } else state.moveArtShapes(selectedShapeIds, deltaX, deltaY);
+      return;
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && selectedShapeIds.length) {
+      event.preventDefault();
+      viewState.selectedShapeId = null;
+      viewState.selectedShapeIds = [];
+      viewState.selectedShapeVertexId = null;
+      state.removeArtShapes(selectedShapeIds);
+      return;
+    }
+    if (event.key === "Escape" && selectedShapeIds.length) {
+      event.preventDefault();
+      setViewState({ selectedShapeId: null, selectedShapeIds: [], selectedShapeVertexId: null });
+      return;
+    }
     if (event.key === "[") {
       event.preventDefault();
       if (viewState.selectedShapeId) state.moveBodyItemInStack("shape", viewState.selectedShapeId, -1, false);
