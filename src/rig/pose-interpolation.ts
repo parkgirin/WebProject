@@ -266,11 +266,20 @@ function assertCompatibleRig(start: Rig, end: Rig): void {
   const endShapes = new Map((end.artShapes ?? []).map((shape) => [shape.id, shape]));
   if ((start.artShapes ?? []).some((shape) => {
     const other = endShapes.get(shape.id);
-    return !other || shape.kind !== other.kind || shape.vertices.length !== other.vertices.length || shape.vertices.some((vertex) => {
+    return !other || shape.kind !== other.kind
+      || (shape.compositeMode ?? "paint") !== (other.compositeMode ?? "paint")
+      || (shape.compositeGroupId ?? `composite-${shape.id}`) !== (other.compositeGroupId ?? `composite-${other.id}`)
+      || shape.vertices.length !== other.vertices.length || shape.vertices.some((vertex) => {
       const candidate = other.vertices.find((endVertex) => endVertex.id === vertex.id);
       return !candidate || JSON.stringify(structuralVertex(vertex)) !== JSON.stringify(structuralVertex(candidate));
     });
   })) throw new Error("키프레임의 도형 구조가 일치하지 않습니다.");
+  const compositeStructure = (rig: Rig) => (rig.artCompositeGroups ?? [])
+    .map((group) => ({ id: group.id, parentGroupId: group.parentGroupId ?? null, compositeMode: group.compositeMode ?? "paint" }))
+    .sort((first, second) => first.id.localeCompare(second.id));
+  if (JSON.stringify(compositeStructure(start)) !== JSON.stringify(compositeStructure(end))) {
+    throw new Error("키프레임의 도형 합성 구조가 일치하지 않습니다.");
+  }
 }
 
 function structuralVertex(vertex: NonNullable<Rig["artShapes"]>[number]["vertices"][number]) {

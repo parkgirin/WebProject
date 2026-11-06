@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { renderInspector } from "../src/editor/inspector.ts";
 import { renderSvgEditor } from "../src/editor/svg-editor.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
@@ -50,6 +51,19 @@ test("circle shapes render from one centre, and the default head follows its hea
   assert.equal(circle.vertices.length, 1);
   assert.equal(circle.radiusX, 32);
   assert.equal(circle.radiusY, 32);
+  state.setArtShapeCircleRadii(id, 48, 24);
+  assert.equal(circle.radiusX, 48);
+  assert.equal(circle.radiusY, 24);
+  state.undo();
+  assert.equal(state.getArtShape(id).radiusX, 32);
+  assert.equal(state.getArtShape(id).radiusY, 32);
+  const end = structuredClone(state.rig);
+  const endCircle = end.artShapes!.find((shape) => shape.id === id)!;
+  endCircle.radiusX = 64;
+  endCircle.radiusY = 16;
+  const middle = interpolatePoseRig(state.rig, end, .5).artShapes!.find((shape) => shape.id === id)!;
+  assert.equal(middle.radiusX, 48);
+  assert.equal(middle.radiusY, 24);
   assert.deepEqual(validateRig(state.rig), []);
 });
 
@@ -95,16 +109,18 @@ test("presets round-trip polygon geometry and axis bindings", () => {
   const head = source.getJoint("head");
   const axis = head.axes[0];
   const endpoint = getAxisPoint(source.rig, head, axis, 1);
-  source.addPolygon([
+  const polygonId = source.addPolygon([
     { ...endpoint, axisPoint: { jointId: head.id, axisId: axis.id, side: 1 } },
     { x: endpoint.x + 20, y: endpoint.y + 30 },
     { x: endpoint.x - 20, y: endpoint.y + 30 },
   ]);
+  source.createArtShapeCompositeGroup(["head-base", polygonId]);
   const preset = createRigPreset(source.rig, { pose: true, proportions: true, colors: true, shapes: true });
   const target = new RigState(createDefaultRig());
 
   assert.deepEqual(applyRigPreset(target, preset, { pose: false, proportions: false, colors: false, shapes: true }), ["도형"]);
   assert.deepEqual(target.rig.artShapes, source.rig.artShapes);
+  assert.deepEqual(target.rig.artCompositeGroups, source.rig.artCompositeGroups);
 });
 
 test("polygon vertices can be inserted and removed without dropping below three points", () => {
@@ -248,6 +264,29 @@ test("paint and cutout shapes can share a composite group while lines cannot bec
 
   const lineId = state.addLine([{ x: 10, y: 10 }, { x: 90, y: 90 }], 12);
   assert.throws(() => state.setArtShapeComposite(lineId, "cutout", "donut"), /선분/);
+  assert.doesNotThrow(() => state.setArtShapeComposite(lineId, "overlay", "donut"));
+});
+
+test("overlay paints its own color inside the accumulated shape without shrinking the result", () => {
+  const state = new RigState(createDefaultRig());
+  const base = state.addCircle(300, 300, 80);
+  const pattern = state.addCircle(350, 300, 50);
+  state.paintArtShapeWithColor(base, "#552211");
+  state.paintArtShapeWithColor(pattern, "#ffee00");
+  state.setArtShapeComposite(base, "paint", "pants");
+  state.setArtShapeComposite(pattern, "overlay", "pants");
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.match(host.innerHTML, /id="art-composite-overlay-clip-/);
+  assert.match(host.innerHTML, new RegExp(`data-shape-id="${base}"[\\s\\S]*mask="url\\(#art-composite-overlay-clip-[^"]+\\)"[\\s\\S]*data-shape-id="${pattern}"`));
+  assert.equal(state.getArtShape(pattern).compositeMode, "overlay");
+  assert.deepEqual(validateRig(state.rig), []);
 });
 
 test("the SVG renderer masks only earlier paint shapes in the same composite group", () => {
@@ -266,7 +305,7 @@ test("the SVG renderer masks only earlier paint shapes in the same composite gro
 
   renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
 
-  assert.equal(host.innerHTML.match(/mask="url\(#art-composite-mask-/g)?.length, 1);
+  assert.equal(host.innerHTML.match(/id="art-composite-subtract-/g)?.length, 1);
   assert.match(host.innerHTML, new RegExp(`data-shape-id="${painted.id}"`));
   assert.match(host.innerHTML, new RegExp(`data-shape-id="${unrelated.id}"`));
   assert.match(host.innerHTML, new RegExp(`class="body-art-cutout-guide" data-shape-id="${cutout.id}"`));
@@ -288,8 +327,8 @@ test("paint shapes in one composite group render only their shared intersection"
   assert.equal(state.getArtShape(first).compositeGroupId, groupId);
   assert.equal(state.getArtShape(second).compositeGroupId, groupId);
   renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
-  assert.equal(host.innerHTML.match(/id="art-composite-intersection-/g)?.length, 2);
-  assert.equal(host.innerHTML.match(/mask="url\(#art-composite-intersection-/g)?.length, 2);
+  assert.match(host.innerHTML, /mask="url\(#art-shape-mask-[0-9]+\)"/);
+  assert.match(host.innerHTML, /id="art-composite-result-/);
 
   state.undo();
   assert.notEqual(state.getArtShape(first).compositeGroupId, state.getArtShape(second).compositeGroupId);
@@ -298,6 +337,83 @@ test("paint shapes in one composite group render only their shared intersection"
 test("a composite group requires at least two selected shapes", () => {
   const state = new RigState(createDefaultRig());
   assert.throws(() => state.createArtShapeCompositeGroup(["head-base"]), /2개 이상/);
+});
+
+test("nested composite groups preserve child groups and apply their results in order", () => {
+  const state = new RigState(createDefaultRig());
+  const first = state.addCircle(260, 300, 70);
+  const second = state.addCircle(280, 300, 60);
+  const third = state.addCircle(320, 300, 50);
+  const fourth = state.addCircle(340, 300, 40);
+  const firstGroup = state.createArtShapeCompositeGroup([first, second]);
+  const secondGroup = state.createArtShapeCompositeGroup([third, fourth]);
+  const parent = state.createNestedArtCompositeGroup([first, second, third, fourth]);
+  state.setArtCompositeGroupMode(secondGroup, "cutout");
+
+  assert.equal(state.rig.artCompositeGroups?.find((group) => group.id === firstGroup)?.parentGroupId, parent);
+  assert.equal(state.rig.artCompositeGroups?.find((group) => group.id === secondGroup)?.parentGroupId, parent);
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.match(host.innerHTML, /id="art-composite-subtract-/);
+  assert.ok((host.innerHTML.match(/id="art-composite-result-/g)?.length ?? 0) >= 3);
+  assert.deepEqual(validateRig(state.rig), []);
+});
+
+test("a nested child group can overlay its composed result across group boundaries", () => {
+  const state = new RigState(createDefaultRig());
+  const base = state.addCircle(280, 300, 80);
+  const baseLimit = state.addCircle(300, 300, 80);
+  const patch = state.addCircle(330, 300, 45);
+  const patchLimit = state.addCircle(350, 300, 45);
+  const baseGroup = state.createArtShapeCompositeGroup([base, baseLimit]);
+  const patchGroup = state.createArtShapeCompositeGroup([patch, patchLimit]);
+  const parent = state.createNestedArtCompositeGroup([base, baseLimit, patch, patchLimit]);
+  state.setArtCompositeGroupMode(patchGroup, "overlay");
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.equal(state.rig.artCompositeGroups?.find((group) => group.id === baseGroup)?.parentGroupId, parent);
+  assert.equal(state.rig.artCompositeGroups?.find((group) => group.id === patchGroup)?.compositeMode, "overlay");
+  assert.match(host.innerHTML, /id="art-composite-overlay-clip-/);
+  assert.deepEqual(validateRig(state.rig), []);
+});
+
+test("nested grouping rejects partial child-group selections", () => {
+  const state = new RigState(createDefaultRig());
+  const first = state.addCircle(200, 200, 20);
+  const second = state.addCircle(220, 200, 20);
+  const third = state.addCircle(300, 200, 20);
+  state.createArtShapeCompositeGroup([first, second]);
+  assert.throws(() => state.createNestedArtCompositeGroup([first, third]), /모든 도형/);
+});
+
+test("composite operations follow layer order instead of refilling an earlier cutout", () => {
+  const state = new RigState(createDefaultRig());
+  const base = state.addCircle(300, 300, 90);
+  const hole = state.addCircle(300, 300, 45);
+  const finalIntersection = state.addCircle(320, 300, 70);
+  state.setArtShapeComposite(base, "paint", "ordered");
+  state.setArtShapeComposite(hole, "cutout", "ordered");
+  state.setArtShapeComposite(finalIntersection, "paint", "ordered");
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.match(host.innerHTML, new RegExp(`<g mask="url\\(#art-shape-mask-[0-9]+\\)">\\s*<g mask="url\\(#art-composite-subtract-[^"]+\\)">[\\s\\S]*data-shape-id="${base}"`));
 });
 
 test("multiple selected shapes move and delete as single undoable keyboard operations", () => {
@@ -319,6 +435,41 @@ test("multiple selected shapes move and delete as single undoable keyboard opera
   assert.ok(state.rig.artShapes?.some((shape) => shape.id === secondId));
 });
 
+test("the inspector deletes every selected shape as one undoable operation", () => {
+  const state = new RigState(createDefaultRig());
+  const first = state.addCircle(180, 200, 20);
+  const second = state.addCircle(240, 200, 20);
+  const groupId = state.createArtShapeCompositeGroup([first, second]);
+  let click: (() => void) | undefined;
+  let viewUpdate: Partial<EditorViewState> | undefined;
+  const deleteButton = { addEventListener: (event: string, handler: () => void) => {
+    if (event === "click") click = handler;
+  } };
+  const element = {
+    innerHTML: "",
+    querySelector: (selector: string) => selector === "[data-delete-shape]" ? deleteButton : null,
+    querySelectorAll: () => [],
+  } as unknown as HTMLElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedShapeId: second, selectedShapeIds: [first, second], selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, moveSelectedIndividually: false,
+    activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+
+  renderInspector(element, state, { jointId: null, axisId: null, jointIds: [] }, () => {}, viewState,
+    (next) => { viewUpdate = next; });
+  assert.match(element.innerHTML, /선택 도형 2개 삭제/);
+  click!();
+  assert.equal(state.rig.artShapes?.some((shape) => shape.id === first || shape.id === second), false);
+  assert.equal(state.rig.artCompositeGroups?.some((group) => group.id === groupId), false);
+  assert.deepEqual(viewUpdate?.selectedShapeIds, []);
+  state.undo();
+  assert.ok(state.rig.artShapes?.some((shape) => shape.id === first));
+  assert.ok(state.rig.artShapes?.some((shape) => shape.id === second));
+  assert.ok(state.rig.artCompositeGroups?.some((group) => group.id === groupId));
+});
+
 test("duplicating selected shapes preserves their internal composite group without joining the originals", () => {
   const state = new RigState(createDefaultRig());
   const firstId = state.addCircle(200, 200, 20);
@@ -333,4 +484,25 @@ test("duplicating selected shapes preserves their internal composite group witho
   assert.equal(state.getArtShape(copyIds[0]).layerOrder, state.getArtShape(firstId).layerOrder + 1);
   state.undo();
   assert.equal(state.rig.artShapes?.some((shape) => copyIds.includes(shape.id)), false);
+});
+
+test("duplicating nested groups copies the hierarchy without linking back to the originals", () => {
+  const state = new RigState(createDefaultRig());
+  const first = state.addCircle(180, 200, 30);
+  const second = state.addCircle(200, 200, 25);
+  const third = state.addCircle(280, 200, 30);
+  const fourth = state.addCircle(300, 200, 25);
+  const firstGroup = state.createArtShapeCompositeGroup([first, second]);
+  const secondGroup = state.createArtShapeCompositeGroup([third, fourth]);
+  const parent = state.createNestedArtCompositeGroup([first, second, third, fourth]);
+  state.setArtCompositeGroupMode(secondGroup, "cutout");
+
+  const copies = state.duplicateArtShapes([first, second, third, fourth]);
+  const copiedDirectGroups = [...new Set(copies.map((id) => state.getArtShape(id).compositeGroupId!))];
+  const copiedDefinitions = copiedDirectGroups.map((id) => state.rig.artCompositeGroups!.find((group) => group.id === id)!);
+  assert.equal(copiedDirectGroups.length, 2);
+  assert.ok(copiedDefinitions.every((group) => group.parentGroupId && group.parentGroupId !== parent));
+  assert.equal(new Set(copiedDefinitions.map((group) => group.parentGroupId)).size, 1);
+  assert.equal(copiedDefinitions.find((group) => group.id.startsWith(`${secondGroup}-copy`))?.compositeMode, "cutout");
+  assert.ok(copiedDefinitions.every((group) => group.id !== firstGroup && group.id !== secondGroup));
 });

@@ -39,6 +39,7 @@ export interface RigPreset {
     faces: Record<string, { color?: string; paletteId?: string } | null>;
   };
   artShapes?: NonNullable<Rig["artShapes"]>;
+  artCompositeGroups?: NonNullable<Rig["artCompositeGroups"]>;
   /** Axes referenced by saved art-shape vertices, grouped by joint. */
   artAxes?: Record<string, Rig["joints"][number]["axes"]>;
 }
@@ -84,6 +85,7 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
   }
   if (parts.shapes) {
     preset.artShapes = structuredClone(rig.artShapes ?? []);
+    preset.artCompositeGroups = structuredClone(rig.artCompositeGroups ?? []);
     const references = new Map<string, Set<string>>();
     for (const shape of rig.artShapes ?? []) {
       for (const vertex of shape.vertices) {
@@ -120,6 +122,7 @@ export function parseRigPreset(text: string): RigPreset {
   if (value.proportions !== undefined && !isRecord(value.proportions)) throw new Error("비율 데이터 형식이 올바르지 않습니다.");
   if (value.colors !== undefined && !isRecord(value.colors)) throw new Error("색상 데이터 형식이 올바르지 않습니다.");
   if (value.artShapes !== undefined && !Array.isArray(value.artShapes)) throw new Error("도형 데이터 형식이 올바르지 않습니다.");
+  if (value.artCompositeGroups !== undefined && !Array.isArray(value.artCompositeGroups)) throw new Error("도형 합성 그룹 형식이 올바르지 않습니다.");
   if (value.artAxes !== undefined && !isRecord(value.artAxes)) throw new Error("도형 축 데이터 형식이 올바르지 않습니다.");
   return value as unknown as RigPreset;
 }
@@ -173,6 +176,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
         }
       }
       candidate.artShapes = structuredClone(preset.artShapes);
+      candidate.artCompositeGroups = structuredClone(preset.artCompositeGroups ?? []);
       const errors = validateRig(candidate);
       if (errors.length) throw new Error(`도형 데이터를 적용할 수 없습니다: ${errors[0]}`);
       for (const [jointId] of Object.entries(preset.artAxes ?? {})) {
@@ -181,6 +185,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
         if (source && target) target.axes = source.axes;
       }
       state.rig.artShapes = candidate.artShapes;
+      state.rig.artCompositeGroups = candidate.artCompositeGroups;
       applied.push("도형");
     }
   } finally {

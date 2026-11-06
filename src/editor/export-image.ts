@@ -119,6 +119,7 @@ function createExportSvg(source: SVGSVGElement, bounds: DrawingExportBoundsMode 
     .body-art-line { fill: none; stroke-linecap: round; }
     .body-art-line-outline { fill: none; stroke: none; stroke-linecap: round; pointer-events: none; }
     .body-art-cutout-guide { display: none; }
+    .body-art-composite-guide, .body-art-shape-hit, .body-art-shape-hit-item { display: none; }
     .show-outlines .body-face-outline,
     .show-outlines .body-joint-outline,
     .show-outlines .body-art-shape-outline {

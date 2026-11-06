@@ -95,6 +95,8 @@ export type ArtShapeVertex =
   | { id: string; source: "joint-center"; jointId: string; offsetX: number; offsetY: number }
   | { id: string; source: "axis-point"; jointId: string; axisId: string; side: AxisPointSide; offsetX: number; offsetY: number };
 
+export type ArtCompositeMode = "paint" | "cutout" | "overlay";
+
 export interface ArtShape {
   id: string;
   kind: "polygon" | "line" | "circle";
@@ -109,9 +111,17 @@ export interface ArtShape {
   groupId?: string;
   layerOrder: number;
   /** Missing values from older files are treated as paint. */
-  compositeMode?: "paint" | "cutout";
+  compositeMode?: ArtCompositeMode;
   /** Editing-only composition identity, independent from the output layer group. */
   compositeGroupId?: string;
+}
+
+export interface ArtCompositeGroup {
+  id: string;
+  /** Parent composition. Missing values make this a root output group. */
+  parentGroupId?: string;
+  /** Operation used when this group's result participates in its parent. */
+  compositeMode?: ArtCompositeMode;
 }
 
 export type ElementLayerId = "joints" | "axes" | "faces" | "shapes";
@@ -130,6 +140,7 @@ export interface Rig {
   peerGroups: PeerGroup[];
   faces: Face[];
   artShapes?: ArtShape[];
+  artCompositeGroups?: ArtCompositeGroup[];
   /** Photo-editor style global visibility for each element category. */
   elementLayers?: ElementLayerVisibility;
 }

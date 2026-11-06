@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { enablePointerInput } from "../src/editor/pointer-input.ts";
+import { enablePointerInput, getArtShapeIdsInMarquee } from "../src/editor/pointer-input.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { getArtShapeVertexPoint } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
@@ -115,4 +115,67 @@ test("alt-drag duplicates the multi-selection and moves only the copies", () => 
     state.undo();
     assert.equal(state.rig.artShapes?.some((shape) => copyIds.includes(shape.id)), false);
   });
+});
+
+test("marquee bounds select intersecting visible shapes including their circle radius and line width", () => {
+  const state = new RigState(createDefaultRig());
+  state.rig.artShapes = [];
+  const circle = state.addCircle(200, 200, 30);
+  const outside = state.addCircle(350, 350, 20);
+  const line = state.addLine([{ x: 260, y: 180 }, { x: 320, y: 180 }], 20);
+
+  assert.deepEqual(getArtShapeIdsInMarquee(state.rig, 225, 275, 170, 210), [circle, line]);
+  assert.deepEqual(getArtShapeIdsInMarquee(state.rig, 330, 330, 330, 330), [outside]);
+
+  state.rig.elementLayers!.shapes = false;
+  assert.deepEqual(getArtShapeIdsInMarquee(state.rig, 0, 600, 0, 780), []);
+});
+
+test("blank-canvas drag replaces shape selection and shift-drag adds to it", () => {
+  const state = new RigState(createDefaultRig());
+  state.rig.artShapes = [];
+  const first = state.addCircle(180, 180, 20);
+  const second = state.addCircle(320, 320, 20);
+  let selectedShapeIds: string[] = [];
+  const hostEvents = new Map<string, (event: any) => void>();
+  const windowEvents = new Map<string, (event: any) => void>();
+  const rectangle = { setAttribute: () => {}, remove: () => {} };
+  const host = {
+    addEventListener: (name: string, listener: (event: any) => void) => hostEvents.set(name, listener),
+    removeEventListener: () => {}, append: () => {}, createSVGPoint: () => ({ x: 0, y: 0 }),
+    getScreenCTM: () => null, classList: { toggle: () => {}, remove: () => {} },
+  } as unknown as SVGSVGElement;
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  Object.assign(globalThis, {
+    window: {
+      addEventListener: (name: string, listener: (event: any) => void) => windowEvents.set(name, listener),
+      removeEventListener: (name: string) => windowEvents.delete(name),
+    },
+    document: { createElementNS: () => rectangle },
+  });
+  try {
+    const controller = enablePointerInput(host, {
+      state, getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
+      getPreserveProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
+      getSelectedShapeIds: () => selectedShapeIds, setSelection: () => {}, setSelectedFace: () => {},
+      setSelectedShapes: (ids) => { selectedShapeIds = ids; },
+    });
+    const drag = (from: number, to: number, shiftKey = false) => {
+      hostEvents.get("pointerdown")!({ button: 0, shiftKey, clientX: from, clientY: from,
+        target: { dataset: {}, hasAttribute: () => false }, preventDefault: () => {} });
+      windowEvents.get("pointermove")!({ clientX: to, clientY: to });
+      windowEvents.get("pointerup")!({ type: "pointerup", clientX: to, clientY: to });
+    };
+    drag(150, 210);
+    assert.deepEqual(selectedShapeIds, [first]);
+    drag(290, 350, true);
+    assert.deepEqual(selectedShapeIds, [first, second]);
+    controller.destroy();
+  } finally {
+    if (originalWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else Object.assign(globalThis, { window: originalWindow });
+    if (originalDocument === undefined) delete (globalThis as { document?: unknown }).document;
+    else Object.assign(globalThis, { document: originalDocument });
+  }
 });

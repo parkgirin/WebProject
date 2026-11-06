@@ -1,4 +1,4 @@
-import type { ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
+import type { ArtCompositeMode, ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
 import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getFacePoints, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedDepth, getProjectionScale, projectPoint, type Point } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
@@ -113,49 +113,101 @@ export function renderSvgEditor(
       ? `<line x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" fill="none" stroke="${color}" stroke-width="${shape.strokeWidth ?? 1}" stroke-linecap="round" />`
       : `<polygon points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`;
   const compositeMaskDefs: string[] = [];
-  const shapeItems = shapeRecords.map((record, recordIndex) => {
+  const maskBounds = `x="-2000" y="-2000" width="4600" height="4780"`;
+  const selectedShapeIds = new Set(viewState.selectedShapeIds ?? [viewState.selectedShapeId].filter(Boolean) as string[]);
+  const shapeActualMarkup = (record: (typeof shapeRecords)[number]) => {
     const { shape, points } = record;
     const color = escapeXml(resolveColor(rig, shape.color, shape.paletteId));
-    const selectedClass = (viewState.selectedShapeIds ?? [viewState.selectedShapeId]).includes(shape.id) ? " is-selected" : "";
-    if (record.compositeMode === "cutout") {
-      const guide = shape.kind === "circle"
-        ? `<ellipse class="body-art-cutout-guide${selectedClass}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" />`
-        : `<polygon class="body-art-cutout-guide${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" />`;
-      return {
-        id: `shape:${shape.id}`,
-        groupId: shape.groupId,
-        order: shape.layerOrder,
-        depth: shape.vertices.reduce((sum, vertex) => sum + vertexDepth(vertex), 0) / shape.vertices.length,
-        markup: `<g class="body-art-shape-item is-cutout">${guide}</g>`,
-      };
-    }
-    const cutouts = shapeRecords.filter((candidate) => candidate.compositeMode === "cutout"
-      && candidate.compositeGroupId === record.compositeGroupId
-      && (candidate.stackOrder > record.stackOrder
-        || candidate.stackOrder === record.stackOrder && candidate.shape.id.localeCompare(shape.id) > 0));
-    const maskId = `art-composite-mask-${recordIndex}`;
-    if (cutouts.length) compositeMaskDefs.push(`<mask id="${maskId}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance"><rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />${cutouts.map((candidate) => compositeGeometry(candidate.shape, candidate.points, "#000")).join("")}</mask>`);
-    const mask = cutouts.length ? ` mask="url(#${maskId})"` : "";
-    let markup = shape.kind === "line"
-      ? `<g class="body-art-shape-item"${mask}><line class="body-art-line-outline" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke-width="${(shape.strokeWidth ?? 1) + 3}" /><line class="body-art-line${selectedClass}" data-shape-id="${escapeXml(shape.id)}" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke="${color}" stroke-width="${shape.strokeWidth ?? 1}" /></g>`
+    const selectedClass = selectedShapeIds.has(shape.id) ? " is-selected" : "";
+    return shape.kind === "line"
+      ? `<g class="body-art-shape-item"><line class="body-art-line-outline" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke-width="${(shape.strokeWidth ?? 1) + 3}" /><line class="body-art-line${selectedClass}" data-shape-id="${escapeXml(shape.id)}" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke="${color}" stroke-width="${shape.strokeWidth ?? 1}" /></g>`
       : shape.kind === "circle"
-        ? `<g class="body-art-shape-item"${mask}><ellipse class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${color}" /><ellipse class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" /></g>`
-        : `<g class="body-art-shape-item"${mask}><polygon class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" /><polygon class="body-art-shape-outline" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" /></g>`;
-    const otherPaints = shapeRecords.filter((candidate) => candidate.compositeMode === "paint"
-      && candidate.compositeGroupId === record.compositeGroupId && candidate.shape.id !== shape.id);
-    for (const [intersectionIndex, candidate] of otherPaints.entries()) {
-      const intersectionMaskId = `art-composite-intersection-${recordIndex}-${intersectionIndex}`;
-      compositeMaskDefs.push(`<mask id="${intersectionMaskId}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance"><rect x="-2000" y="-2000" width="4600" height="4780" fill="#000" />${compositeGeometry(candidate.shape, candidate.points, "#fff")}</mask>`);
-      markup = `<g mask="url(#${intersectionMaskId})">${markup}</g>`;
+        ? `<g class="body-art-shape-item"><ellipse class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${color}" /><ellipse class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" /></g>`
+        : `<g class="body-art-shape-item"><polygon class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" /><polygon class="body-art-shape-outline" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" /></g>`;
+  };
+  const shapeDepth = (record: (typeof shapeRecords)[number]) => record.shape.vertices
+    .reduce((sum, vertex) => sum + vertexDepth(vertex), 0) / record.shape.vertices.length;
+  const shapeMaskIds = new Map<string, string>();
+  for (const [index, record] of shapeRecords.entries()) {
+    const maskId = `art-shape-mask-${index}`;
+    shapeMaskIds.set(record.shape.id, maskId);
+    compositeMaskDefs.push(`<mask id="${maskId}" maskUnits="userSpaceOnUse" ${maskBounds} mask-type="luminance"><rect ${maskBounds} fill="#000" />${compositeGeometry(record.shape, record.points, "#fff")}</mask>`);
+  }
+  const groupDefinitions = new Map((rig.artCompositeGroups ?? []).map((group) => [group.id, group]));
+  const directGroupId = (record: (typeof shapeRecords)[number]) => record.compositeGroupId;
+  const allGroupIds = new Set([
+    ...shapeRecords.map(directGroupId),
+    ...(rig.artCompositeGroups ?? []).map((group) => group.id),
+  ]);
+  const groupIndexes = new Map([...allGroupIds].map((id, index) => [id, index]));
+  type CompositeResult = { actual: string; maskId: string; order: number; depth: number; outputGroupId?: string };
+  const renderedGroups = new Map<string, CompositeResult | null>();
+  const renderGroup = (groupId: string, visiting = new Set<string>()): CompositeResult | null => {
+    if (renderedGroups.has(groupId)) return renderedGroups.get(groupId)!;
+    if (visiting.has(groupId)) return null;
+    const nextVisiting = new Set(visiting).add(groupId);
+    const operands: Array<CompositeResult & { id: string; mode: ArtCompositeMode }> = [];
+    for (const record of shapeRecords.filter((candidate) => directGroupId(candidate) === groupId)) {
+      operands.push({ id: `shape:${record.shape.id}`, mode: record.compositeMode,
+        actual: shapeActualMarkup(record), maskId: shapeMaskIds.get(record.shape.id)!,
+        order: record.stackOrder, depth: shapeDepth(record), outputGroupId: record.shape.groupId });
     }
-    return {
-      id: `shape:${shape.id}`,
-      groupId: shape.groupId,
-      order: shape.layerOrder,
-      depth: shape.vertices.reduce((sum, vertex) => sum + vertexDepth(vertex), 0) / shape.vertices.length,
-      markup,
-    };
+    for (const child of (rig.artCompositeGroups ?? []).filter((group) => group.parentGroupId === groupId)) {
+      const result = renderGroup(child.id, nextVisiting);
+      if (result) operands.push({ ...result, id: `group:${child.id}`, mode: child.compositeMode ?? "paint" });
+    }
+    operands.sort((first, second) => first.order - second.order || first.id.localeCompare(second.id));
+    const baseIndex = operands.findIndex((operand) => operand.mode === "paint");
+    if (baseIndex < 0) {
+      renderedGroups.set(groupId, null);
+      return null;
+    }
+    const base = operands[baseIndex];
+    let actual = base.actual;
+    let resultMaskContent = `<rect ${maskBounds} fill="#fff" mask="url(#${base.maskId})" />`;
+    const groupIndex = groupIndexes.get(groupId) ?? renderedGroups.size;
+    for (const [operationIndex, operand] of operands.slice(baseIndex + 1).entries()) {
+      if (operand.mode === "overlay") {
+        const overlayClipId = `art-composite-overlay-clip-${groupIndex}-${operationIndex}`;
+        compositeMaskDefs.push(`<mask id="${overlayClipId}" maskUnits="userSpaceOnUse" ${maskBounds} mask-type="luminance"><rect ${maskBounds} fill="#000" />${resultMaskContent}</mask>`);
+        actual = `<g>${actual}<g mask="url(#${overlayClipId})">${operand.actual}</g></g>`;
+        continue;
+      }
+      let operationMaskId = operand.maskId;
+      if (operand.mode === "cutout") {
+        operationMaskId = `art-composite-subtract-${groupIndex}-${operationIndex}`;
+        compositeMaskDefs.push(`<mask id="${operationMaskId}" maskUnits="userSpaceOnUse" ${maskBounds} mask-type="luminance"><rect ${maskBounds} fill="#fff" /><rect ${maskBounds} fill="#000" mask="url(#${operand.maskId})" /></mask>`);
+      }
+      actual = `<g mask="url(#${operationMaskId})">${actual}</g>`;
+      resultMaskContent = `<g mask="url(#${operationMaskId})">${resultMaskContent}</g>`;
+    }
+    const resultMaskId = `art-composite-result-${groupIndex}`;
+    compositeMaskDefs.push(`<mask id="${resultMaskId}" maskUnits="userSpaceOnUse" ${maskBounds} mask-type="luminance"><rect ${maskBounds} fill="#000" />${resultMaskContent}</mask>`);
+    const result = { actual, maskId: resultMaskId, order: base.order, depth: base.depth, outputGroupId: base.outputGroupId };
+    renderedGroups.set(groupId, result);
+    return result;
+  };
+  const rootGroupIds = [...allGroupIds].filter((groupId) => !groupDefinitions.get(groupId)?.parentGroupId);
+  const compositeItems = rootGroupIds.flatMap((groupId) => {
+    const result = renderGroup(groupId);
+    return result ? [{ id: `composite:${groupId}`, groupId: result.outputGroupId,
+      order: result.order - (result.outputGroupId ? rig.groups.find((group) => group.id === result.outputGroupId)?.order ?? 0 : 0),
+      depth: result.depth, markup: result.actual }] : [];
   });
+  const shapeHitItems = shapeRecords.map((record) => {
+    const { shape, points } = record;
+    const selected = selectedShapeIds.has(shape.id);
+    const className = record.compositeMode === "cutout" ? `body-art-cutout-guide${selected ? " is-selected" : ""}`
+      : selected ? "body-art-composite-guide is-selected" : "body-art-shape-hit";
+    const geometry = shape.kind === "circle"
+      ? `<ellipse class="${className}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" />`
+      : shape.kind === "line"
+        ? `<line class="${className}" data-shape-id="${escapeXml(shape.id)}" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke-width="${Math.max(8, shape.strokeWidth ?? 1)}" />`
+        : `<polygon class="${className}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" />`;
+    return { id: `shape-hit:${shape.id}`, groupId: shape.groupId, order: shape.layerOrder,
+      depth: shapeDepth(record), markup: `<g class="body-art-shape-hit-item">${geometry}</g>` };
+  });
+  const shapeItems = [...compositeItems, ...shapeHitItems];
 
   const jointOutlineMasks = visibleJoints.map((joint, index) => {
     const otherJoints = visibleJoints

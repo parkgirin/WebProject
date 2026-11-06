@@ -41,6 +41,27 @@ export function renderInspector(
   const selectedCompositeMode = selectedShape?.compositeMode ?? "paint";
   const selectedCompositeGroup = selectedShape ? selectedShape.compositeGroupId ?? `composite-${selectedShape.id}` : "";
   const compositeGroups = [...new Set((state.rig.artShapes ?? []).map((shape) => shape.compositeGroupId ?? `composite-${shape.id}`))];
+  const compositeGroupDefinitions = state.rig.artCompositeGroups ?? [];
+  const topCompositeGroup = (groupId: string) => {
+    let current = groupId;
+    const visited = new Set<string>();
+    while (!visited.has(current)) {
+      visited.add(current);
+      const parent = compositeGroupDefinitions.find((group) => group.id === current)?.parentGroupId;
+      if (!parent) return current;
+      current = parent;
+    }
+    return current;
+  };
+  const selectedTopCompositeGroups = [...new Set(selectedShapeIds.map((shapeId) => {
+    const shape = state.rig.artShapes?.find((candidate) => candidate.id === shapeId)!;
+    return topCompositeGroup(shape.compositeGroupId ?? `composite-${shape.id}`);
+  }))];
+  const selectedShapeIdSet = new Set(selectedShapeIds);
+  const completeNestedSelection = selectedTopCompositeGroups.length >= 2
+    && (state.rig.artShapes ?? []).every((shape) => !selectedTopCompositeGroups.includes(topCompositeGroup(shape.compositeGroupId ?? `composite-${shape.id}`))
+      || selectedShapeIdSet.has(shape.id));
+  const selectedCompositeDefinition = compositeGroupDefinitions.find((group) => group.id === selectedCompositeGroup);
   const shapeBindingOptions = state.rig.joints.flatMap((candidateJoint) => candidateJoint.axes.flatMap((axis) => (
     axis.pointSides.map((side) => ({ jointId: candidateJoint.id, axisId: axis.id, side }))
   )));
@@ -224,16 +245,24 @@ export function renderInspector(
         </div>` : ""}
       <label class="color-setting-row"><span>${selectedShape.kind === "line" ? "선 색상" : "채우기"}</span><input type="color" value="${escapeHtml(resolveInspectorColor(state, selectedShape.color, selectedShape.paletteId))}" data-shape-color /></label>
       <div class="shape-composite-settings">
-        <label><span>합성 방식</span><select data-shape-composite-mode><option value="paint"${selectedCompositeMode === "paint" ? " selected" : ""}>채움·교차 (paint)</option><option value="cutout"${selectedCompositeMode === "cutout" ? " selected" : ""}${selectedShape.kind === "line" ? " disabled" : ""}>제외 (cutout)</option></select></label>
+        <label><span>합성 방식</span><select data-shape-composite-mode><option value="paint"${selectedCompositeMode === "paint" ? " selected" : ""}>채움·교차 (paint)</option><option value="overlay"${selectedCompositeMode === "overlay" ? " selected" : ""}>무늬 오버레이 (overlay)</option><option value="cutout"${selectedCompositeMode === "cutout" ? " selected" : ""}${selectedShape.kind === "line" ? " disabled" : ""}>제외 (cutout)</option></select></label>
         <label><span>합성 그룹</span><select data-shape-composite-group>${compositeGroups.map((group) => `<option value="${escapeHtml(group)}"${group === selectedCompositeGroup ? " selected" : ""}>${escapeHtml(group)}</option>`).join("")}</select></label>
         <button type="button" data-new-composite-group>새 합성 그룹</button>
-        ${selectedShapeIds.length > 1 ? `<button type="button" data-create-composite-group>선택한 ${selectedShapeIds.length}개로 합성 그룹 생성</button>` : ""}
-        <p class="hint">Shift+클릭으로 도형을 여러 개 선택합니다. Shift+드래그는 수평·수직 이동, Alt+드래그는 선택 도형 복제 이동입니다. 같은 그룹의 채움은 공통으로 겹친 영역만 남고 제외는 앞선 채움에서 빠집니다.</p>
-        ${selectedCompositeMode === "cutout" && !hasEarlierCompositePaint ? `<p class="composite-warning">이 그룹에서 앞선 채움 도형이 없어 출력에서는 제외 효과가 적용되지 않습니다.</p>` : ""}
+        ${selectedShapeIds.length > 1 ? `<button type="button" data-create-composite-group>선택 도형을 한 그룹으로 묶기</button>
+          <button type="button" data-create-nested-composite-group${completeNestedSelection ? "" : " disabled"}>선택 그룹을 상위 그룹으로 중첩</button>` : ""}
+        ${selectedCompositeDefinition?.parentGroupId ? `<label><span>상위 합성 방식</span><select data-composite-group-mode><option value="paint"${(selectedCompositeDefinition.compositeMode ?? "paint") === "paint" ? " selected" : ""}>교차 (paint)</option><option value="overlay"${selectedCompositeDefinition.compositeMode === "overlay" ? " selected" : ""}>오버레이 (overlay)</option><option value="cutout"${selectedCompositeDefinition.compositeMode === "cutout" ? " selected" : ""}>제외 (cutout)</option></select></label>
+          <p class="hint">상위 그룹 ${escapeHtml(selectedCompositeDefinition.parentGroupId)} 안에서 이 그룹 결과에 적용됩니다.</p>` : ""}
+        <p class="hint">합성은 레이어 순서대로 적용합니다. 채움은 현재 영역과 교차하고, 오버레이는 현재 영역 안에 색을 올리며, 제외는 현재 결과에서 빠집니다.</p>
+        ${selectedShapeIds.length > 1 && !completeNestedSelection ? `<p class="composite-warning">그룹 중첩은 서로 다른 그룹을 2개 이상 선택하고 각 그룹의 도형을 모두 선택해야 합니다.</p>` : ""}
+        ${selectedCompositeMode !== "paint" && !hasEarlierCompositePaint ? `<p class="composite-warning">이 그룹에서 앞선 채움 도형이 없어 출력에서는 ${selectedCompositeMode === "overlay" ? "오버레이" : "제외"} 효과가 적용되지 않습니다.</p>` : ""}
       </div>
       ${selectedShape.kind === "line" ? `<label class="field-label">선 두께</label><input type="number" min="1" step="1" value="${selectedShape.strokeWidth ?? 16}" data-shape-stroke-width />` : ""}
+      ${selectedShape.kind === "circle" ? `<div class="numeric-field-grid shape-radius-fields">
+        <label><span>가로 반지름</span><input type="number" min="1" step="1" value="${selectedShape.radiusX ?? 1}" data-shape-radius-x /></label>
+        <label><span>세로 반지름</span><input type="number" min="1" step="1" value="${selectedShape.radiusY ?? 1}" data-shape-radius-y /></label>
+      </div>` : ""}
       <div class="joint-layer-actions"><span>겹침 순서</span><div><button type="button" data-shape-back>← 뒤로</button><button type="button" data-shape-forward>앞으로 →</button></div></div>
-      <button type="button" data-delete-shape>선택 도형 삭제</button>
+      <button type="button" data-delete-shape>선택 도형${selectedShapeIds.length > 1 ? ` ${selectedShapeIds.length}개` : ""} 삭제</button>
     </section>` : "";
 
   const selectionPanel = `
@@ -492,9 +521,19 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("[data-shape-stroke-width]")?.addEventListener("change", (event) => {
     if (selectedShape) state.setArtShapeStrokeWidth(selectedShape.id, (event.target as HTMLInputElement).valueAsNumber);
   });
+  const radiusXInput = element.querySelector<HTMLInputElement>("[data-shape-radius-x]");
+  const radiusYInput = element.querySelector<HTMLInputElement>("[data-shape-radius-y]");
+  const applyCircleRadii = () => {
+    if (selectedShape && radiusXInput && radiusYInput) {
+      state.setArtShapeCircleRadii(selectedShape.id, radiusXInput.valueAsNumber, radiusYInput.valueAsNumber);
+    }
+  };
+  radiusXInput?.addEventListener("change", applyCircleRadii);
+  radiusYInput?.addEventListener("change", applyCircleRadii);
   element.querySelector<HTMLSelectElement>("[data-shape-composite-mode]")?.addEventListener("change", (event) => {
     if (!selectedShape) return;
-    state.setArtShapeComposite(selectedShape.id, (event.target as HTMLSelectElement).value === "cutout" ? "cutout" : "paint", selectedCompositeGroup);
+    const mode = (event.target as HTMLSelectElement).value;
+    state.setArtShapeComposite(selectedShape.id, mode === "cutout" ? "cutout" : mode === "overlay" ? "overlay" : "paint", selectedCompositeGroup);
   });
   element.querySelector<HTMLSelectElement>("[data-shape-composite-group]")?.addEventListener("change", (event) => {
     if (!selectedShape) return;
@@ -509,6 +548,16 @@ export function renderInspector(
     state.createArtShapeCompositeGroup(selectedShapeIds);
     setViewState({ selectedShapeIds, inspectorTab: "selection" });
   });
+  element.querySelector<HTMLButtonElement>("[data-create-nested-composite-group]")?.addEventListener("click", () => {
+    state.createNestedArtCompositeGroup(selectedShapeIds);
+    setViewState({ selectedShapeIds, inspectorTab: "selection" });
+  });
+  element.querySelector<HTMLSelectElement>("[data-composite-group-mode]")?.addEventListener("change", (event) => {
+    if (!selectedCompositeDefinition) return;
+    const mode = (event.target as HTMLSelectElement).value;
+    state.setArtCompositeGroupMode(selectedCompositeDefinition.id,
+      mode === "cutout" ? "cutout" : mode === "overlay" ? "overlay" : "paint");
+  });
   element.querySelector<HTMLButtonElement>("[data-face-to-shape]")?.addEventListener("click", () => {
     const shapeId = state.addArtShapeFromFace(selectedFace.id);
     setViewState({ selectedShapeId: shapeId, selectedShapeVertexId: null, inspectorTab: "selection" });
@@ -520,9 +569,9 @@ export function renderInspector(
     if (selectedShape) state.moveBodyItemInStack("shape", selectedShape.id, 1, false);
   });
   element.querySelector<HTMLButtonElement>("[data-delete-shape]")?.addEventListener("click", () => {
-    if (!selectedShape) return;
-    state.removeArtShape(selectedShape.id);
-    setViewState({ selectedShapeId: null, selectedShapeVertexId: null });
+    if (!selectedShapeIds.length) return;
+    state.removeArtShapes(selectedShapeIds);
+    setViewState({ selectedShapeId: null, selectedShapeIds: [], selectedShapeVertexId: null });
   });
   const readShapeBindingTarget = () => {
     const value = element.querySelector<HTMLSelectElement>("[data-shape-bind-target]")?.value;

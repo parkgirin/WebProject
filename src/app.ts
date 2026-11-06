@@ -9,6 +9,9 @@ import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./e
 import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
+import { createWorkspaceCache, loadWorkspaceCache, saveWorkspaceCache } from "./storage/workspace-cache.ts";
+import { applyTPose, applyUserPosePreset, BUILTIN_T_POSE_ID, BUILTIN_T_POSE_NAME, createUserPosePreset, type UserPosePreset } from "./storage/pose-presets.ts";
+import { applyUserBodyPreset, createUserBodyPreset, type UserBodyPreset } from "./storage/body-presets.ts";
 import {
   addPoseKey,
   advancePosePlayback,
@@ -24,7 +27,8 @@ import type { Rig } from "./rig/types.ts";
 import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
 export function createApp(container: HTMLDivElement): void {
-  const state = new RigState(createDefaultRig());
+  const restoredWorkspace = loadWorkspaceCache();
+  const state = new RigState(restoredWorkspace?.rig ?? createDefaultRig());
   let selection: EditorSelection = {
     jointId: "right-elbow",
     axisId: "upper-arm",
@@ -118,8 +122,17 @@ export function createApp(container: HTMLDivElement): void {
                     ${AVATAR_PROPORTION_PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
                   </select>
                   <button type="button" data-apply-avatar-preset>적용</button>
+                  <button type="button" data-add-avatar-preset title="현재 체형을 프리셋으로 추가">＋</button>
+                  <button type="button" data-delete-avatar-preset disabled title="선택한 사용자 체형 프리셋 삭제">−</button>
                 </label>
                 <span class="avatar-preset-status" data-avatar-preset-status aria-live="polite"></span>
+                <label class="avatar-preset-control pose-preset-control">포즈
+                  <select data-pose-preset aria-label="사용자 포즈 프리셋"><option value="">프리셋 없음</option></select>
+                  <button type="button" data-apply-pose-preset disabled>적용</button>
+                  <button type="button" data-add-pose-preset title="현재 포즈를 프리셋으로 추가">＋</button>
+                  <button type="button" data-delete-pose-preset disabled title="선택한 포즈 프리셋 삭제">−</button>
+                </label>
+                <span class="avatar-preset-status" data-pose-preset-status aria-live="polite"></span>
                 <label class="global-rotation-control">전체 회전
                   <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
                   <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
@@ -182,7 +195,8 @@ export function createApp(container: HTMLDivElement): void {
             <dt>동등 관계 회전 핸들</dt><dd>중심에서 떨어진 보라색 핸들을 중심 주위로 드래그해 어깨 또는 골반을 함께 회전합니다.</dd>
             <dt>동등 관계 중심 간격</dt><dd>선택 패널에서 양쪽 관절을 중점 기준으로 대칭 이동해 어깨 또는 골반 폭을 조절합니다.</dd>
             <dt>가상 중심 오프셋</dt><dd>동등축 방향 X와 직교 방향 Y로 가상 관절을 옮깁니다. 현재 포즈는 유지되고 이후 회전 중심에 적용됩니다.</dd>
-            <dt>체형 프리셋</dt><dd>캔버스 상단에서 7종 체형을 고르고 적용합니다. 현재 회전·색상·가상 중심 오프셋은 유지됩니다.</dd>
+            <dt>체형 프리셋</dt><dd>캔버스 상단에서 기본 체형을 적용하거나 현재 체형을 이름 붙여 추가합니다. 사용자 체형은 현재 포즈 방향을 유지한 채 관절 크기와 간격을 적용합니다.</dd>
+            <dt>포즈 프리셋</dt><dd>현재 포즈를 이름 붙여 추가하고 목록에서 다시 적용합니다. 사용자 프리셋은 브라우저 자동 저장에 포함됩니다.</dd>
           </dl></section>
           <section><h3>순서 도구</h3><dl>
             <dt>좌클릭 / 우클릭</dt><dd>면이나 관절을 한 단계 앞으로 / 뒤로 이동합니다.</dd>
@@ -237,6 +251,7 @@ export function createApp(container: HTMLDivElement): void {
             <label><input type="checkbox" data-preset-shapes checked /> <span><strong>자유 도형</strong><small>다각형과 축 끝점 연결</small></span></label>
           </div>
           <p class="preset-status" data-preset-status aria-live="polite"></p>
+          <p class="hint" data-workspace-cache-status aria-live="polite">작업 내용은 이 브라우저에 자동 저장됩니다.</p>
         </div>
         <div class="preset-dialog-footer">
           <span>형식: Pose Mesh Editor JSON v1</span>
@@ -276,12 +291,23 @@ export function createApp(container: HTMLDivElement): void {
   const loadPresetButton = requireElement<HTMLButtonElement>(container, "[data-load-preset]");
   const presetFileInput = requireElement<HTMLInputElement>(container, "[data-preset-file]");
   const presetStatus = requireElement<HTMLElement>(container, "[data-preset-status]");
+  const workspaceCacheStatus = requireElement<HTMLElement>(container, "[data-workspace-cache-status]");
+  if (restoredWorkspace) {
+    workspaceCacheStatus.textContent = `자동 저장 작업 복원됨 · ${new Date(restoredWorkspace.savedAt).toLocaleString()}`;
+  }
   const globalAngleInput = requireElement<HTMLInputElement>(container, "[data-global-angle]");
   const globalAngleNumber = requireElement<HTMLInputElement>(container, "[data-global-angle-number]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
   avatarPresetSelect.value = DEFAULT_AVATAR_PRESET_ID;
   const applyAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-avatar-preset]");
+  const addAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-add-avatar-preset]");
+  const deleteAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-delete-avatar-preset]");
   const avatarPresetStatus = requireElement<HTMLElement>(container, "[data-avatar-preset-status]");
+  const posePresetSelect = requireElement<HTMLSelectElement>(container, "[data-pose-preset]");
+  const applyPosePresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-pose-preset]");
+  const addPosePresetButton = requireElement<HTMLButtonElement>(container, "[data-add-pose-preset]");
+  const deletePosePresetButton = requireElement<HTMLButtonElement>(container, "[data-delete-pose-preset]");
+  const posePresetStatus = requireElement<HTMLElement>(container, "[data-pose-preset-status]");
   const undoButton = requireElement<HTMLButtonElement>(container, "[data-undo]");
   const redoButton = requireElement<HTMLButtonElement>(container, "[data-redo]");
   const zoomOutButton = requireElement<HTMLButtonElement>(container, "[data-zoom-out]");
@@ -322,23 +348,57 @@ export function createApp(container: HTMLDivElement): void {
   const collapseTimelineButton = requireElement<HTMLButtonElement>(container, "[data-collapse-timeline]");
   let previewUrl: string | null = null;
   let exportTarget: "model" | "animation" = "model";
-  let poseClip: PoseClip = {
+  let poseClip: PoseClip = restoredWorkspace?.poseClip ?? {
     id: "main-clip",
     name: "기본 클립",
     fps: 12,
     keys: [],
     playback: { mode: "ping-pong", closingFrames: 6 },
   };
-  let poseFrame = 0;
-  let selectedPoseKeyId: string | null = null;
-  let poseKeySequence = 0;
-  let interpolationPreviewActive = false;
+  let poseFrame = restoredWorkspace?.poseFrame ?? 0;
+  let selectedPoseKeyId: string | null = restoredWorkspace?.selectedPoseKeyId ?? null;
+  let poseKeySequence = poseClip.keys.reduce((max, key) => {
+    const match = /^pose-(\d+)$/.exec(key.id);
+    return Math.max(max, match ? Number(match[1]) : 0);
+  }, 0);
+  let interpolationPreviewActive = restoredWorkspace?.interpolationPreviewActive === true && poseClip.keys.length >= 2;
   let posePlaybackActive = false;
   let posePlaybackDirection: 1 | -1 = 1;
   let posePlaybackRequestId: number | null = null;
   let posePlaybackTimestamp: number | null = null;
   let posePlaybackFrameRemainder = 0;
   let draggedPoseKeyId: string | null = null;
+  let posePresets: UserPosePreset[] = restoredWorkspace?.posePresets ?? [];
+  let selectedPosePresetId = BUILTIN_T_POSE_ID;
+  let posePresetSequence = posePresets.reduce((max, preset) => {
+    const match = /^user-pose-(\d+)$/.exec(preset.id);
+    return Math.max(max, match ? Number(match[1]) : 0);
+  }, 0);
+  let bodyPresets: UserBodyPreset[] = restoredWorkspace?.bodyPresets ?? [];
+  let selectedBodyPresetId: string = DEFAULT_AVATAR_PRESET_ID;
+  let bodyPresetSequence = bodyPresets.reduce((max, preset) => {
+    const match = /^user-body-(\d+)$/.exec(preset.id);
+    return Math.max(max, match ? Number(match[1]) : 0);
+  }, 0);
+  let workspaceCacheTimer: number | null = null;
+  const persistWorkspaceCache = () => {
+    const cache = createWorkspaceCache(state.rig, poseClip, Math.round(poseFrame), selectedPoseKeyId,
+      interpolationPreviewActive, posePresets, bodyPresets);
+    if (saveWorkspaceCache(cache)) {
+      workspaceCacheStatus.textContent = `자동 저장됨 · ${new Date(cache.savedAt).toLocaleTimeString()}`;
+    } else {
+      workspaceCacheStatus.textContent = "자동 저장 실패 · 브라우저 저장 공간을 확인하세요.";
+    }
+  };
+  const scheduleWorkspaceCache = () => {
+    if (posePlaybackActive) return;
+    if (workspaceCacheTimer !== null) window.clearTimeout(workspaceCacheTimer);
+    workspaceCacheTimer = window.setTimeout(() => {
+      workspaceCacheTimer = null;
+      persistWorkspaceCache();
+    }, 250);
+  };
+  window.addEventListener("pagehide", persistWorkspaceCache);
   const getPresetParts = (): PresetParts => ({
     pose: container.querySelector<HTMLInputElement>("[data-preset-pose]")?.checked ?? false,
     proportions: container.querySelector<HTMLInputElement>("[data-preset-proportions]")?.checked ?? false,
@@ -388,6 +448,7 @@ export function createApp(container: HTMLDivElement): void {
     }
     for (const key of poseClip.keys) {
       key.rig.artShapes ??= [];
+      key.rig.artCompositeGroups = structuredClone(state.rig.artCompositeGroups ?? []);
       key.rig.elementLayers = structuredClone(state.rig.elementLayers);
       for (const currentJoint of state.rig.joints) {
         const keyJoint = key.rig.joints.find((joint) => joint.id === currentJoint.id);
@@ -440,6 +501,18 @@ export function createApp(container: HTMLDivElement): void {
       : undefined;
     paintColorInput.value = activePalette?.color ?? viewState.paintColor;
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
+    avatarPresetSelect.innerHTML = `${AVATAR_PROPORTION_PRESETS
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${bodyPresets
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">사용자 · ${escapeHtml(preset.name)}</option>`).join("")}`;
+    avatarPresetSelect.value = [...AVATAR_PROPORTION_PRESETS, ...bodyPresets].some((preset) => preset.id === selectedBodyPresetId)
+      ? selectedBodyPresetId : DEFAULT_AVATAR_PRESET_ID;
+    deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === avatarPresetSelect.value);
+    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option>${posePresets
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
+    posePresetSelect.value = selectedPosePresetId === BUILTIN_T_POSE_ID || posePresets.some((preset) => preset.id === selectedPosePresetId)
+      ? selectedPosePresetId : BUILTIN_T_POSE_ID;
+    applyPosePresetButton.disabled = false;
+    deletePosePresetButton.disabled = !posePresets.some((preset) => preset.id === posePresetSelect.value);
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
     svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
     svg.classList.toggle("is-polygon-mode", viewState.activeTool === "polygon");
@@ -494,6 +567,7 @@ export function createApp(container: HTMLDivElement): void {
     if (inspector.dataset.liveRangeEditing !== "true") {
       renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
     }
+    scheduleWorkspaceCache();
   };
 
   const stopPosePlayback = () => {
@@ -633,6 +707,15 @@ export function createApp(container: HTMLDivElement): void {
         selectedShapeId: selected.has(selectedShapeId) ? selectedShapeId : selectedShapeIds.at(-1) ?? null,
         selectedShapeIds,
         selectedShapeVertexId: additive ? null : selectedShapeVertexId ?? null,
+        selectedTarget: "joint",
+        inspectorTab: "selection",
+      });
+    },
+    setSelectedShapes: (selectedShapeIds) => {
+      setViewState({
+        selectedShapeId: selectedShapeIds.at(-1) ?? null,
+        selectedShapeIds,
+        selectedShapeVertexId: null,
         selectedTarget: "joint",
         inspectorTab: "selection",
       });
@@ -913,10 +996,83 @@ export function createApp(container: HTMLDivElement): void {
     setPanMode(enabled);
   });
   applyAvatarPresetButton.addEventListener("click", () => {
-    const preset = AVATAR_PROPORTION_PRESETS.find((candidate) => candidate.id === avatarPresetSelect.value);
+    const builtIn = AVATAR_PROPORTION_PRESETS.find((candidate) => candidate.id === selectedBodyPresetId);
+    const userPreset = bodyPresets.find((candidate) => candidate.id === selectedBodyPresetId);
+    if (builtIn) {
+      applyAvatarProportionPreset(state, builtIn.id);
+      avatarPresetStatus.textContent = `${builtIn.name} 적용됨`;
+    } else if (userPreset) {
+      try {
+        applyUserBodyPreset(state, userPreset);
+        avatarPresetStatus.textContent = `${userPreset.name} 적용됨`;
+      } catch (error) {
+        avatarPresetStatus.textContent = error instanceof Error ? error.message : "체형 프리셋을 적용하지 못했습니다.";
+      }
+    }
+  });
+  avatarPresetSelect.addEventListener("change", () => {
+    selectedBodyPresetId = avatarPresetSelect.value;
+    deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === selectedBodyPresetId);
+    avatarPresetStatus.textContent = "";
+  });
+  addAvatarPresetButton.addEventListener("click", () => {
+    const name = window.prompt("새 체형 프리셋 이름", `체형 ${bodyPresets.length + 1}`)?.trim();
+    if (!name) return;
+    let id = `user-body-${++bodyPresetSequence}`;
+    while (bodyPresets.some((preset) => preset.id === id)) id = `user-body-${++bodyPresetSequence}`;
+    const preset = createUserBodyPreset(id, name, state.rig);
+    bodyPresets = [...bodyPresets, preset];
+    selectedBodyPresetId = preset.id;
+    avatarPresetStatus.textContent = `${preset.name} 추가됨`;
+    render();
+  });
+  deleteAvatarPresetButton.addEventListener("click", () => {
+    const preset = bodyPresets.find((candidate) => candidate.id === selectedBodyPresetId);
     if (!preset) return;
-    applyAvatarProportionPreset(state, preset.id);
-    avatarPresetStatus.textContent = `${preset.name} 적용됨`;
+    bodyPresets = bodyPresets.filter((candidate) => candidate.id !== preset.id);
+    selectedBodyPresetId = DEFAULT_AVATAR_PRESET_ID;
+    avatarPresetStatus.textContent = `${preset.name} 삭제됨`;
+    render();
+  });
+  posePresetSelect.addEventListener("change", () => {
+    selectedPosePresetId = posePresetSelect.value;
+    applyPosePresetButton.disabled = !selectedPosePresetId;
+    deletePosePresetButton.disabled = !posePresets.some((preset) => preset.id === selectedPosePresetId);
+    posePresetStatus.textContent = "";
+  });
+  addPosePresetButton.addEventListener("click", () => {
+    const name = window.prompt("새 포즈 프리셋 이름", `포즈 ${posePresets.length + 1}`)?.trim();
+    if (!name) return;
+    let id = `user-pose-${++posePresetSequence}`;
+    while (posePresets.some((preset) => preset.id === id)) id = `user-pose-${++posePresetSequence}`;
+    const preset = createUserPosePreset(id, name, state.rig);
+    posePresets = [...posePresets, preset];
+    selectedPosePresetId = preset.id;
+    posePresetStatus.textContent = `${preset.name} 추가됨`;
+    render();
+  });
+  applyPosePresetButton.addEventListener("click", () => {
+    const preset = posePresets.find((candidate) => candidate.id === selectedPosePresetId);
+    try {
+      interpolationPreviewActive = false;
+      if (selectedPosePresetId === BUILTIN_T_POSE_ID) {
+        applyTPose(state);
+        posePresetStatus.textContent = `${BUILTIN_T_POSE_NAME} 적용됨`;
+      } else if (preset) {
+        applyUserPosePreset(state, preset);
+        posePresetStatus.textContent = `${preset.name} 적용됨`;
+      }
+    } catch (error) {
+      posePresetStatus.textContent = error instanceof Error ? error.message : "포즈 프리셋을 적용하지 못했습니다.";
+    }
+  });
+  deletePosePresetButton.addEventListener("click", () => {
+    const preset = posePresets.find((candidate) => candidate.id === selectedPosePresetId);
+    if (!preset) return;
+    posePresets = posePresets.filter((candidate) => candidate.id !== preset.id);
+    selectedPosePresetId = posePresets[0]?.id ?? "";
+    posePresetStatus.textContent = `${preset.name} 삭제됨`;
+    render();
   });
   globalAngleInput.addEventListener("input", () => {
     if (globalAngleInput.dataset.historyActive !== "true") {
@@ -1090,6 +1246,12 @@ function toSignedAngle(angle: number): number {
 
 function poseKeyLabel(index: number): string {
   return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character]!);
 }
 
 function requireElement<T extends Element>(root: ParentNode, selector: string): T {

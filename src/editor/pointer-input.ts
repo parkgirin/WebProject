@@ -1,5 +1,5 @@
 import type { PolygonDraftPoint, RigState } from "../rig/rig-state.ts";
-import { getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot, unprojectPoint } from "../rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisWorldAngle, getJointWorldTransform, getPeerGroupPivot, projectPoint, unprojectPoint } from "../rig/geometry.ts";
 import type { EditorSelection } from "./types.ts";
 
 interface PointerInputOptions {
@@ -30,6 +30,7 @@ interface PointerInputOptions {
   setSelection: (selection: EditorSelection) => void;
   setSelectedFace: (faceId: string) => void;
   setSelectedShape?: (shapeId: string, vertexId?: string, additive?: boolean) => void;
+  setSelectedShapes?: (shapeIds: string[]) => void;
 }
 
 export interface ViewportController {
@@ -310,14 +311,15 @@ export function enablePointerInput(
         });
       }
     } else {
+      const marqueePoint = toSvgPoint(element, event);
       const rectangle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       rectangle.setAttribute("class", "selection-marquee");
-      rectangle.setAttribute("x", String(point.x));
-      rectangle.setAttribute("y", String(point.y));
+      rectangle.setAttribute("x", String(marqueePoint.x));
+      rectangle.setAttribute("y", String(marqueePoint.y));
       rectangle.setAttribute("width", "0");
       rectangle.setAttribute("height", "0");
       element.append(rectangle);
-      interaction = { type: "marquee", startX: point.x, startY: point.y, additive: event.shiftKey, rectangle };
+      interaction = { type: "marquee", startX: marqueePoint.x, startY: marqueePoint.y, additive: event.shiftKey, rectangle };
     }
 
     if (interaction) {
@@ -420,12 +422,13 @@ export function enablePointerInput(
       interaction.appliedX = targetX;
       interaction.appliedY = targetY;
     } else if (interaction.type === "marquee") {
-      const x = Math.min(interaction.startX, point.x);
-      const y = Math.min(interaction.startY, point.y);
+      const marqueePoint = toSvgPoint(element, event);
+      const x = Math.min(interaction.startX, marqueePoint.x);
+      const y = Math.min(interaction.startY, marqueePoint.y);
       interaction.rectangle.setAttribute("x", String(x));
       interaction.rectangle.setAttribute("y", String(y));
-      interaction.rectangle.setAttribute("width", String(Math.abs(point.x - interaction.startX)));
-      interaction.rectangle.setAttribute("height", String(Math.abs(point.y - interaction.startY)));
+      interaction.rectangle.setAttribute("width", String(Math.abs(marqueePoint.x - interaction.startX)));
+      interaction.rectangle.setAttribute("height", String(Math.abs(marqueePoint.y - interaction.startY)));
     }
     if (jointDrag) { jointDrag.lastX = point.x; jointDrag.lastY = point.y; }
   };
@@ -442,7 +445,7 @@ export function enablePointerInput(
     } else if (interaction.type === "pending-shift-shape") {
       if (event?.type === "pointerup") options.setSelectedShape?.(interaction.shapeId, undefined, true);
     } else if (interaction.type === "marquee") {
-      const point = event ? toSvgPoint(element, event, options.state.rig, interactionDepth) : { x: interaction.startX, y: interaction.startY };
+      const point = event ? toSvgPoint(element, event) : { x: interaction.startX, y: interaction.startY };
       const left = Math.min(interaction.startX, point.x);
       const right = Math.max(interaction.startX, point.x);
       const top = Math.min(interaction.startY, point.y);
@@ -450,14 +453,17 @@ export function enablePointerInput(
       const selected = interaction.additive ? new Set(options.getSelection().jointIds) : new Set<string>();
       for (const joint of options.state.rig.joints) {
         if (joint.isVirtual || !joint.guideVisible) continue;
-        const world = getJointWorldTransform(options.state.rig, joint.id);
+        const world = projectPoint(options.state.rig, getJointWorldTransform(options.state.rig, joint.id), joint.depth ?? 0);
         if (world.x >= left && world.x <= right && world.y >= top && world.y <= bottom) selected.add(joint.id);
       }
+      const selectedShapes = interaction.additive ? new Set(options.getSelectedShapeIds?.() ?? []) : new Set<string>();
+      for (const shapeId of getArtShapeIdsInMarquee(options.state.rig, left, right, top, bottom)) selectedShapes.add(shapeId);
       interaction.rectangle.remove();
       const jointIds = [...selected];
       const jointId = jointIds.at(-1) ?? null;
       const axisId = jointId ? options.state.getJoint(jointId).axes[0]?.id ?? null : null;
       options.setSelection({ jointId, axisId, jointIds });
+      options.setSelectedShapes?.([...selectedShapes]);
     } else if (interaction.type !== "pan") {
       options.state.endHistoryTransaction();
     }
@@ -577,9 +583,33 @@ function getShapeDepth(rig: RigState["rig"], shapeId: string, vertexId?: string)
   const vertices = vertexId ? shape.vertices.filter((vertex) => vertex.id === vertexId) : shape.vertices;
   if (!vertices.length) return 0;
   return vertices.reduce((sum, vertex) => {
-    const jointId = vertex.source === "axis-point" ? vertex.jointId : vertex.source === "root" ? vertex.rootJointId : null;
+    const jointId = vertex.source === "axis-point" || vertex.source === "joint-center" ? vertex.jointId
+      : vertex.source === "root" ? vertex.rootJointId : null;
     return sum + (jointId ? rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0 : 0);
   }, 0) / vertices.length;
+}
+
+export function getArtShapeIdsInMarquee(
+  rig: RigState["rig"], left: number, right: number, top: number, bottom: number,
+): string[] {
+  if (rig.elementLayers?.shapes === false) return [];
+  return (rig.artShapes ?? []).flatMap((shape) => {
+    if (shape.groupId && rig.groups.find((group) => group.id === shape.groupId)?.visible === false) return [];
+    const points = shape.vertices.map((vertex) => {
+      const jointId = vertex.source === "axis-point" || vertex.source === "joint-center" ? vertex.jointId
+        : vertex.source === "root" ? vertex.rootJointId : null;
+      const depth = jointId ? rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0 : 0;
+      return projectPoint(rig, getArtShapeVertexPoint(rig, vertex), depth);
+    });
+    if (!points.length) return [];
+    const paddingX = shape.kind === "circle" ? shape.radiusX ?? 0 : shape.kind === "line" ? (shape.strokeWidth ?? 1) / 2 : 0;
+    const paddingY = shape.kind === "circle" ? shape.radiusY ?? 0 : shape.kind === "line" ? (shape.strokeWidth ?? 1) / 2 : 0;
+    const shapeLeft = Math.min(...points.map((point) => point.x)) - paddingX;
+    const shapeRight = Math.max(...points.map((point) => point.x)) + paddingX;
+    const shapeTop = Math.min(...points.map((point) => point.y)) - paddingY;
+    const shapeBottom = Math.max(...points.map((point) => point.y)) + paddingY;
+    return shapeRight >= left && shapeLeft <= right && shapeBottom >= top && shapeTop <= bottom ? [shape.id] : [];
+  });
 }
 
 function getAngle(centerX: number, centerY: number, x: number, y: number): number {

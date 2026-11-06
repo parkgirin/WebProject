@@ -1,6 +1,8 @@
 import {
   DEFAULT_RIG_LIMITS,
   type AxisPointSide,
+  type ArtCompositeMode,
+  type ArtShape,
   type ArtShapeVertex,
   type ElementLayerId,
   type Rig,
@@ -252,7 +254,10 @@ export function validateRig(
     if (shape.color !== undefined && !isHexColor(shape.color)) errors.push(`Invalid art shape color: ${shape.id}.${shape.color}`);
     if (shape.paletteId && !paletteIds.has(shape.paletteId)) errors.push(`Unknown art shape palette: ${shape.id}.${shape.paletteId}`);
     if (shape.groupId && !groupIds.has(shape.groupId)) errors.push(`Unknown art shape layer group: ${shape.id}.${shape.groupId}`);
-    if (shape.compositeMode !== undefined && shape.compositeMode !== "paint" && shape.compositeMode !== "cutout") errors.push(`Invalid art shape composite mode: ${shape.id}`);
+    if (shape.compositeMode !== undefined && shape.compositeMode !== "paint"
+      && shape.compositeMode !== "cutout" && shape.compositeMode !== "overlay") {
+      errors.push(`Invalid art shape composite mode: ${shape.id}`);
+    }
     if (shape.compositeMode === "cutout" && shape.kind === "line") errors.push(`Art lines cannot be cutouts: ${shape.id}`);
     if (shape.compositeGroupId !== undefined && !shape.compositeGroupId.trim()) errors.push(`Invalid art shape composite group: ${shape.id}`);
     const vertexIds = new Set<string>();
@@ -276,6 +281,29 @@ export function validateRig(
     }
   }
 
+  const compositeGroupIds = new Set<string>();
+  for (const group of rig.artCompositeGroups ?? []) {
+    if (!group.id.trim() || compositeGroupIds.has(group.id)) errors.push(`Invalid or duplicate art composite group: ${group.id}`);
+    compositeGroupIds.add(group.id);
+    if (group.compositeMode !== undefined && group.compositeMode !== "paint"
+      && group.compositeMode !== "cutout" && group.compositeMode !== "overlay") {
+      errors.push(`Invalid art composite group mode: ${group.id}`);
+    }
+  }
+  for (const group of rig.artCompositeGroups ?? []) {
+    if (group.parentGroupId && !compositeGroupIds.has(group.parentGroupId)) errors.push(`Unknown art composite parent: ${group.id}.${group.parentGroupId}`);
+    const ancestors = new Set([group.id]);
+    let parentId = group.parentGroupId;
+    while (parentId) {
+      if (ancestors.has(parentId)) {
+        errors.push(`Art composite group cycle: ${group.id}`);
+        break;
+      }
+      ancestors.add(parentId);
+      parentId = rig.artCompositeGroups?.find((candidate) => candidate.id === parentId)?.parentGroupId;
+    }
+  }
+
   return errors;
 }
 
@@ -292,6 +320,7 @@ export class RigState {
     public readonly limits: Readonly<RigLimits> = DEFAULT_RIG_LIMITS,
   ) {
     rig.artShapes ??= [];
+    rig.artCompositeGroups ??= [];
     rig.elementLayers ??= { joints: true, axes: true, faces: true, shapes: true };
     const errors = validateRig(rig, limits);
     if (errors.length > 0) {
@@ -505,6 +534,17 @@ export class RigState {
     const ids = new Set(shapeIds);
     if (!ids.size || !this.rig.artShapes?.some((shape) => ids.has(shape.id))) return;
     this.rig.artShapes = this.rig.artShapes.filter((shape) => !ids.has(shape.id));
+    const retainedGroups = new Set((this.rig.artShapes ?? [])
+      .map((shape) => shape.compositeGroupId ?? `composite-${shape.id}`));
+    for (const directGroupId of [...retainedGroups]) {
+      let parentId = this.rig.artCompositeGroups?.find((group) => group.id === directGroupId)?.parentGroupId;
+      while (parentId && !retainedGroups.has(parentId)) {
+        retainedGroups.add(parentId);
+        parentId = this.rig.artCompositeGroups?.find((group) => group.id === parentId)?.parentGroupId;
+      }
+    }
+    this.rig.artCompositeGroups = (this.rig.artCompositeGroups ?? [])
+      .filter((group) => retainedGroups.has(group.id));
     this.notify();
   }
 
@@ -513,8 +553,10 @@ export class RigState {
     if (!sourceIds.length) return [];
     const sources = sourceIds.map((shapeId) => this.getArtShape(shapeId));
     const existingIds = new Set((this.rig.artShapes ?? []).map((shape) => shape.id));
-    const existingCompositeGroups = new Set((this.rig.artShapes ?? [])
-      .map((shape) => shape.compositeGroupId ?? `composite-${shape.id}`));
+    const existingCompositeGroups = new Set([
+      ...(this.rig.artShapes ?? []).map((shape) => shape.compositeGroupId ?? `composite-${shape.id}`),
+      ...(this.rig.artCompositeGroups ?? []).map((group) => group.id),
+    ]);
     const compositeCopies = new Map<string, string>();
     const copies = sources.map((source) => {
       let sequence = 1;
@@ -534,6 +576,33 @@ export class RigState {
     });
     this.rig.artShapes ??= [];
     this.rig.artShapes.push(...copies);
+    const relevantGroupIds = new Set(compositeCopies.keys());
+    for (const directId of [...relevantGroupIds]) {
+      let parentId = this.rig.artCompositeGroups?.find((group) => group.id === directId)?.parentGroupId;
+      while (parentId && !relevantGroupIds.has(parentId)) {
+        relevantGroupIds.add(parentId);
+        parentId = this.rig.artCompositeGroups?.find((group) => group.id === parentId)?.parentGroupId;
+      }
+    }
+    for (const sourceGroup of this.rig.artCompositeGroups ?? []) {
+      if (!relevantGroupIds.has(sourceGroup.id) || compositeCopies.has(sourceGroup.id)) continue;
+      let sequence = 1;
+      let copiedId = `${sourceGroup.id}-copy`;
+      while (existingCompositeGroups.has(copiedId)) copiedId = `${sourceGroup.id}-copy-${++sequence}`;
+      existingCompositeGroups.add(copiedId);
+      compositeCopies.set(sourceGroup.id, copiedId);
+    }
+    this.rig.artCompositeGroups ??= [];
+    for (const sourceGroup of [...this.rig.artCompositeGroups]) {
+      const copiedId = compositeCopies.get(sourceGroup.id);
+      if (!copiedId) continue;
+      this.rig.artCompositeGroups.push({
+        id: copiedId,
+        compositeMode: sourceGroup.compositeMode ?? "paint",
+        ...(sourceGroup.parentGroupId && compositeCopies.has(sourceGroup.parentGroupId)
+          ? { parentGroupId: compositeCopies.get(sourceGroup.parentGroupId)! } : {}),
+      });
+    }
     this.notify();
     return copies.map((shape) => shape.id);
   }
@@ -580,6 +649,15 @@ export class RigState {
     this.notify();
   }
 
+  public setArtShapeCircleRadii(shapeId: string, radiusX: number, radiusY: number): void {
+    if (!(radiusX > 0) || !(radiusY > 0) || !Number.isFinite(radiusX) || !Number.isFinite(radiusY)) return;
+    const shape = this.getArtShape(shapeId);
+    if (shape.kind !== "circle") return;
+    shape.radiusX = radiusX;
+    shape.radiusY = radiusY;
+    this.notify();
+  }
+
   public setArtShapeGroup(shapeId: string, groupId: string | null): void {
     const shape = this.getArtShape(shapeId);
     if (groupId) this.getLayerGroup(groupId);
@@ -593,7 +671,7 @@ export class RigState {
     this.notify();
   }
 
-  public setArtShapeComposite(shapeId: string, mode: "paint" | "cutout", compositeGroupId?: string): void {
+  public setArtShapeComposite(shapeId: string, mode: ArtCompositeMode, compositeGroupId?: string): void {
     const shape = this.getArtShape(shapeId);
     if (mode === "cutout" && shape.kind === "line") throw new Error("선분은 제외 도형으로 사용할 수 없습니다.");
     const group = (compositeGroupId ?? shape.compositeGroupId ?? `composite-${shape.id}`).trim();
@@ -607,13 +685,68 @@ export class RigState {
     const uniqueIds = [...new Set(shapeIds)];
     if (uniqueIds.length < 2) throw new Error("합성 그룹에는 도형이 2개 이상 필요합니다.");
     const shapes = uniqueIds.map((shapeId) => this.getArtShape(shapeId));
-    const used = new Set((this.rig.artShapes ?? []).map((shape) => shape.compositeGroupId).filter(Boolean));
+    const used = new Set([
+      ...(this.rig.artShapes ?? []).map((shape) => shape.compositeGroupId).filter(Boolean),
+      ...(this.rig.artCompositeGroups ?? []).map((group) => group.id),
+    ]);
     let index = 1;
     while (used.has(`composite-group-${index}`)) index += 1;
     const groupId = `composite-group-${index}`;
     for (const shape of shapes) shape.compositeGroupId = groupId;
+    this.rig.artCompositeGroups ??= [];
+    this.rig.artCompositeGroups.push({ id: groupId, compositeMode: "paint" });
     this.notify();
     return groupId;
+  }
+
+  public createNestedArtCompositeGroup(shapeIds: string[]): string {
+    const selectedIds = new Set(shapeIds);
+    const groups = this.rig.artCompositeGroups ??= [];
+    const directGroupId = (shape: ArtShape) => shape.compositeGroupId ?? `composite-${shape.id}`;
+    const topGroupId = (groupId: string) => {
+      let current = groupId;
+      const visited = new Set<string>();
+      while (!visited.has(current)) {
+        visited.add(current);
+        const parent = groups.find((group) => group.id === current)?.parentGroupId;
+        if (!parent) return current;
+        current = parent;
+      }
+      return current;
+    };
+    const operandIds = [...new Set((this.rig.artShapes ?? [])
+      .filter((shape) => selectedIds.has(shape.id)).map((shape) => topGroupId(directGroupId(shape))))];
+    if (operandIds.length < 2) throw new Error("중첩하려면 서로 다른 합성 그룹을 2개 이상 선택해야 합니다.");
+    const belongsToOperand = (shape: ArtShape, operandId: string) => topGroupId(directGroupId(shape)) === operandId;
+    for (const operandId of operandIds) {
+      const members = (this.rig.artShapes ?? []).filter((shape) => belongsToOperand(shape, operandId));
+      if (members.some((shape) => !selectedIds.has(shape.id))) throw new Error("중첩할 그룹의 모든 도형을 선택해야 합니다.");
+    }
+    const used = new Set([
+      ...(this.rig.artShapes ?? []).map((shape) => directGroupId(shape)),
+      ...groups.map((group) => group.id),
+    ]);
+    let index = 1;
+    while (used.has(`composite-parent-${index}`)) index += 1;
+    const parentId = `composite-parent-${index}`;
+    groups.push({ id: parentId, compositeMode: "paint" });
+    for (const operandId of operandIds) {
+      let group = groups.find((candidate) => candidate.id === operandId);
+      if (!group) {
+        group = { id: operandId, compositeMode: "paint" };
+        groups.push(group);
+      }
+      group.parentGroupId = parentId;
+    }
+    this.notify();
+    return parentId;
+  }
+
+  public setArtCompositeGroupMode(groupId: string, mode: ArtCompositeMode): void {
+    const group = this.rig.artCompositeGroups?.find((candidate) => candidate.id === groupId);
+    if (!group) throw new Error(`Unknown art composite group: ${groupId}`);
+    group.compositeMode = mode;
+    this.notify();
   }
 
   public setElementLayerVisibility(layer: ElementLayerId, visible: boolean): void {

@@ -187,6 +187,10 @@ test("pose keys reject duplicate frames and incompatible structures", () => {
   const incompatible = structuredClone(rig);
   incompatible.joints.pop();
   assert.throws(() => addPoseKey(clip, createPoseKey("b", "포즈 B", 6, incompatible)), /구조/);
+
+  const incompatibleComposite = structuredClone(rig);
+  incompatibleComposite.artCompositeGroups = [{ id: "nested", compositeMode: "paint" }];
+  assert.throws(() => addPoseKey(clip, createPoseKey("c", "포즈 C", 6, incompatibleComposite)), /합성 구조/);
 });
 
 test("colors interpolate in linear RGB without mutating palette data", () => {
