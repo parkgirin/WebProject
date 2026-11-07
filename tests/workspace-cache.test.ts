@@ -3,8 +3,7 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { createPoseKey, type PoseClip } from "../src/rig/pose-interpolation.ts";
-import { createUserPosePreset } from "../src/storage/pose-presets.ts";
-import { createUserBodyPreset } from "../src/storage/body-presets.ts";
+import { createUserBodyPreset, createUserPosePreset } from "../src/presets/index.ts";
 import {
   createWorkspaceCache,
   loadWorkspaceCache,

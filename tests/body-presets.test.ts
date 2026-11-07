@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { RigState } from "../src/rig/rig-state.ts";
-import { applyUserBodyPreset, createUserBodyPreset, parseUserBodyPresets } from "../src/storage/body-presets.ts";
+import { applyUserBodyPreset, createUserBodyPreset, parseUserBodyPresets } from "../src/presets/body-presets.ts";
 
 test("a user body preset applies lengths and radii while preserving the current pose direction", () => {
   const source = new RigState(createDefaultRig());

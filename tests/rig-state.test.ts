@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/rig/avatar-presets.ts";
+import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointViewRadius, getJointWorldTransform, getPeerGroupCentroid, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 

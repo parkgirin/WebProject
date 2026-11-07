@@ -1,5 +1,5 @@
 import type { Rig } from "./types.ts";
-import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "./avatar-presets.ts";
+import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../presets/avatar-presets.ts";
 
 export function createDefaultRig(): Rig {
   // Build a new document from the straight neutral preset directly. Do not

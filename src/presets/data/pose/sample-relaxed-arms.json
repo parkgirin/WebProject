@@ -1,0 +1,39 @@
+{
+  "format": "pose-mesh-editor",
+  "version": 1,
+  "createdAt": "2026-11-07T00:00:00.000Z",
+  "pose": {
+    "projectionStrength": 0.35,
+    "viewYRotation": 0,
+    "joints": {
+      "left-elbow": {
+        "x": -82,
+        "y": 48,
+        "localRotation": 0,
+        "axes": { "upper-arm": 0, "lower-arm": 0 },
+        "depth": 0
+      },
+      "right-elbow": {
+        "x": 82,
+        "y": 48,
+        "localRotation": 0,
+        "axes": { "upper-arm": 0, "lower-arm": 0 },
+        "depth": 0
+      },
+      "left-wrist": {
+        "x": -55,
+        "y": 70,
+        "localRotation": 0,
+        "axes": { "lower-arm": 0 },
+        "depth": 0
+      },
+      "right-wrist": {
+        "x": 55,
+        "y": 70,
+        "localRotation": 0,
+        "axes": { "lower-arm": 0 },
+        "depth": 0
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/rig/avatar-presets.ts";
+import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";

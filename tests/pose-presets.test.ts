@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
-import { applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/storage/pose-presets.ts";
+import { applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
 
 test("a user pose preset restores pose without replacing radii, colors, or shapes", () => {
   const source = new RigState(createDefaultRig());
@@ -17,16 +16,52 @@ test("a user pose preset restores pose without replacing radii, colors, or shape
   target.paintJointWithColor("right-wrist", "#123456");
   const colorPaletteId = target.getJoint("right-wrist").paletteId;
   const shapeIds = target.rig.artShapes!.map((shape) => shape.id);
+  const beforePose = { ...target.getJoint("right-wrist") };
+  const beforeLength = Math.hypot(beforePose.x, beforePose.y);
+  const savedWrist = source.getJoint("right-wrist");
+  const savedLength = Math.hypot(savedWrist.x, savedWrist.y);
   applyUserPosePreset(target, entry);
 
-  assert.deepEqual(getJointWorldTransform(target.rig, "right-wrist"), getJointWorldTransform(source.rig, "right-wrist"));
+  const appliedWrist = target.getJoint("right-wrist");
+  assert.ok(Math.abs(Math.hypot(appliedWrist.x, appliedWrist.y) - beforeLength) < 1e-6);
+  assert.ok(Math.abs(appliedWrist.x / beforeLength - savedWrist.x / savedLength) < 1e-6);
+  assert.ok(Math.abs(appliedWrist.y / beforeLength - savedWrist.y / savedLength) < 1e-6);
   assert.equal(target.getGlobalRotation(), source.getGlobalRotation());
   assert.equal(target.getJoint("right-wrist").radius, 27);
   assert.equal(target.getJoint("right-wrist").paletteId, colorPaletteId);
   assert.equal(target.rig.palette.find((entry) => entry.id === colorPaletteId)?.color, "#123456");
   assert.deepEqual(target.rig.artShapes!.map((shape) => shape.id), shapeIds);
   target.undo();
-  assert.notDeepEqual(getJointWorldTransform(target.rig, "right-wrist"), getJointWorldTransform(source.rig, "right-wrist"));
+  assert.equal(target.getJoint("right-wrist").x, beforePose.x);
+  assert.equal(target.getJoint("right-wrist").y, beforePose.y);
+});
+
+test("a pose preset changes limb directions without replacing body-specific joint distances", () => {
+  const source = new RigState(createDefaultRig());
+  source.moveJoint("left-elbow", 240, 320);
+  source.moveJoint("right-elbow", 360, 320);
+  source.moveJoint("left-wrist", 240, 416);
+  source.moveJoint("right-wrist", 360, 416);
+  const entry = createUserPosePreset("arms-down", "팔 수직 내리기", source.rig);
+
+  const child = new RigState(createDefaultRig());
+  child.setJointDistance("left-elbow", "left-shoulder", 69);
+  child.setJointDistance("right-elbow", "right-shoulder", 69);
+  child.setJointDistance("left-wrist", "left-elbow", 69);
+  child.setJointDistance("right-wrist", "right-elbow", 69);
+  const rootBefore = { x: child.getJoint("scene-root").x, y: child.getJoint("scene-root").y };
+
+  applyUserPosePreset(child, entry);
+
+  for (const side of ["left", "right"] as const) {
+    const elbow = child.getJoint(`${side}-elbow`);
+    const wrist = child.getJoint(`${side}-wrist`);
+    assert.ok(Math.abs(elbow.x) < 1e-6);
+    assert.ok(Math.abs(elbow.y - 69) < 1e-6);
+    assert.ok(Math.abs(wrist.x) < 1e-6);
+    assert.ok(Math.abs(wrist.y - 69) < 1e-6);
+  }
+  assert.deepEqual({ x: child.getJoint("scene-root").x, y: child.getJoint("scene-root").y }, rootBefore);
 });
 
 test("user pose preset lists validate names, ids, and embedded pose data", () => {

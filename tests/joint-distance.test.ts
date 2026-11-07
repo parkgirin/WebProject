@@ -4,7 +4,7 @@ import test from "node:test";
 import { renderInspector } from "../src/editor/inspector.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/rig/avatar-presets.ts";
+import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 

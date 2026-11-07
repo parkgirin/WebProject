@@ -1,7 +1,7 @@
 import type { RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
 import { createDefaultRig } from "../rig/default-rig.ts";
-import { applyRigPreset, createRigPreset, parseRigPreset, type RigPreset } from "./rig-preset.ts";
+import { applyRigPreset, createRigPreset, parseRigPreset, type RigPreset } from "../storage/rig-preset.ts";
 
 export interface UserPosePreset {
   id: string;
@@ -25,7 +25,26 @@ export function createUserPosePreset(id: string, name: string, rig: Rig): UserPo
 }
 
 export function applyUserPosePreset(state: RigState, entry: UserPosePreset): void {
-  applyRigPreset(state, entry.preset, { pose: true, proportions: false, colors: false, shapes: false });
+  const preset = structuredClone(entry.preset);
+  for (const [jointId, saved] of Object.entries(preset.pose?.joints ?? {})) {
+    const current = state.rig.joints.find((joint) => joint.id === jointId);
+    if (!current) continue;
+    if (!current.parentJointId) {
+      saved.x = current.x;
+      saved.y = current.y;
+      continue;
+    }
+    const currentLength = Math.hypot(current.x, current.y);
+    const savedLength = Math.hypot(saved.x, saved.y);
+    if (savedLength > 1e-9) {
+      saved.x = (saved.x / savedLength) * currentLength;
+      saved.y = (saved.y / savedLength) * currentLength;
+    } else {
+      saved.x = current.x;
+      saved.y = current.y;
+    }
+  }
+  applyRigPreset(state, preset, { pose: true, proportions: false, colors: false, shapes: false });
 }
 
 export function applyTPose(state: RigState): void {

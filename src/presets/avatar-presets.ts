@@ -1,4 +1,4 @@
-import type { RigState } from "./rig-state.ts";
+import type { RigState } from "../rig/rig-state.ts";
 
 export type AvatarPresetId =
   | "large"

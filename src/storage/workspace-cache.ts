@@ -2,8 +2,7 @@ import { parsePoseAnimationFile, type PoseAnimationFile } from "./pose-animation
 import { validateRig } from "../rig/rig-state.ts";
 import type { PoseClip } from "../rig/pose-interpolation.ts";
 import type { Rig } from "../rig/types.ts";
-import { parseUserPosePresets, type UserPosePreset } from "./pose-presets.ts";
-import { parseUserBodyPresets, type UserBodyPreset } from "./body-presets.ts";
+import { parseUserBodyPresets, parseUserPosePresets, type UserBodyPreset, type UserPosePreset } from "../presets/index.ts";
 
 export const WORKSPACE_CACHE_KEY = "pose-mesh-editor.workspace.v1";
 

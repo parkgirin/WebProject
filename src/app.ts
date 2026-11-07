@@ -1,6 +1,20 @@
 import { createDefaultRig } from "./rig/default-rig.ts";
 import { getArtShapeVertexPoint } from "./rig/geometry.ts";
-import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID } from "./rig/avatar-presets.ts";
+import {
+  applyAvatarProportionPreset,
+  applyTPose,
+  applyUserBodyPreset,
+  applyUserPosePreset,
+  AVATAR_PROPORTION_PRESETS,
+  BUILTIN_T_POSE_ID,
+  BUILTIN_T_POSE_NAME,
+  createUserBodyPreset,
+  createUserPosePreset,
+  DEFAULT_AVATAR_PRESET_ID,
+  type UserBodyPreset,
+  type UserPosePreset,
+} from "./presets/index.ts";
+import { FILE_BODY_PRESETS, FILE_POSE_PRESETS } from "./presets/preset-catalog.ts";
 import { RigState } from "./rig/rig-state.ts";
 import { renderSvgEditor } from "./editor/svg-editor.ts";
 import { enablePointerInput } from "./editor/pointer-input.ts";
@@ -10,8 +24,6 @@ import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
 import { createWorkspaceCache, loadWorkspaceCache, saveWorkspaceCache } from "./storage/workspace-cache.ts";
-import { applyTPose, applyUserPosePreset, BUILTIN_T_POSE_ID, BUILTIN_T_POSE_NAME, createUserPosePreset, type UserPosePreset } from "./storage/pose-presets.ts";
-import { applyUserBodyPreset, createUserBodyPreset, type UserBodyPreset } from "./storage/body-presets.ts";
 import {
   addPoseKey,
   advancePosePlayback,
@@ -502,14 +514,19 @@ export function createApp(container: HTMLDivElement): void {
     paintColorInput.value = activePalette?.color ?? viewState.paintColor;
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
     avatarPresetSelect.innerHTML = `${AVATAR_PROPORTION_PRESETS
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${FILE_BODY_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${bodyPresets
-      .map((preset) => `<option value="${escapeHtml(preset.id)}">사용자 · ${escapeHtml(preset.name)}</option>`).join("")}`;
-    avatarPresetSelect.value = [...AVATAR_PROPORTION_PRESETS, ...bodyPresets].some((preset) => preset.id === selectedBodyPresetId)
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
+    avatarPresetSelect.value = [...AVATAR_PROPORTION_PRESETS, ...FILE_BODY_PRESETS, ...bodyPresets]
+      .some((preset) => preset.id === selectedBodyPresetId)
       ? selectedBodyPresetId : DEFAULT_AVATAR_PRESET_ID;
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === avatarPresetSelect.value);
-    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option>${posePresets
+    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option>${FILE_POSE_PRESETS
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${posePresets
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
-    posePresetSelect.value = selectedPosePresetId === BUILTIN_T_POSE_ID || posePresets.some((preset) => preset.id === selectedPosePresetId)
+    posePresetSelect.value = selectedPosePresetId === BUILTIN_T_POSE_ID
+      || FILE_POSE_PRESETS.some((preset) => preset.id === selectedPosePresetId)
+      || posePresets.some((preset) => preset.id === selectedPosePresetId)
       ? selectedPosePresetId : BUILTIN_T_POSE_ID;
     applyPosePresetButton.disabled = false;
     deletePosePresetButton.disabled = !posePresets.some((preset) => preset.id === posePresetSelect.value);
@@ -997,7 +1014,8 @@ export function createApp(container: HTMLDivElement): void {
   });
   applyAvatarPresetButton.addEventListener("click", () => {
     const builtIn = AVATAR_PROPORTION_PRESETS.find((candidate) => candidate.id === selectedBodyPresetId);
-    const userPreset = bodyPresets.find((candidate) => candidate.id === selectedBodyPresetId);
+    const userPreset = [...FILE_BODY_PRESETS, ...bodyPresets]
+      .find((candidate) => candidate.id === selectedBodyPresetId);
     if (builtIn) {
       applyAvatarProportionPreset(state, builtIn.id);
       avatarPresetStatus.textContent = `${builtIn.name} 적용됨`;
@@ -1019,7 +1037,9 @@ export function createApp(container: HTMLDivElement): void {
     const name = window.prompt("새 체형 프리셋 이름", `체형 ${bodyPresets.length + 1}`)?.trim();
     if (!name) return;
     let id = `user-body-${++bodyPresetSequence}`;
-    while (bodyPresets.some((preset) => preset.id === id)) id = `user-body-${++bodyPresetSequence}`;
+    while ([...FILE_BODY_PRESETS, ...bodyPresets].some((preset) => preset.id === id)) {
+      id = `user-body-${++bodyPresetSequence}`;
+    }
     const preset = createUserBodyPreset(id, name, state.rig);
     bodyPresets = [...bodyPresets, preset];
     selectedBodyPresetId = preset.id;
@@ -1044,7 +1064,9 @@ export function createApp(container: HTMLDivElement): void {
     const name = window.prompt("새 포즈 프리셋 이름", `포즈 ${posePresets.length + 1}`)?.trim();
     if (!name) return;
     let id = `user-pose-${++posePresetSequence}`;
-    while (posePresets.some((preset) => preset.id === id)) id = `user-pose-${++posePresetSequence}`;
+    while ([...FILE_POSE_PRESETS, ...posePresets].some((preset) => preset.id === id)) {
+      id = `user-pose-${++posePresetSequence}`;
+    }
     const preset = createUserPosePreset(id, name, state.rig);
     posePresets = [...posePresets, preset];
     selectedPosePresetId = preset.id;
@@ -1052,7 +1074,8 @@ export function createApp(container: HTMLDivElement): void {
     render();
   });
   applyPosePresetButton.addEventListener("click", () => {
-    const preset = posePresets.find((candidate) => candidate.id === selectedPosePresetId);
+    const preset = [...FILE_POSE_PRESETS, ...posePresets]
+      .find((candidate) => candidate.id === selectedPosePresetId);
     try {
       interpolationPreviewActive = false;
       if (selectedPosePresetId === BUILTIN_T_POSE_ID) {

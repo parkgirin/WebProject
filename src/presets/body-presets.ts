@@ -1,6 +1,6 @@
 import type { RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
-import { createRigPreset, parseRigPreset, type RigPreset } from "./rig-preset.ts";
+import { createRigPreset, parseRigPreset, type RigPreset } from "../storage/rig-preset.ts";
 
 export interface UserBodyPreset {
   id: string;
