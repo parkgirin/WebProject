@@ -1,0 +1,47 @@
+{
+  "format": "pose-mesh-editor",
+  "version": 1,
+  "createdAt": "2026-11-07T00:00:00.000+09:00",
+  "hierarchy": {
+    "scene-root": null,
+    "pelvis-pivot": "scene-root",
+    "waist": "pelvis-pivot",
+    "chest": "waist",
+    "head": "chest",
+    "left-shoulder": "chest",
+    "right-shoulder": "chest",
+    "left-elbow": "left-shoulder",
+    "right-elbow": "right-shoulder",
+    "left-wrist": "left-elbow",
+    "right-wrist": "right-elbow",
+    "left-hip": "pelvis-pivot",
+    "right-hip": "pelvis-pivot",
+    "left-knee": "left-hip",
+    "right-knee": "right-hip",
+    "left-ankle": "left-knee",
+    "right-ankle": "right-knee"
+  },
+  "pose": {
+    "projectionStrength": 35,
+    "viewYRotation": 0,
+    "joints": {
+      "scene-root": { "x": 300, "y": 320, "localRotation": 0, "axes": {}, "depth": 0 },
+      "pelvis-pivot": { "x": 0, "y": 60, "localRotation": 0, "axes": {}, "depth": 0 },
+      "waist": { "x": 0, "y": -60, "localRotation": 0, "axes": { "upper-torso": 0, "pelvis": 0 }, "depth": 0 },
+      "chest": { "x": -4, "y": -96, "localRotation": 0, "axes": { "neck": 0 }, "depth": 0 },
+      "head": { "x": 8, "y": -84, "localRotation": 0, "axes": { "neck": 0 }, "depth": 0 },
+      "left-shoulder": { "x": -62, "y": -12, "localRotation": 0, "axes": { "torso": -90, "upper-arm": 0 }, "depth": 0 },
+      "right-shoulder": { "x": 62, "y": 10, "localRotation": 0, "axes": { "torso": -90, "upper-arm": 0 }, "depth": 0 },
+      "left-elbow": { "x": -46, "y": -84, "localRotation": 0, "axes": { "upper-arm": 0, "lower-arm": 0 }, "depth": 0 },
+      "right-elbow": { "x": 76, "y": 48, "localRotation": 0, "axes": { "upper-arm": 0, "lower-arm": 0 }, "depth": 0 },
+      "left-wrist": { "x": -72, "y": -64, "localRotation": 0, "axes": { "lower-arm": 0 }, "depth": 0 },
+      "right-wrist": { "x": 54, "y": 76, "localRotation": 0, "axes": { "lower-arm": 0 }, "depth": 0 },
+      "left-hip": { "x": -34, "y": -2, "localRotation": 0, "axes": { "pelvis-horizontal": 0, "pelvis-vertical": 90, "upper-leg": 0 }, "depth": 0 },
+      "right-hip": { "x": 34, "y": 2, "localRotation": 0, "axes": { "pelvis-horizontal": 0, "pelvis-vertical": 90, "upper-leg": 0 }, "depth": 0 },
+      "left-knee": { "x": -48, "y": 108, "localRotation": 0, "axes": { "upper-leg": 0, "lower-leg": 0 }, "depth": 0 },
+      "right-knee": { "x": 58, "y": 102, "localRotation": 0, "axes": { "upper-leg": 0, "lower-leg": 0 }, "depth": 0 },
+      "left-ankle": { "x": -26, "y": 148, "localRotation": 0, "axes": { "lower-leg": 0 }, "depth": 0 },
+      "right-ankle": { "x": 32, "y": 146, "localRotation": 0, "axes": { "lower-leg": 0 }, "depth": 0 }
+    }
+  }
+}
