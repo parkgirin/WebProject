@@ -2,10 +2,16 @@ import { createDefaultRig } from "./rig/default-rig.ts";
 import { getArtShapeVertexPoint } from "./rig/geometry.ts";
 import {
   applyAvatarProportionPreset,
+  applyBackPose,
+  applySidePose,
   applyTPose,
   applyUserBodyPreset,
   applyUserPosePreset,
   AVATAR_PROPORTION_PRESETS,
+  BUILTIN_BACK_POSE_ID,
+  BUILTIN_BACK_POSE_NAME,
+  BUILTIN_SIDE_POSE_ID,
+  BUILTIN_SIDE_POSE_NAME,
   BUILTIN_T_POSE_ID,
   BUILTIN_T_POSE_NAME,
   createUserBodyPreset,
@@ -145,16 +151,18 @@ export function createApp(container: HTMLDivElement): void {
                   <button type="button" data-delete-pose-preset disabled title="선택한 포즈 프리셋 삭제">−</button>
                 </label>
                 <span class="avatar-preset-status" data-pose-preset-status aria-live="polite"></span>
-                <label class="global-rotation-control">전체 회전
-                  <input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation())}" data-global-angle />
-                  <span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalRotation()).toFixed(0)}" data-global-angle-number aria-label="전체 회전 각도 숫자 입력" />°</span>
-                </label>
+                <button class="world-panel-toggle" type="button" data-toggle-world-panel aria-expanded="true">월드 축 · 회전</button>
                 <label class="toolbar-toggle"><input type="checkbox" data-show-outlines checked />외곽선</label>
                 <label class="toolbar-toggle"><input type="checkbox" data-hide-same-joint-edges checked />관절 끝선 숨김</label>
                 <label class="toolbar-toggle"><input type="checkbox" data-extend-hidden-joint-faces />숨김 관절 면 연장</label>
               </div>
             </div>
             <svg class="rig-canvas" viewBox="0 0 600 780" role="img" aria-label="관절과 연결 면 편집 화면"></svg>
+            <section class="world-transform-panel" data-world-panel aria-label="월드 회전 제어">
+              <header><strong>월드 좌표 · 회전</strong><button type="button" data-hide-world-panel aria-label="월드 회전 패널 숨기기">×</button></header>
+              <div class="world-axis-guide" aria-label="월드 좌표축 안내"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg><span>우클릭: X/Y<br /><small>Alt+우클릭: Z</small></span></div>
+              <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
+            </section>
           </div>
           <section class="interpolation-panel" aria-label="포즈 보간 타임라인">
             <header class="interpolation-header">
@@ -254,8 +262,8 @@ export function createApp(container: HTMLDivElement): void {
           <button type="button" class="preview-close-button" data-close-preset aria-label="저장과 불러오기 닫기">×</button>
         </div>
         <div class="preset-dialog-content">
-          <p>저장 파일에는 현재 지원하는 데이터를 모두 담습니다. 아래 체크는 불러올 때 현재 인물에 적용할 항목만 고릅니다.</p>
-          <h3 class="preset-section-title">불러오기 적용 항목</h3>
+          <p>저장할 데이터 범위를 선택합니다. 파일을 불러온 뒤에는 별도 창에서 적용 범위를 다시 선택합니다.</p>
+          <h3 class="preset-section-title">저장 포함 항목</h3>
           <div class="preset-part-list">
             <label><input type="checkbox" data-preset-pose checked /> <span><strong>포즈</strong><small>관절 위치와 회전, 축선 각도</small></span></label>
             <label><input type="checkbox" data-preset-proportions checked /> <span><strong>비율</strong><small>관절 크기와 부모 기준 거리</small></span></label>
@@ -266,13 +274,23 @@ export function createApp(container: HTMLDivElement): void {
           <p class="hint" data-workspace-cache-status aria-live="polite">작업 내용은 이 브라우저에 자동 저장됩니다.</p>
         </div>
         <div class="preset-dialog-footer">
-          <span>형식: Pose Mesh Editor JSON v1</span>
+          <span>형식: Pose Mesh Editor JSON v2 · human-v1</span>
           <div class="save-buttons">
             <button class="save-image-button is-secondary" type="button" data-load-preset>파일 불러오기</button>
             <button class="save-image-button" type="button" data-save-preset>JSON 저장</button>
           </div>
           <input type="file" accept="application/json,.json" data-preset-file hidden />
         </div>
+      </dialog>
+      <dialog class="preset-dialog" data-preset-import-dialog>
+        <div class="preset-dialog-header"><div><span class="eyebrow">IMPORT DATA</span><h2>불러올 정보 선택</h2></div><button type="button" class="preview-close-button" data-close-preset-import aria-label="불러오기 취소">×</button></div>
+        <div class="preset-dialog-content"><p data-preset-import-file></p><div class="preset-part-list">
+          <label><input type="checkbox" data-import-pose checked /> <span><strong>포즈</strong><small>관절 위치와 회전, 축선 각도</small></span></label>
+          <label><input type="checkbox" data-import-proportions checked /> <span><strong>비율</strong><small>관절 크기와 부모 기준 거리</small></span></label>
+          <label><input type="checkbox" data-import-colors checked /> <span><strong>색상</strong><small>기본색과 관절·면별 색상</small></span></label>
+          <label><input type="checkbox" data-import-shapes checked /> <span><strong>자유 도형</strong><small>다각형과 축 끝점 연결</small></span></label>
+        </div><p class="preset-status" data-preset-import-status></p></div>
+        <div class="preset-dialog-footer"><span>선택한 데이터만 현재 작업에 적용됩니다.</span><button class="save-image-button" type="button" data-confirm-preset-import>적용</button></div>
       </dialog>
     </main>
   `;
@@ -302,14 +320,22 @@ export function createApp(container: HTMLDivElement): void {
   const savePresetButton = requireElement<HTMLButtonElement>(container, "[data-save-preset]");
   const loadPresetButton = requireElement<HTMLButtonElement>(container, "[data-load-preset]");
   const presetFileInput = requireElement<HTMLInputElement>(container, "[data-preset-file]");
+  const presetImportDialog = requireElement<HTMLDialogElement>(container, "[data-preset-import-dialog]");
+  const confirmPresetImportButton = requireElement<HTMLButtonElement>(container, "[data-confirm-preset-import]");
+  const presetImportStatus = requireElement<HTMLElement>(container, "[data-preset-import-status]");
   const presetStatus = requireElement<HTMLElement>(container, "[data-preset-status]");
   const workspaceCacheStatus = requireElement<HTMLElement>(container, "[data-workspace-cache-status]");
   if (restoredWorkspace) {
     workspaceCacheStatus.textContent = `자동 저장 작업 복원됨 · ${new Date(restoredWorkspace.savedAt).toLocaleString()}`;
   }
-  const globalAngleInput = requireElement<HTMLInputElement>(container, "[data-global-angle]");
-  const globalAngleNumber = requireElement<HTMLInputElement>(container, "[data-global-angle-number]");
+  const globalAxisInputs = [...container.querySelectorAll<HTMLInputElement>("[data-global-axis]")];
+  const globalAxisNumbers = [...container.querySelectorAll<HTMLInputElement>("[data-global-axis-number]")];
+  const worldPanel = requireElement<HTMLElement>(container, "[data-world-panel]");
+  const worldPanelToggle = requireElement<HTMLButtonElement>(container, "[data-toggle-world-panel]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
+  const setWorldPanelVisible = (visible: boolean) => { worldPanel.hidden = !visible; worldPanelToggle.setAttribute("aria-expanded", String(visible)); };
+  worldPanelToggle.addEventListener("click", () => setWorldPanelVisible(worldPanel.hidden));
+  container.querySelector<HTMLButtonElement>("[data-hide-world-panel]")?.addEventListener("click", () => setWorldPanelVisible(false));
   avatarPresetSelect.value = DEFAULT_AVATAR_PRESET_ID;
   const applyAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-avatar-preset]");
   const addAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-add-avatar-preset]");
@@ -417,6 +443,13 @@ export function createApp(container: HTMLDivElement): void {
     colors: container.querySelector<HTMLInputElement>("[data-preset-colors]")?.checked ?? false,
     shapes: container.querySelector<HTMLInputElement>("[data-preset-shapes]")?.checked ?? false,
   });
+  const getImportParts = (): PresetParts => ({
+    pose: container.querySelector<HTMLInputElement>("[data-import-pose]")?.checked ?? false,
+    proportions: container.querySelector<HTMLInputElement>("[data-import-proportions]")?.checked ?? false,
+    colors: container.querySelector<HTMLInputElement>("[data-import-colors]")?.checked ?? false,
+    shapes: container.querySelector<HTMLInputElement>("[data-import-shapes]")?.checked ?? false,
+  });
+  let pendingPresetImport: ReturnType<typeof parseRigPreset> | null = null;
   const inspector = createInspector();
   inspectorHost.append(inspector);
 
@@ -494,9 +527,8 @@ export function createApp(container: HTMLDivElement): void {
         keyShape.compositeGroupId = shape.compositeGroupId ?? `composite-${shape.id}`;
       }
     }
-    const globalAngle = toSignedAngle(state.getGlobalRotation());
-    globalAngleInput.value = String(globalAngle);
-    globalAngleNumber.value = globalAngle.toFixed(0);
+    for (const input of globalAxisInputs) { const axis = input.dataset.globalAxis as "x" | "y" | "z"; input.value = String(toSignedAngle(state.getGlobalAxisRotation(axis))); }
+    for (const input of globalAxisNumbers) { const axis = input.dataset.globalAxisNumber as "x" | "y" | "z"; input.value = state.getGlobalAxisRotation(axis).toFixed(0); }
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
@@ -521,10 +553,10 @@ export function createApp(container: HTMLDivElement): void {
       .some((preset) => preset.id === selectedBodyPresetId)
       ? selectedBodyPresetId : DEFAULT_AVATAR_PRESET_ID;
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === avatarPresetSelect.value);
-    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option>${FILE_POSE_PRESETS
+    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option><option value="${BUILTIN_SIDE_POSE_ID}">${BUILTIN_SIDE_POSE_NAME}</option><option value="${BUILTIN_BACK_POSE_ID}">${BUILTIN_BACK_POSE_NAME}</option>${FILE_POSE_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${posePresets
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
-    posePresetSelect.value = selectedPosePresetId === BUILTIN_T_POSE_ID
+    posePresetSelect.value = [BUILTIN_T_POSE_ID, BUILTIN_SIDE_POSE_ID, BUILTIN_BACK_POSE_ID].includes(selectedPosePresetId)
       || FILE_POSE_PRESETS.some((preset) => preset.id === selectedPosePresetId)
       || posePresets.some((preset) => preset.id === selectedPosePresetId)
       ? selectedPosePresetId : BUILTIN_T_POSE_ID;
@@ -1081,6 +1113,12 @@ export function createApp(container: HTMLDivElement): void {
       if (selectedPosePresetId === BUILTIN_T_POSE_ID) {
         applyTPose(state);
         posePresetStatus.textContent = `${BUILTIN_T_POSE_NAME} 적용됨`;
+      } else if (selectedPosePresetId === BUILTIN_SIDE_POSE_ID) {
+        applySidePose(state);
+        posePresetStatus.textContent = `${BUILTIN_SIDE_POSE_NAME} 적용됨`;
+      } else if (selectedPosePresetId === BUILTIN_BACK_POSE_ID) {
+        applyBackPose(state);
+        posePresetStatus.textContent = `${BUILTIN_BACK_POSE_NAME} 적용됨`;
       } else if (preset) {
         applyUserPosePreset(state, preset);
         posePresetStatus.textContent = `${preset.name} 적용됨`;
@@ -1097,20 +1135,28 @@ export function createApp(container: HTMLDivElement): void {
     posePresetStatus.textContent = `${preset.name} 삭제됨`;
     render();
   });
-  globalAngleInput.addEventListener("input", () => {
-    if (globalAngleInput.dataset.historyActive !== "true") {
-      globalAngleInput.dataset.historyActive = "true";
+  globalAxisInputs.forEach((input) => input.addEventListener("input", () => {
+    if (input.dataset.historyActive !== "true") {
+      input.dataset.historyActive = "true";
       state.beginHistoryTransaction();
     }
-    state.setGlobalRotation(Number(globalAngleInput.value));
+    const axis = input.dataset.globalAxis as "x" | "y" | "z";
+    const current = state.getGlobalAxisRotation(axis);
+    state.setGlobalAxisRotation(axis, input.valueAsNumber + Math.round((current - input.valueAsNumber) / 360) * 360);
+  }));
+  globalAxisInputs.forEach((input) => input.addEventListener("change", () => { delete input.dataset.historyActive; state.endHistoryTransaction(); }));
+  globalAxisNumbers.forEach((input) => input.addEventListener("change", () => state.setGlobalAxisRotation(input.dataset.globalAxisNumber as "x" | "y" | "z", input.valueAsNumber)));
+  container.querySelectorAll<HTMLButtonElement>("[data-reset-global-axis]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const axis = button.dataset.resetGlobalAxis as "x" | "y" | "z";
+      state.setGlobalAxisRotation(axis, toSignedAngle(state.getGlobalAxisRotation(axis)));
+    });
+    button.addEventListener("dblclick", () => state.setGlobalAxisRotation(button.dataset.resetGlobalAxis as "x" | "y" | "z", 0));
   });
-  globalAngleInput.addEventListener("change", () => {
-    delete globalAngleInput.dataset.historyActive;
-    state.endHistoryTransaction();
-  });
-  globalAngleNumber.addEventListener("change", () => {
-    state.setGlobalRotation(globalAngleNumber.valueAsNumber);
-  });
+  container.querySelectorAll<HTMLButtonElement>("[data-step-global-axis]").forEach((button) => button.addEventListener("click", () => {
+    const axis = button.dataset.stepGlobalAxis as "x" | "y" | "z";
+    state.setGlobalAxisRotation(axis, state.getGlobalAxisRotation(axis) + Number(button.dataset.stepAngle));
+  }));
   bindCheckbox(outlineToggle, (outlinesVisible) => setViewState({ outlinesVisible }));
   bindCheckbox(sameJointEdgeToggle, (hideSameJointEdges) => setViewState({ hideSameJointEdges }));
   bindCheckbox(extendHiddenJointFacesToggle, (extendHiddenJointFaces) => setViewState({ extendHiddenJointFaces }));
@@ -1138,13 +1184,24 @@ export function createApp(container: HTMLDivElement): void {
     const file = presetFileInput.files?.[0];
     if (!file) return;
     try {
-      const applied = applyRigPreset(state, parseRigPreset(await file.text()), getPresetParts());
-      presetStatus.textContent = applied.length ? `${applied.join(" · ")}을(를) 불러왔습니다.` : "선택한 항목이 파일에 없습니다.";
+      pendingPresetImport = parseRigPreset(await file.text());
+      requireElement<HTMLElement>(container, "[data-preset-import-file]").textContent = `${file.name} 파일에서 적용할 정보를 선택하세요.`;
+      presetImportStatus.textContent = "";
+      presetImportDialog.showModal();
     } catch (error) {
       presetStatus.textContent = error instanceof Error ? error.message : "불러오기에 실패했습니다.";
     } finally {
       presetFileInput.value = "";
     }
+  });
+  container.querySelector<HTMLButtonElement>("[data-close-preset-import]")?.addEventListener("click", () => { pendingPresetImport = null; presetImportDialog.close(); });
+  confirmPresetImportButton.addEventListener("click", () => {
+    if (!pendingPresetImport) return;
+    try {
+      const applied = applyRigPreset(state, pendingPresetImport, getImportParts());
+      presetStatus.textContent = applied.length ? `${applied.join(" · ")}을(를) 불러왔습니다.` : "선택한 항목이 파일에 없습니다.";
+      pendingPresetImport = null; presetImportDialog.close();
+    } catch (error) { presetImportStatus.textContent = error instanceof Error ? error.message : "적용하지 못했습니다."; }
   });
   const closePreview = () => {
     previewDialog.close();

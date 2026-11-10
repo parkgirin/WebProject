@@ -1,5 +1,5 @@
 import type { ArtCompositeMode, ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
-import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getFacePoints, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedDepth, getProjectionScale, projectPoint, type Point } from "../rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraFacingFaceSurface, getCameraFacingLimbSurface, getCameraZ, getFacePoints, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectionScale, projectPoint, type Point } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -12,12 +12,12 @@ export function renderSvgEditor(
   const showAxisLayer = rig.elementLayers?.axes !== false;
   const showFaceLayer = rig.elementLayers?.faces !== false;
   const showShapeLayer = rig.elementLayers?.shapes !== false;
-  const depthOf = (jointId: string) => rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0;
+  const zOf = (jointId: string) => rig.joints.find((joint) => joint.id === jointId)?.z ?? 0;
   const project = (point: Point, depth = 0) => projectPoint(rig, point, depth);
-  const projectJoint = (jointId: string) => project(getJointWorldTransform(rig, jointId), depthOf(jointId));
+  const projectJoint = (jointId: string) => project(getJointWorldTransform(rig, jointId), zOf(jointId));
   const scaleOf = (jointId: string) => {
     const world = getJointWorldTransform(rig, jointId);
-    return getProjectionScale(rig, getProjectedDepth(rig, world, depthOf(jointId)));
+    return getProjectionScale(rig, getCameraZ(rig, world, zOf(jointId)));
   };
   const viewRadiusOf = (jointId: string) => getJointViewRadius(rig, rig.joints.find((joint) => joint.id === jointId)!);
   const bodyRadiusOf = (jointId: string) => {
@@ -27,7 +27,7 @@ export function renderSvgEditor(
   };
   const renderedDepthOf = (jointId: string) => {
     const world = getJointWorldTransform(rig, jointId);
-    return getProjectedDepth(rig, world, depthOf(jointId));
+    return getCameraZ(rig, world, zOf(jointId));
   };
   // Project every axis endpoint with the same X/Z transform as its joint
   // centre. Keeping endpoints in screen space makes the connecting faces
@@ -35,35 +35,72 @@ export function renderSvgEditor(
   const projectedAxisPoint = (jointId: string, axisId: string, side: -1 | 1): Point => {
     const joint = rig.joints.find((candidate) => candidate.id === jointId)!;
     const axis = joint.axes.find((candidate) => candidate.id === axisId)!;
-    return project(getAxisPoint(rig, joint, axis, side), depthOf(jointId));
+    return project(getAxisPoint(rig, joint, axis, side), zOf(jointId));
   };
   const visibleJoints = rig.joints
     .filter((joint) => showJointLayer && joint.bodyVisible && isGroupVisible(rig, joint.groupId));
-  const faceDefinitions = rig.faces.filter((face) => showFaceLayer && isGroupVisible(rig, face.groupId));
-  const extension = viewState.extendHiddenJointFaces && rig.viewYRotation === 0
+  // The chest-to-waist surface is generated from 3D section rings below.
+  const faceDefinitions = rig.faces.filter((face) => face.id !== "torso" && showFaceLayer && isGroupVisible(rig, face.groupId));
+  const usingFaceExtension = viewState.extendHiddenJointFaces === true && rig.viewYRotation === 0;
+  const extension = usingFaceExtension
     ? getHiddenJointFaceExtensions(rig, faceDefinitions)
     : { points: new Map<string, Point>(), jointIds: new Set<string>(), fillOnlyJointIds: new Set<string>() };
   const visibleFaces = faceDefinitions.map((face) => ({
     face,
-    points: face.vertices.map((vertex, index) => {
+    // Legacy hidden-joint extension operates on persisted axis references.
+    // Keep that explicit edit mode coherent; in the normal renderer, limbs
+    // instead take their boundary from the camera-facing joint circles.
+    points: !usingFaceExtension && face.cameraFacingLimb
+        ? getCameraFacingLimbSurface(rig, face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId)?.points.map((point) => project(point, point.z)) ?? getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z))
+        : !usingFaceExtension
+          ? getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z))
+        : face.vertices.map((vertex, index) => {
       const extended = extension.points.get(`${face.id}:${index}`);
       return extended
-        ? project(extended, depthOf(vertex.jointId))
+        ? project(extended, zOf(vertex.jointId))
         : projectedAxisPoint(vertex.jointId, vertex.axisId, vertex.side);
-    }),
+        }),
   }));
 
   const jointItems = visibleJoints
     .map((joint, index) => {
       const world = projectJoint(joint.id);
       const radius = bodyRadiusOf(joint.id) * scaleOf(joint.id);
+      const profile = joint.surfaceProfileId ? rig.surfaceProfiles?.find((candidate) => candidate.id === joint.surfaceProfileId) : undefined;
+      const profileMarkup = profile
+        ? (() => {
+          const center = getJointWorldTransform(rig, joint.id);
+          const surfaceScale = joint.surfaceScale ?? { x: 1, y: 1, z: 1 };
+          const flatAxes = new Set(joint.capsuleFlatAxes ?? []);
+          const flatLength = (axis: "x" | "y" | "z") => flatAxes.has(axis) ? joint.capsuleFlatLengths?.[axis] ?? 0 : 0;
+          const depth = bodyRadiusOf(joint.id) * profile.depthScale * surfaceScale.z + flatLength("z") / 2;
+          const radiansX = (joint.localRotationX ?? 0) * Math.PI / 180;
+          const radiansY = (joint.localRotationY ?? 0) * Math.PI / 180;
+          const radiansZ = center.rotation * Math.PI / 180;
+          const rotateProfilePoint = (vertex: { x: number; y: number }, side: number) => {
+            let x = vertex.x * bodyRadiusOf(joint.id) * surfaceScale.x + Math.sign(vertex.x) * flatLength("x") / 2;
+            let y = vertex.y * bodyRadiusOf(joint.id) * surfaceScale.y + Math.sign(vertex.y) * flatLength("y") / 2;
+            let z = side * depth;
+            [y, z] = [y * Math.cos(radiansX) - z * Math.sin(radiansX), y * Math.sin(radiansX) + z * Math.cos(radiansX)];
+            [x, z] = [x * Math.cos(radiansY) + z * Math.sin(radiansY), -x * Math.sin(radiansY) + z * Math.cos(radiansY)];
+            [x, y] = [x * Math.cos(radiansZ) - y * Math.sin(radiansZ), x * Math.sin(radiansZ) + y * Math.cos(radiansZ)];
+            return { x: center.x + x, y: center.y + y, z: zOf(joint.id) + z };
+          };
+          const rings = [-1, 1].map((side) => profile.outline.map((vertex) => rotateProfilePoint(vertex, side)));
+          // The model retains every front/back/side face. The 2D editor uses
+          // only their projected outer hull, matching the clean flat output
+          // style while still changing silhouette as the 3D profile rotates.
+          const silhouette = getOuterPoints(rings.flat().map((point) => project(point, point.z)));
+          return `<polygon class="body-joint" data-body-joint data-joint-id="${escapeXml(joint.id)}" points="${silhouette.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />`;
+        })()
+        : `<circle class="body-joint" data-body-joint data-joint-id="${escapeXml(joint.id)}" cx="${world.x}" cy="${world.y}" r="${radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />`;
       return {
         id: `joint:${joint.id}`,
         groupId: joint.groupId,
         order: joint.renderOrder,
         markup: `<g class="body-joint-item">
-          <circle class="body-joint" data-body-joint data-joint-id="${escapeXml(joint.id)}" cx="${world.x}" cy="${world.y}" r="${radius}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />
-          ${joint.outlineVisible !== false ? `<circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />` : ""}
+          ${profileMarkup}
+          ${joint.outlineVisible !== false && !profile ? `<circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />` : ""}
         </g>`,
       };
     });
@@ -95,10 +132,38 @@ export function renderSvgEditor(
       };
     });
 
+  const torsoStripItems = showFaceLayer && isGroupVisible(rig, "torso") ? (() => {
+    const chest = rig.joints.find((joint) => joint.id === "chest");
+    const waist = rig.joints.find((joint) => joint.id === "waist");
+    const left = rig.joints.find((joint) => joint.id === "left-shoulder");
+    const right = rig.joints.find((joint) => joint.id === "right-shoulder");
+    if (!chest || !waist || !left || !right) return [];
+    const chestCenter = getJointWorldTransform(rig, chest.id);
+    const waistCenter = getJointWorldTransform(rig, waist.id);
+    const leftCenter = getJointWorldTransform(rig, left.id);
+    const rightCenter = getJointWorldTransform(rig, right.id);
+    const chestDepth = Math.max(left.radius, right.radius);
+    const waistScale = waist.surfaceScale ?? { x: 1, y: 1, z: 1 };
+    const waistDepth = waist.radius * waistScale.z;
+    const waistWidth = waist.radius * waistScale.x + ((waist.capsuleFlatAxes ?? []).includes("x") ? (waist.capsuleFlatLengths?.x ?? 0) / 2 : 0);
+    const ring = (center: { x: number; y: number }, z: number, halfWidth: number, halfDepth: number) => [
+      { x: center.x - halfWidth, y: center.y, z: z - halfDepth }, { x: center.x + halfWidth, y: center.y, z: z - halfDepth },
+      { x: center.x + halfWidth, y: center.y, z: z + halfDepth }, { x: center.x - halfWidth, y: center.y, z: z + halfDepth },
+    ];
+    const upper = ring(chestCenter, chest.z, Math.abs(rightCenter.x - leftCenter.x) / 2, chestDepth);
+    const lower = ring(waistCenter, waist.z, waistWidth, waistDepth);
+    const quads = upper.map((point, index) => [point, upper[(index + 1) % 4], lower[(index + 1) % 4], lower[index]]);
+    const color = escapeXml(resolveColor(rig, undefined, undefined));
+    return quads.sort((a, b) => a.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0) - b.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0)).map((quad, index) => ({
+      id: `torso-strip:${index}`, groupId: "torso", order: 20, depth: quad.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0) / 4,
+      markup: `<polygon class="body-face" data-face-id="torso-strip" points="${quad.map((point) => project(point, point.z)).map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`,
+    }));
+  })() : [];
+
   const vertexDepth = (vertex: ArtShapeVertex) => {
-    const jointId = vertex.source === "axis-point" ? vertex.jointId
+      const jointId = vertex.source === "axis-point" ? vertex.jointId
       : vertex.source === "root" ? vertex.rootJointId : vertex.source === "joint-center" ? vertex.jointId : null;
-    return jointId ? depthOf(jointId) : 0;
+    return jointId ? zOf(jointId) : 0;
   };
   const shapeRecords = (rig.artShapes ?? []).filter((shape) => showShapeLayer && isGroupVisible(rig, shape.groupId)).map((shape) => ({
     shape,
@@ -255,7 +320,7 @@ export function renderSvgEditor(
   const bodyItems = [...jointItems.map((item) => ({ ...item, depth: renderedDepthOf(item.id.slice(6)) })), ...faceItems.map((item) => {
     const face = rig.faces.find((candidate) => `face:${candidate.id}` === item.id)!;
     return { ...item, depth: face.vertices.reduce((sum, vertex) => sum + renderedDepthOf(vertex.jointId), 0) / face.vertices.length };
-  }), ...shapeItems, ...bridgeItems];
+  }), ...torsoStripItems, ...shapeItems, ...bridgeItems];
   const renderedBody = bodyItems
     .sort((a, b) => getItemStackOrder(rig, a) - getItemStackOrder(rig, b) || a.id.localeCompare(b.id))
     .map((item) => item.markup)
@@ -275,8 +340,8 @@ export function renderSvgEditor(
     return joint ? isGroupVisible(rig, joint.groupId) : false;
   }));
   const peerLines = showJointLayer ? visiblePeerGroups.map((group) => {
-    const pivotDepth = group.centerJointId ? depthOf(group.centerJointId)
-      : group.jointIds.reduce((sum, jointId) => sum + depthOf(jointId), 0) / group.jointIds.length;
+    const pivotDepth = group.centerJointId ? zOf(group.centerJointId)
+      : group.jointIds.reduce((sum, jointId) => sum + zOf(jointId), 0) / group.jointIds.length;
     const pivot = project(getPeerGroupPivot(rig, group.id), pivotDepth);
     return group.jointIds.map((jointId) => {
       const point = projectJoint(jointId);
@@ -284,8 +349,8 @@ export function renderSvgEditor(
     }).join("");
   }).join("") : "";
   const peerHandles = showJointLayer ? visiblePeerGroups.map((group) => {
-    const pivotDepth = group.centerJointId ? depthOf(group.centerJointId)
-      : group.jointIds.reduce((sum, jointId) => sum + depthOf(jointId), 0) / group.jointIds.length;
+    const pivotDepth = group.centerJointId ? zOf(group.centerJointId)
+      : group.jointIds.reduce((sum, jointId) => sum + zOf(jointId), 0) / group.jointIds.length;
     const pivot = project(getPeerGroupPivot(rig, group.id), pivotDepth);
     const reference = projectJoint(group.jointIds[0]);
     const dx = reference.x - pivot.x;
@@ -396,9 +461,9 @@ export function renderSvgEditor(
     }).join("");
     return edges + vertices;
   })() : "";
-  const draftPoints = (viewState.polygonDraft ?? []).map((point) => project(point, point.axisPoint ? depthOf(point.axisPoint.jointId) : 0));
+  const draftPoints = (viewState.polygonDraft ?? []).map((point) => project(point, point.axisPoint ? zOf(point.axisPoint.jointId) : 0));
   const polygonDraft = draftPoints.length ? `<g class="polygon-draft"><polyline points="${draftPoints.map((point) => `${point.x},${point.y}`).join(" ")}" />${draftPoints.map((point, index) => `<circle data-polygon-draft-point${index === 0 ? " data-polygon-draft-start" : ""} cx="${point.x}" cy="${point.y}" r="${index === 0 ? 8 : 5}" />`).join("")}</g>` : "";
-  const lineDraftPoints = (viewState.lineDraft ?? []).map((point) => project(point, point.axisPoint ? depthOf(point.axisPoint.jointId) : 0));
+  const lineDraftPoints = (viewState.lineDraft ?? []).map((point) => project(point, point.axisPoint ? zOf(point.axisPoint.jointId) : 0));
   const lineDraft = lineDraftPoints.length ? `<g class="line-draft"><polyline points="${lineDraftPoints.map((point) => `${point.x},${point.y}`).join(" ")}" />${lineDraftPoints.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="6" />`).join("")}</g>` : "";
 
   host.innerHTML = `
@@ -754,6 +819,7 @@ function isGroupVisible(rig: Rig, groupId: string | undefined): boolean {
 function resolveColor(rig: Rig, color: string | undefined, paletteId: string | undefined): string {
   return paletteId ? rig.palette.find((entry) => entry.id === paletteId)?.color ?? color ?? rig.defaultColor : color ?? rig.defaultColor;
 }
+
 
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({

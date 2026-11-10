@@ -5,11 +5,11 @@ import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset } from "../src/storage/rig-preset.ts";
 
-test("a v1 preset round-trips pose, proportions, and colors", () => {
+test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   const source = new RigState(createDefaultRig());
   source.moveJoint("head", 312, 132);
   source.setJointRadius("head", 31);
-  source.setJointDepth("head", 45);
+  source.setJointZ("head", 45);
   source.setJointSideRadius("head", 22);
   source.setProjectionStrength(70);
   source.setViewYRotation(35);
@@ -32,7 +32,7 @@ test("a v1 preset round-trips pose, proportions, and colors", () => {
 
   assert.deepEqual(applied, ["비율", "포즈", "색상"]);
   assert.equal(target.getJoint("head").radius, 31);
-  assert.equal(target.getJoint("head").depth, 45);
+  assert.equal(target.getJoint("head").z, 45);
   assert.equal(target.getJoint("head").sideRadius, 22);
   assert.equal(target.rig.projectionStrength, 70);
   assert.equal(target.rig.viewYRotation, 35);
@@ -63,7 +63,7 @@ test("preset parts can be applied selectively", () => {
 test("unsupported or malformed preset files are rejected", () => {
   assert.throws(() => parseRigPreset("not json"), /JSON/);
   assert.throws(
-    () => parseRigPreset(JSON.stringify({ format: "pose-mesh-editor", version: 2, createdAt: "now" })),
+    () => parseRigPreset(JSON.stringify({ format: "pose-mesh-editor", version: 1, createdAt: "now" })),
     /지원하지 않는/,
   );
 });

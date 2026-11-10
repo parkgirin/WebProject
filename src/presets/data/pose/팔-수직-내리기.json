@@ -1,39 +1,14 @@
 {
   "format": "pose-mesh-editor",
-  "version": 1,
+  "version": 2,
   "createdAt": "2026-11-07T00:00:00.000Z",
+  "rigTemplate": "human-v1",
   "pose": {
     "projectionStrength": 0.35,
     "viewYRotation": 0,
-    "joints": {
-      "left-elbow": {
-        "x": 0,
-        "y": 96,
-        "localRotation": 0,
-        "axes": { "upper-arm": 0, "lower-arm": 0 },
-        "depth": 0
-      },
-      "right-elbow": {
-        "x": 0,
-        "y": 96,
-        "localRotation": 0,
-        "axes": { "upper-arm": 0, "lower-arm": 0 },
-        "depth": 0
-      },
-      "left-wrist": {
-        "x": 0,
-        "y": 96,
-        "localRotation": 0,
-        "axes": { "lower-arm": 0 },
-        "depth": 0
-      },
-      "right-wrist": {
-        "x": 0,
-        "y": 96,
-        "localRotation": 0,
-        "axes": { "lower-arm": 0 },
-        "depth": 0
-      }
-    }
+    "joints": [
+      [7, 0, 96, 0, 0, [0, 0]], [8, 0, 96, 0, 0, [0, 0]],
+      [9, 0, 96, 0, 0, [0]], [10, 0, 96, 0, 0, [0]]
+    ]
   }
 }

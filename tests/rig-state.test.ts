@@ -58,12 +58,12 @@ test("side radius interpolates from front to side without mutating the base rig"
 
 test("joint depth and projection strength are bounded and undoable", () => {
   const state = new RigState(createDefaultRig());
-  state.setJointDepth("head", 200);
+  state.setJointZ("head", 200);
   state.setProjectionStrength(-1);
-  state.setViewYRotation(120);
-  assert.equal(state.getJoint("head").depth, 100);
+  state.setViewYRotation(240);
+  assert.equal(state.getJoint("head").z, 100);
   assert.equal(state.rig.projectionStrength, 0);
-  assert.equal(state.rig.viewYRotation, 90);
+  assert.equal(state.rig.viewYRotation, 180);
   state.undo();
   assert.equal(state.rig.viewYRotation, 0);
 });

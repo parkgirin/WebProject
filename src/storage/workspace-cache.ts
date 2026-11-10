@@ -1,7 +1,8 @@
 import { parsePoseAnimationFile, type PoseAnimationFile } from "./pose-animation.ts";
-import { validateRig } from "../rig/rig-state.ts";
+import { normalizeRigZCoordinates, validateRig } from "../rig/rig-state.ts";
 import type { PoseClip } from "../rig/pose-interpolation.ts";
 import type { Rig } from "../rig/types.ts";
+import { normalizeBodyViewProfiles } from "../rig/types.ts";
 import { parseUserBodyPresets, parseUserPosePresets, type UserBodyPreset, type UserPosePreset } from "../presets/index.ts";
 
 export const WORKSPACE_CACHE_KEY = "pose-mesh-editor.workspace.v1";
@@ -61,6 +62,8 @@ export function parseWorkspaceCache(text: string): WorkspaceCache {
     throw new Error("지원하지 않는 자동 저장 작업입니다.");
   }
   const rig = structuredClone(value.rig) as unknown as Rig;
+  normalizeRigZCoordinates(rig);
+  normalizeBodyViewProfiles(rig);
   rig.artShapes ??= [];
   if (validateRig(rig).length) throw new Error("자동 저장 리그 데이터가 올바르지 않습니다.");
   const animation: PoseAnimationFile = parsePoseAnimationFile(JSON.stringify({

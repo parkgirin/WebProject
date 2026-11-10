@@ -1,15 +1,13 @@
 {
   "format": "pose-mesh-editor",
-  "version": 1,
+  "version": 2,
   "createdAt": "2026-11-07T00:00:00.000Z",
+  "rigTemplate": "human-v1",
   "proportions": {
-    "joints": {
-      "left-shoulder": { "x": -80, "y": 0, "radius": 22 },
-      "right-shoulder": { "x": 80, "y": 0, "radius": 22 },
-      "left-elbow": { "x": -105, "y": 0, "radius": 22 },
-      "right-elbow": { "x": 105, "y": 0, "radius": 22 },
-      "left-wrist": { "x": -105, "y": 0, "radius": 20 },
-      "right-wrist": { "x": 105, "y": 0, "radius": 20 }
-    }
+    "joints": [
+      [5, -80, 0, 22], [6, 80, 0, 22],
+      [7, -105, 0, 22], [8, 105, 0, 22],
+      [9, -105, 0, 20], [10, 105, 0, 20]
+    ]
   }
 }

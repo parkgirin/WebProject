@@ -22,16 +22,30 @@ export interface Joint {
   y: number;
   /** Rotation inherited by children, in degrees. */
   localRotation: number;
+  /** Local single-axis rotations. Z remains localRotation for compatibility. */
+  localRotationX?: number;
+  localRotationY?: number;
   parentJointId?: string;
   /** Optional reference for automatically aligned axes, independent of the transform parent. */
   axisReferenceJointId?: string;
   /** Non-body transform control, such as a pelvis or scene pivot. */
   isVirtual?: boolean;
   radius: number;
+  /** Optional reusable local surface outline for this otherwise generic joint. */
+  surfaceProfileId?: string;
+  /** Per-joint local scaling for a reusable surface profile. */
+  surfaceScale?: { x: number; y: number; z: number };
+  /** Up to two local axes can expose a flat capsule/rounded-rect span. */
+  capsuleFlatAxes?: Array<"x" | "y" | "z">;
+  capsuleFlatLengths?: Partial<Record<"x" | "y" | "z", number>>;
   /** Optional radius used at a full left or right side view (±90°). */
   sideRadius?: number;
-  /** Z-axis movement. Positive values are closer to the viewer; defaults to 0. */
-  depth?: number;
+  /** Local Z coordinate. Positive values are closer to the viewer. */
+  z: number;
+  /** Structural parent-relative distance supplied by the active body type. */
+  baseDistance?: number;
+  /** Pose-only multiplier of baseDistance. 100 keeps the body type's length. */
+  distancePercent?: number;
   /** Temporary preview output size; migrate to a joint-bound ArtShape. */
   bodyRadius?: number;
   color?: string;
@@ -46,6 +60,39 @@ export interface Joint {
   outlineVisible?: boolean;
   /** Allows connected faces to extend to their boundary intersection. Missing values are enabled. */
   faceExtensionEnabled?: boolean;
+}
+
+export type BodyViewId = "front" | "side" | "back";
+
+/**
+ * Per-view shape correction, kept separate from the skeletal pose. A value of
+ * 1 retains the joint's current radius (or legacy sideRadius at side view).
+ */
+export interface BodyViewProfile {
+  jointRadiusScale: Record<string, number>;
+}
+
+export type BodyViewProfiles = Record<BodyViewId, BodyViewProfile>;
+
+const BODY_VIEW_IDS: readonly BodyViewId[] = ["front", "side", "back"];
+
+export function createNeutralBodyViewProfiles(joints: readonly Joint[]): BodyViewProfiles {
+  const jointRadiusScale = () => Object.fromEntries(joints.map((joint) => [joint.id, 1]));
+  return {
+    front: { jointRadiusScale: jointRadiusScale() },
+    side: { jointRadiusScale: jointRadiusScale() },
+    back: { jointRadiusScale: jointRadiusScale() },
+  };
+}
+
+/** Migrates missing view data while preserving all existing body dimensions. */
+export function normalizeBodyViewProfiles(rig: Pick<Rig, "joints"> & Partial<Pick<Rig, "bodyViewProfiles">>): void {
+  const profiles = rig.bodyViewProfiles ??= createNeutralBodyViewProfiles(rig.joints);
+  for (const view of BODY_VIEW_IDS) {
+    const profile = profiles[view] ??= { jointRadiusScale: {} };
+    profile.jointRadiusScale ??= {};
+    for (const joint of rig.joints) profile.jointRadiusScale[joint.id] ??= 1;
+  }
 }
 
 export interface PeerGroup {
@@ -68,6 +115,15 @@ export type FaceRotationTarget =
 export interface Face {
   id: string;
   vertices: JointPointRef[];
+  /**
+   * Renders this face from the camera-facing great circles of the two joint
+   * spheres. The authored axis points remain available for editing and for
+   * legacy connections; only the rendered boundary is view dependent.
+   */
+  cameraFacingLimb?: {
+    startJointId: string;
+    endJointId: string;
+  };
   rotationTarget: FaceRotationTarget;
   color?: string;
   paletteId?: string;
@@ -130,10 +186,15 @@ export type ElementLayerVisibility = Record<ElementLayerId, boolean>;
 
 export interface Rig {
   defaultColor: string;
-  /** 0..100: how strongly joint depth affects the rendered 2.5D projection. */
+  /** 0..100: how strongly camera-space Z affects the rendered 2.5D projection. */
   projectionStrength: number;
-  /** -90..90: camera rotation around the canvas' vertical (Y) axis. */
+  /** -180..180: camera rotation around the canvas' vertical (Y) axis. */
   viewYRotation: number;
+  /** Scene transform, kept separate from character pose and pose animation. */
+  worldRotation?: { x: number; y: number; z: number };
+  /** Independent body-shape corrections for front, side, and back views. */
+  bodyViewProfiles: BodyViewProfiles;
+  surfaceProfiles?: SurfaceProfile[];
   palette: ColorPaletteEntry[];
   groups: LayerGroup[];
   joints: Joint[];
@@ -143,6 +204,13 @@ export interface Rig {
   artCompositeGroups?: ArtCompositeGroup[];
   /** Photo-editor style global visibility for each element category. */
   elementLayers?: ElementLayerVisibility;
+}
+
+/** A normalized XY outline extruded symmetrically along local Z. */
+export interface SurfaceProfile {
+  id: string;
+  outline: Array<{ x: number; y: number }>;
+  depthScale: number;
 }
 
 export interface RigLimits {

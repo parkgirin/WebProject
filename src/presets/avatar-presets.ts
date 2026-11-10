@@ -51,7 +51,7 @@ export const AVATAR_PROPORTION_PRESETS: readonly AvatarProportionPreset[] = [
   { id: "female-trapezoid", name: "사다리꼴 여성체", description: "고관절에서 무릎까지 점진 축소", ...ADULT_LENGTHS,
     shoulderDistance: 132, waistRadius: 36, hipDistance: 79.2, armRadius: 21, hipRadius: 38.4, kneeRadius: 27 },
   { id: "neutral-straight", name: "직선형 기본체", description: "굴곡이 적은 기본 픽토그램형", ...ADULT_LENGTHS,
-    shoulderDistance: 120, waistRadius: 60, hipDistance: 60, armRadius: 21, hipRadius: 30, kneeRadius: 30 },
+    shoulderDistance: 120, waistRadius: 60, hipDistance: 60, armRadius: 30, hipRadius: 30, kneeRadius: 30 },
   { id: "child-neutral", name: "아동체", description: "성별 구분 없는 4등신", rootY: 422,
     shoulderDistance: 108, waistRadius: 42, hipDistance: 50.4, armRadius: 18, hipRadius: 24, kneeRadius: 24,
     chestDistance: 84, headDistance: 78, armSegmentLength: 69, upperLegLength: 78, lowerLegLength: 96 },
@@ -101,5 +101,5 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
 }
 
 function setDistance(state: RigState, movingId: string, anchorId: string, distance: number): void {
-  state.setJointDistance(movingId, anchorId, distance);
+  state.setJointBaseDistance(movingId, distance);
 }

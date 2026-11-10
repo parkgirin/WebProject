@@ -5,6 +5,7 @@ import {
   type ArtShape,
   type ArtShapeVertex,
   type ElementLayerId,
+  normalizeBodyViewProfiles,
   type Rig,
   type RigLimits,
 } from "./types.ts";
@@ -19,6 +20,69 @@ import {
 } from "./geometry.ts";
 
 const VALID_SIDES = new Set<AxisPointSide>([-1, 1]);
+
+/**
+ * Migrates documents written before z became a required coordinate.
+ * Only an omitted legacy value is repaired; malformed values remain for
+ * validateRig to report.
+ */
+export function normalizeRigZCoordinates(rig: Rig): void {
+  for (const joint of rig.joints) {
+    const legacyJoint = joint as unknown as { z?: number; depth?: number };
+    if (legacyJoint.z === undefined) legacyJoint.z = legacyJoint.depth ?? 0;
+    delete legacyJoint.depth;
+  }
+}
+
+/**
+ * Upgrades the stock limb faces in documents saved before their rendered
+ * boundary became camera-facing. It deliberately recognizes only the eight
+ * canonical ids, leaving custom faces and their authored axis endpoints
+ * untouched.
+ */
+export function normalizeCameraFacingLimbFaces(rig: Rig): void {
+  const endpoints: Record<string, readonly [string, string]> = {
+    "left-upper-arm": ["left-shoulder", "left-elbow"],
+    "left-lower-arm": ["left-elbow", "left-wrist"],
+    "right-upper-arm": ["right-shoulder", "right-elbow"],
+    "right-lower-arm": ["right-elbow", "right-wrist"],
+    "left-upper-leg": ["left-hip", "left-knee"],
+    "left-lower-leg": ["left-knee", "left-ankle"],
+    "right-upper-leg": ["right-hip", "right-knee"],
+    "right-lower-leg": ["right-knee", "right-ankle"],
+  };
+  const jointIds = new Set(rig.joints.map((joint) => joint.id));
+  for (const face of rig.faces) {
+    if (face.cameraFacingLimb) continue;
+    const pair = endpoints[face.id];
+    if (pair && pair.every((jointId) => jointIds.has(jointId))) {
+      face.cameraFacingLimb = { startJointId: pair[0], endJointId: pair[1] };
+    }
+  }
+}
+
+/** Adds the generic waist profile to documents created before profiles existed. */
+export function normalizeSurfaceProfiles(rig: Rig): void {
+  const profiles = rig.surfaceProfiles ??= [];
+  for (const profile of profiles) if (profile.id === "waist-flat") profile.id = "rounded-rect";
+  for (const joint of rig.joints) if (joint.surfaceProfileId === "waist-flat") joint.surfaceProfileId = "rounded-rect";
+  if (!profiles.some((profile) => profile.id === "rounded-rect")) {
+    profiles.push({ id: "rounded-rect", depthScale: 1, outline: [
+      { x: -1, y: -.55 }, { x: .55, y: -1 }, { x: 1, y: -.55 }, { x: 1, y: .55 },
+      { x: .55, y: 1 }, { x: -.55, y: 1 }, { x: -1, y: .55 },
+    ] });
+  }
+  const waist = rig.joints.find((joint) => joint.id === "waist");
+  if (!waist) return;
+  waist.surfaceProfileId ??= "rounded-rect";
+  if (!waist.surfaceScale) {
+    const limbRadius = rig.joints.find((joint) => joint.id === "left-shoulder")?.radius ?? waist.radius;
+    waist.surfaceScale = { x: 1, y: 1, z: limbRadius / waist.radius };
+  }
+  waist.capsuleFlatAxes ??= ["x"];
+  waist.capsuleFlatLengths ??= { x: waist.radius };
+  waist.capsuleFlatLengths.x ??= waist.radius;
+}
 
 export interface PolygonDraftPoint {
   x: number;
@@ -46,8 +110,18 @@ export function validateRig(
   if (!Number.isFinite(rig.projectionStrength) || rig.projectionStrength < 0 || rig.projectionStrength > 100) {
     errors.push(`Projection strength must be between 0 and 100: ${rig.projectionStrength}`);
   }
-  if (!Number.isFinite(rig.viewYRotation) || rig.viewYRotation < -90 || rig.viewYRotation > 90) {
-    errors.push(`View Y rotation must be between -90 and 90: ${rig.viewYRotation}`);
+  if (!Number.isFinite(rig.viewYRotation) || rig.viewYRotation < -180 || rig.viewYRotation > 180) {
+    errors.push(`View Y rotation must be between -180 and 180: ${rig.viewYRotation}`);
+  }
+  for (const view of ["front", "side", "back"] as const) {
+    const profile = rig.bodyViewProfiles?.[view];
+    if (!profile || !profile.jointRadiusScale) {
+      errors.push(`Missing body view profile: ${view}`);
+      continue;
+    }
+    for (const [jointId, scale] of Object.entries(profile.jointRadiusScale)) {
+      if (!Number.isFinite(scale) || scale <= 0) errors.push(`Invalid body view radius scale: ${view}.${jointId}`);
+    }
   }
   for (const entry of rig.palette) {
     if (!entry.id.trim()) errors.push("Palette id cannot be empty");
@@ -95,8 +169,8 @@ export function validateRig(
     if (joint.sideRadius !== undefined && !(joint.sideRadius > 0)) {
       errors.push(`Joint side radius must be positive: ${joint.id}`);
     }
-    if (joint.depth !== undefined && !Number.isFinite(joint.depth)) {
-      errors.push(`Joint depth must be finite: ${joint.id}`);
+    if (!Number.isFinite(joint.z)) {
+      errors.push(`Joint z coordinate must be finite: ${joint.id}`);
     }
     if (joint.bodyRadius !== undefined && !(joint.bodyRadius > 0)) {
       errors.push(`Joint body radius must be positive: ${joint.id}`);
@@ -205,6 +279,16 @@ export function validateRig(
     }
     if (face.groupId && !groupIds.has(face.groupId)) {
       errors.push(`Unknown face layer group: ${face.id}.${face.groupId}`);
+    }
+    if (face.cameraFacingLimb) {
+      for (const jointId of [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]) {
+        if (!rig.joints.some((joint) => joint.id === jointId)) {
+          errors.push(`Unknown camera-facing limb joint: ${face.id}.${jointId}`);
+        }
+      }
+      if (face.cameraFacingLimb.startJointId === face.cameraFacingLimb.endJointId) {
+        errors.push(`Camera-facing limb needs two joints: ${face.id}`);
+      }
     }
     const rotationTarget = face.rotationTarget;
     if (rotationTarget.type === "child") {
@@ -319,9 +403,18 @@ export class RigState {
     public readonly rig: Rig,
     public readonly limits: Readonly<RigLimits> = DEFAULT_RIG_LIMITS,
   ) {
+    normalizeRigZCoordinates(rig);
+    normalizeBodyViewProfiles(rig);
+    normalizeCameraFacingLimbFaces(rig);
+    normalizeSurfaceProfiles(rig);
     rig.artShapes ??= [];
     rig.artCompositeGroups ??= [];
     rig.elementLayers ??= { joints: true, axes: true, faces: true, shapes: true };
+    for (const joint of rig.joints) {
+      if (!joint.parentJointId) continue;
+      joint.baseDistance ??= Math.hypot(joint.x, joint.y);
+      joint.distancePercent ??= 100;
+    }
     const errors = validateRig(rig, limits);
     if (errors.length > 0) {
       throw new Error(`Invalid rig:\n${errors.join("\n")}`);
@@ -825,6 +918,10 @@ export class RigState {
       || this.rig.peerGroups.some((group) => group.jointIds.includes(moving.id) && group.jointIds.includes(anchor.id));
     // A descendant anchor would move along with its ancestor and cannot remain fixed.
     if (!related || this.isDescendant(anchor.id, moving.id)) return;
+    if (moving.parentJointId === anchor.id) {
+      this.setJointBaseDistance(moving.id, distance);
+      return;
+    }
     const movingWorld = getJointWorldTransform(this.rig, moving.id);
     const anchorWorld = getJointWorldTransform(this.rig, anchor.id);
     const dx = movingWorld.x - anchorWorld.x;
@@ -833,6 +930,43 @@ export class RigState {
     const directionX = current > 1e-9 ? dx / current : 1;
     const directionY = current > 1e-9 ? dy / current : 0;
     this.moveJoint(moving.id, anchorWorld.x + directionX * distance, anchorWorld.y + directionY * distance);
+  }
+
+  /** Changes a body-type distance while retaining the current pose's distance percentage. */
+  public setJointBaseDistance(jointId: string, distance: number): void {
+    if (!Number.isFinite(distance) || distance < 0) return;
+    const joint = this.getJoint(jointId);
+    if (!joint.parentJointId) return;
+    const current = Math.hypot(joint.x, joint.y);
+    const fallback = Math.hypot(joint.x, joint.y) || 1;
+    const percent = this.getJointDistancePercent(joint.id);
+    joint.baseDistance = distance;
+    joint.x = (current > 1e-9 ? joint.x / current : joint.x / fallback) * distance * percent / 100;
+    joint.y = (current > 1e-9 ? joint.y / current : joint.y / fallback) * distance * percent / 100;
+    this.alignDirectConnectionAxes(joint.id);
+    this.notify();
+  }
+
+  public getJointDistancePercent(jointId: string): number {
+    const joint = this.getJoint(jointId);
+    const baseDistance = joint.baseDistance;
+    if (!joint.parentJointId || !(baseDistance && baseDistance > 1e-9)) return 100;
+    return Math.hypot(joint.x, joint.y) / baseDistance * 100;
+  }
+
+  public setJointDistancePercent(jointId: string, percent: number): void {
+    if (!Number.isFinite(percent) || percent < 0 || percent > 300) return;
+    const joint = this.getJoint(jointId);
+    const baseDistance = joint.baseDistance;
+    if (!joint.parentJointId || !(baseDistance && baseDistance > 0)) return;
+    const current = Math.hypot(joint.x, joint.y);
+    const directionX = current > 1e-9 ? joint.x / current : 1;
+    const directionY = current > 1e-9 ? joint.y / current : 0;
+    joint.distancePercent = percent;
+    joint.x = directionX * baseDistance * percent / 100;
+    joint.y = directionY * baseDistance * percent / 100;
+    this.alignDirectConnectionAxes(joint.id);
+    this.notify();
   }
 
   public getPeerGroupDistance(peerGroupId: string): number | null {
@@ -1013,10 +1147,11 @@ export class RigState {
     while (this.rig.joints.some((joint) => joint.id === id)) id = `${baseId}-${suffix++}`;
     const center: Rig["joints"][number] = {
       id, parentJointId: parentId, groupId: members[0].groupId, x: 0, y: 0,
-      localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0,
+      z: 0, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0,
       guideVisible: true, bodyVisible: false,
     };
     this.rig.joints.push(center);
+    normalizeBodyViewProfiles(this.rig);
     this.setJointWorldPosition(center, (snapshots[0].world.x + snapshots[1].world.x) / 2,
       (snapshots[0].world.y + snapshots[1].world.y) / 2);
     const rotation = getJointWorldTransform(this.rig, center.id).rotation;
@@ -1112,7 +1247,20 @@ export class RigState {
 
   public setGlobalRotation(angle: number): void {
     if (!Number.isFinite(angle)) return;
+    if (!Number.isFinite(angle)) return;
     this.getJoint("scene-root").localRotation = normalizeAngle(angle);
+    this.notify();
+    this.notify();
+  }
+
+  public getGlobalAxisRotation(axis: "x" | "y" | "z"): number {
+    return this.rig.worldRotation?.[axis] ?? 0;
+  }
+
+  public setGlobalAxisRotation(axis: "x" | "y" | "z", angle: number): void {
+    if (!Number.isFinite(angle)) return;
+    this.rig.worldRotation ??= { x: 0, y: 0, z: 0 };
+    this.rig.worldRotation[axis] = angle;
     this.notify();
   }
 
@@ -1122,15 +1270,78 @@ export class RigState {
     this.notify();
   }
 
+  public setJointSurfaceScale(jointId: string, axis: "x" | "y" | "z", value: number): void {
+    if (!Number.isFinite(value) || value <= 0) return;
+    const joint = this.getJoint(jointId);
+    joint.surfaceScale ??= { x: 1, y: 1, z: 1 };
+    joint.surfaceScale[axis] = Math.min(10, Math.max(.05, value));
+    this.notify();
+  }
+
+  public setJointCapsuleFlatAxis(jointId: string, axis: "x" | "y" | "z", enabled: boolean): void {
+    const joint = this.getJoint(jointId);
+    const axes = new Set(joint.capsuleFlatAxes ?? []);
+    if (enabled) { if (axes.size >= 2) return; axes.add(axis); } else axes.delete(axis);
+    joint.capsuleFlatAxes = [...axes];
+    joint.capsuleFlatLengths ??= {};
+    joint.capsuleFlatLengths[axis] ??= joint.radius;
+    this.notify();
+  }
+
+  public setJointCapsuleFlatLength(jointId: string, axis: "x" | "y" | "z", value: number): void {
+    if (!Number.isFinite(value) || value < 0) return;
+    const joint = this.getJoint(jointId);
+    joint.capsuleFlatLengths ??= {};
+    joint.capsuleFlatLengths[axis] = value;
+    this.notify();
+  }
+
   public setJointSideRadius(jointId: string, radius: number): void {
     if (!Number.isFinite(radius)) return;
     this.getJoint(jointId).sideRadius = Math.min(80, Math.max(4, radius));
     this.notify();
   }
 
-  public setJointDepth(jointId: string, depth: number): void {
-    if (!Number.isFinite(depth)) return;
-    this.getJoint(jointId).depth = Math.min(100, Math.max(-100, depth));
+  public setJointZ(jointId: string, z: number): void {
+    if (!Number.isFinite(z)) return;
+    this.getJoint(jointId).z = Math.min(100, Math.max(-100, z));
+    this.notify();
+  }
+
+  public setJointAxisRotation(jointId: string, axis: "x" | "y" | "z", angle: number): void {
+    if (!Number.isFinite(angle)) return;
+    const joint = this.getJoint(jointId);
+    const normalized = normalizeAngle(angle);
+    if (axis === "z") {
+      joint.localRotation = normalized;
+      this.notify();
+      return;
+    }
+    const previous = axis === "x" ? joint.localRotationX ?? 0 : joint.localRotationY ?? 0;
+    const delta = ((normalized - previous + 540) % 360) - 180;
+    if (Math.abs(delta) < 1e-9) return;
+    const pivot = getJointWorldTransform(this.rig, jointId);
+    const descendants: Array<{ joint: Rig["joints"][number]; world: { x: number; y: number; z: number } }> = [];
+    const visit = (parentId: string) => {
+      for (const child of this.rig.joints.filter((candidate) => candidate.parentJointId === parentId)) {
+        const world = getJointWorldTransform(this.rig, child.id);
+        descendants.push({ joint: child, world: { x: world.x, y: world.y, z: child.z } });
+        visit(child.id);
+      }
+    };
+    visit(jointId);
+    const radians = delta * Math.PI / 180;
+    const cosine = Math.cos(radians), sine = Math.sin(radians);
+    for (const entry of descendants) {
+      const dx = entry.world.x - pivot.x, dy = entry.world.y - pivot.y, dz = entry.world.z - joint.z;
+      const next = axis === "x"
+        ? { x: pivot.x + dx, y: pivot.y + dy * cosine - dz * sine, z: joint.z + dy * sine + dz * cosine }
+        : { x: pivot.x + dx * cosine + dz * sine, y: pivot.y + dy, z: joint.z - dx * sine + dz * cosine };
+      this.setJointWorldPosition(entry.joint, next.x, next.y);
+      entry.joint.z = Math.min(100, Math.max(-100, next.z));
+    }
+    if (axis === "x") joint.localRotationX = normalized;
+    else joint.localRotationY = normalized;
     this.notify();
   }
 
@@ -1142,19 +1353,20 @@ export class RigState {
 
   public setViewYRotation(angle: number): void {
     if (!Number.isFinite(angle)) return;
-    this.rig.viewYRotation = Math.min(90, Math.max(-90, angle));
+    this.rig.viewYRotation = Math.min(180, Math.max(-180, angle));
     this.notify();
   }
 
   public applyJointPose(
     jointId: string,
-    pose: { x: number; y: number; localRotation: number; axes: Record<string, number>; depth?: number },
+    pose: { x: number; y: number; localRotation: number; axes: Record<string, number>; z?: number; distancePercent?: number },
   ): void {
     const joint = this.getJoint(jointId);
     joint.x = pose.x;
     joint.y = pose.y;
     joint.localRotation = normalizeAngle(pose.localRotation);
-    if (Number.isFinite(pose.depth)) joint.depth = Math.min(100, Math.max(-100, pose.depth!));
+    if (Number.isFinite(pose.z)) joint.z = Math.min(100, Math.max(-100, pose.z!));
+    if (Number.isFinite(pose.distancePercent) && joint.parentJointId) joint.distancePercent = Math.min(300, Math.max(0, pose.distancePercent!));
     for (const axis of joint.axes) {
       const angle = pose.axes[axis.id];
       if (Number.isFinite(angle)) axis.angle = normalizeAngle(angle);
@@ -1168,8 +1380,19 @@ export class RigState {
     proportions: { x: number; y: number; radius: number; bodyRadius?: number; sideRadius?: number },
   ): void {
     const joint = this.getJoint(jointId);
-    joint.x = proportions.x;
-    joint.y = proportions.y;
+    if (joint.parentJointId) {
+      const baseDistance = Math.hypot(proportions.x, proportions.y);
+      const current = Math.hypot(joint.x, joint.y);
+      const directionX = current > 1e-9 ? joint.x / current : proportions.x / Math.max(baseDistance, 1e-9);
+      const directionY = current > 1e-9 ? joint.y / current : proportions.y / Math.max(baseDistance, 1e-9);
+      const percent = this.getJointDistancePercent(joint.id);
+      joint.baseDistance = baseDistance;
+      joint.x = directionX * baseDistance * percent / 100;
+      joint.y = directionY * baseDistance * percent / 100;
+    } else {
+      joint.x = proportions.x;
+      joint.y = proportions.y;
+    }
     joint.radius = Math.min(80, Math.max(8, proportions.radius));
     if (proportions.sideRadius === undefined) delete joint.sideRadius;
     else if (proportions.sideRadius > 0) joint.sideRadius = Math.min(80, Math.max(4, proportions.sideRadius));

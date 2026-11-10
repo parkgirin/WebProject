@@ -1,5 +1,15 @@
+import { createDefaultRig } from "../rig/default-rig.ts";
 import { validateRig, type RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
+
+export const HUMAN_RIG_TEMPLATE_ID = "human-v1";
+
+const humanTemplate = createDefaultRig();
+const jointIds = humanTemplate.joints.map((joint) => joint.id);
+const axisIds = humanTemplate.joints.map((joint) => joint.axes.map((axis) => axis.id));
+
+export type CompactJointPose = [jointIndex: number, x: number, y: number, localRotation: number, z: number, axes: number[], distancePercent?: number];
+export type CompactJointProportions = [jointIndex: number, x: number, y: number, radius: number, sideRadius?: number];
 
 export interface PresetParts {
   pose: boolean;
@@ -8,30 +18,13 @@ export interface PresetParts {
   shapes?: boolean;
 }
 
-interface SavedJointPose {
-  x: number;
-  y: number;
-  localRotation: number;
-  axes: Record<string, number>;
-  depth?: number;
-}
-
-interface SavedJointProportions {
-  x: number;
-  y: number;
-  radius: number;
-  bodyRadius?: number;
-  sideRadius?: number;
-}
-
 export interface RigPreset {
   format: "pose-mesh-editor";
-  version: 1;
+  version: 2;
   createdAt: string;
-  /** Parent identities allow incompatible pose coordinate systems to be detected. */
-  hierarchy?: Record<string, string | null>;
-  pose?: { projectionStrength?: number; viewYRotation?: number; joints: Record<string, SavedJointPose> };
-  proportions?: { joints: Record<string, SavedJointProportions> };
+  rigTemplate: typeof HUMAN_RIG_TEMPLATE_ID;
+  pose?: { projectionStrength?: number; viewYRotation?: number; joints: CompactJointPose[] };
+  proportions?: { joints: CompactJointProportions[] };
   colors?: {
     defaultColor: string;
     palette: Rig["palette"];
@@ -40,130 +33,89 @@ export interface RigPreset {
   };
   artShapes?: NonNullable<Rig["artShapes"]>;
   artCompositeGroups?: NonNullable<Rig["artCompositeGroups"]>;
-  /** Axes referenced by saved art-shape vertices, grouped by joint. */
   artAxes?: Record<string, Rig["joints"][number]["axes"]>;
 }
 
 export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
-  const preset: RigPreset = {
-    format: "pose-mesh-editor",
-    version: 1,
-    createdAt: new Date().toISOString(),
-    hierarchy: Object.fromEntries(rig.joints.map((joint) => [joint.id, joint.parentJointId ?? null])),
+  assertHumanRig(rig);
+  const preset: RigPreset = { format: "pose-mesh-editor", version: 2, createdAt: new Date().toISOString(), rigTemplate: HUMAN_RIG_TEMPLATE_ID };
+  if (parts.pose) preset.pose = {
+    projectionStrength: rig.projectionStrength,
+    viewYRotation: rig.viewYRotation,
+    joints: rig.joints.map((joint, index): CompactJointPose => [index, joint.x, joint.y, joint.localRotation, joint.z,
+      axisIds[index].map((axisId) => joint.axes.find((axis) => axis.id === axisId)?.angle ?? 0),
+      joint.parentJointId && joint.baseDistance && joint.baseDistance > 0 ? Math.hypot(joint.x, joint.y) / joint.baseDistance * 100 : 100]),
   };
-  if (parts.pose) {
-    preset.pose = {
-      projectionStrength: rig.projectionStrength,
-      viewYRotation: rig.viewYRotation,
-      joints: Object.fromEntries(rig.joints.map((joint) => [joint.id, {
-        x: joint.x,
-        y: joint.y,
-        localRotation: joint.localRotation,
-        axes: Object.fromEntries(joint.axes.map((axis) => [axis.id, axis.angle])),
-        depth: joint.depth ?? 0,
-      }])),
-    };
-  }
-  if (parts.proportions) {
-    preset.proportions = {
-      joints: Object.fromEntries(rig.joints.map((joint) => [joint.id, {
-        x: joint.x,
-        y: joint.y,
-        radius: joint.radius,
-        ...(joint.bodyRadius === undefined ? {} : { bodyRadius: joint.bodyRadius }),
-        ...(joint.sideRadius === undefined ? {} : { sideRadius: joint.sideRadius }),
-      }])),
-    };
-  }
-  if (parts.colors) {
-    preset.colors = {
-      defaultColor: rig.defaultColor,
-      palette: rig.palette.map((entry) => ({ ...entry })),
-      joints: Object.fromEntries(rig.joints.map((joint) => [joint.id, joint.color || joint.paletteId ? { ...(joint.color ? { color: joint.color } : {}), ...(joint.paletteId ? { paletteId: joint.paletteId } : {}) } : null])),
-      faces: Object.fromEntries(rig.faces.map((face) => [face.id, face.color || face.paletteId ? { ...(face.color ? { color: face.color } : {}), ...(face.paletteId ? { paletteId: face.paletteId } : {}) } : null])),
-    };
-  }
+  if (parts.proportions) preset.proportions = {
+    joints: rig.joints.map((joint, index): CompactJointProportions => joint.sideRadius === undefined
+      ? [index, joint.x, joint.y, joint.radius] : [index, joint.x, joint.y, joint.radius, joint.sideRadius]),
+  };
+  if (parts.colors) preset.colors = {
+    defaultColor: rig.defaultColor,
+    palette: rig.palette.map((entry) => ({ ...entry })),
+    joints: Object.fromEntries(rig.joints.map((joint) => [joint.id, joint.color || joint.paletteId ? { ...(joint.color ? { color: joint.color } : {}), ...(joint.paletteId ? { paletteId: joint.paletteId } : {}) } : null])),
+    faces: Object.fromEntries(rig.faces.map((face) => [face.id, face.color || face.paletteId ? { ...(face.color ? { color: face.color } : {}), ...(face.paletteId ? { paletteId: face.paletteId } : {}) } : null])),
+  };
   if (parts.shapes) {
     preset.artShapes = structuredClone(rig.artShapes ?? []);
     preset.artCompositeGroups = structuredClone(rig.artCompositeGroups ?? []);
     const references = new Map<string, Set<string>>();
-    for (const shape of rig.artShapes ?? []) {
-      for (const vertex of shape.vertices) {
-        if (vertex.source !== "axis-point") continue;
-        const axisIds = references.get(vertex.jointId) ?? new Set<string>();
-        axisIds.add(vertex.axisId);
-        references.set(vertex.jointId, axisIds);
-      }
+    for (const shape of rig.artShapes ?? []) for (const vertex of shape.vertices) {
+      if (vertex.source !== "axis-point") continue;
+      const ids = references.get(vertex.jointId) ?? new Set<string>();
+      ids.add(vertex.axisId); references.set(vertex.jointId, ids);
     }
-    preset.artAxes = Object.fromEntries([...references].map(([jointId, axisIds]) => {
-      const axes = rig.joints.find((joint) => joint.id === jointId)?.axes.filter((axis) => axisIds.has(axis.id)) ?? [];
-      return [jointId, structuredClone(axes)];
-    }));
+    preset.artAxes = Object.fromEntries([...references].map(([jointId, ids]) => [jointId,
+      structuredClone(rig.joints.find((joint) => joint.id === jointId)?.axes.filter((axis) => ids.has(axis.id)) ?? [])]));
   }
   return preset;
 }
 
 export function parseRigPreset(text: string): RigPreset {
   let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new Error("JSON 파일을 읽을 수 없습니다.");
-  }
-  if (!isRecord(value) || value.format !== "pose-mesh-editor" || value.version !== 1
-    || typeof value.createdAt !== "string") {
+  try { value = JSON.parse(text); } catch { throw new Error("JSON 파일을 읽을 수 없습니다."); }
+  if (!isRecord(value) || value.format !== "pose-mesh-editor" || value.version !== 2
+    || value.rigTemplate !== HUMAN_RIG_TEMPLATE_ID || typeof value.createdAt !== "string") {
     throw new Error("지원하지 않는 Pose Mesh Editor 저장 파일입니다.");
   }
-  if (value.pose !== undefined && !isRecord(value.pose)) throw new Error("포즈 데이터 형식이 올바르지 않습니다.");
-  if (value.hierarchy !== undefined && (!isRecord(value.hierarchy)
-    || Object.values(value.hierarchy).some((parent) => parent !== null && typeof parent !== "string"))) {
-    throw new Error("관절 계층 데이터 형식이 올바르지 않습니다.");
-  }
-  if (value.proportions !== undefined && !isRecord(value.proportions)) throw new Error("비율 데이터 형식이 올바르지 않습니다.");
-  if (value.colors !== undefined && !isRecord(value.colors)) throw new Error("색상 데이터 형식이 올바르지 않습니다.");
+  if (value.pose !== undefined && !isPose(value.pose)) throw new Error("포즈 데이터 형식이 올바르지 않습니다.");
+  if (value.proportions !== undefined && !isProportions(value.proportions)) throw new Error("비율 데이터 형식이 올바르지 않습니다.");
+  if (value.colors !== undefined && !isColors(value.colors)) throw new Error("색상 데이터 형식이 올바르지 않습니다.");
   if (value.artShapes !== undefined && !Array.isArray(value.artShapes)) throw new Error("도형 데이터 형식이 올바르지 않습니다.");
   if (value.artCompositeGroups !== undefined && !Array.isArray(value.artCompositeGroups)) throw new Error("도형 합성 그룹 형식이 올바르지 않습니다.");
   if (value.artAxes !== undefined && !isRecord(value.artAxes)) throw new Error("도형 축 데이터 형식이 올바르지 않습니다.");
   return value as unknown as RigPreset;
 }
 
+export function poseEntries(preset: RigPreset): Array<[string, CompactJointPose]> {
+  return (preset.pose?.joints ?? []).map((entry) => [jointIds[entry[0]], entry] as [string, CompactJointPose]);
+}
+
+export function proportionEntries(preset: RigPreset): Array<[string, CompactJointProportions]> {
+  return (preset.proportions?.joints ?? []).map((entry) => [jointIds[entry[0]], entry] as [string, CompactJointProportions]);
+}
+
 export function applyRigPreset(state: RigState, preset: RigPreset, parts: PresetParts): string[] {
+  assertHumanRig(state.rig);
   const applied: string[] = [];
-  if ((parts.pose || parts.proportions) && preset.hierarchy) {
-    for (const joint of state.rig.joints) {
-      if (Object.hasOwn(preset.hierarchy, joint.id) && preset.hierarchy[joint.id] !== (joint.parentJointId ?? null)) {
-        throw new Error("저장된 관절 계층이 현재 모델과 달라 포즈와 비율을 적용할 수 없습니다. 같은 관절 구조를 사용해 주세요.");
-      }
-    }
-  }
-  const compatiblePreset = !preset.hierarchy && hasJoint(state.rig, "pelvis-pivot")
-    ? migrateOldHipHierarchy(state, preset, parts) : preset;
   state.beginHistoryTransaction();
   try {
-    if (parts.proportions && compatiblePreset.proportions?.joints) {
-      for (const [jointId, value] of Object.entries(compatiblePreset.proportions.joints)) {
-        if (!isProportions(value) || !hasJoint(state.rig, jointId)) continue;
-        state.applyJointProportions(jointId, value);
+    if (parts.proportions && preset.proportions) {
+      for (const [jointId, value] of proportionEntries(preset)) if (jointId) {
+        state.applyJointProportions(jointId, { x: value[1], y: value[2], radius: value[3], ...(value[4] === undefined ? {} : { sideRadius: value[4] }) });
       }
       applied.push("비율");
     }
-    if (parts.pose && compatiblePreset.pose?.joints) {
-      if (isFiniteNumber(compatiblePreset.pose.projectionStrength)) {
-        state.setProjectionStrength(compatiblePreset.pose.projectionStrength);
-      }
-      if (isFiniteNumber(compatiblePreset.pose.viewYRotation)) {
-        state.setViewYRotation(compatiblePreset.pose.viewYRotation);
-      }
-      for (const [jointId, value] of Object.entries(compatiblePreset.pose.joints)) {
-        if (!isPose(value) || !hasJoint(state.rig, jointId)) continue;
-        state.applyJointPose(jointId, value);
+    if (parts.pose && preset.pose) {
+      if (isFiniteNumber(preset.pose.projectionStrength)) state.setProjectionStrength(preset.pose.projectionStrength);
+      if (isFiniteNumber(preset.pose.viewYRotation)) state.setViewYRotation(preset.pose.viewYRotation);
+      for (const [jointId, value] of poseEntries(preset)) if (jointId) {
+        state.applyJointPose(jointId, { x: value[1], y: value[2], localRotation: value[3], z: value[4], distancePercent: value[6],
+          axes: Object.fromEntries(axisIds[value[0]].map((axisId, index) => [axisId, value[5][index] ?? 0])) });
       }
       applied.push("포즈");
     }
-    if (parts.colors && preset.colors && isColors(preset.colors)) {
-      state.applyColors(preset.colors);
-      applied.push("색상");
-    }
+    if (parts.colors && preset.colors) { state.applyColors(preset.colors); applied.push("색상"); }
     if (parts.shapes && preset.artShapes) {
       const candidate = structuredClone(state.rig);
       for (const [jointId, savedAxes] of Object.entries(preset.artAxes ?? {})) {
@@ -171,8 +123,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
         if (!joint || !Array.isArray(savedAxes)) continue;
         for (const savedAxis of savedAxes) {
           const index = joint.axes.findIndex((axis) => axis.id === savedAxis.id);
-          if (index >= 0) joint.axes[index] = structuredClone(savedAxis);
-          else joint.axes.push(structuredClone(savedAxis));
+          if (index >= 0) joint.axes[index] = structuredClone(savedAxis); else joint.axes.push(structuredClone(savedAxis));
         }
       }
       candidate.artShapes = structuredClone(preset.artShapes);
@@ -188,97 +139,32 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       state.rig.artCompositeGroups = candidate.artCompositeGroups;
       applied.push("도형");
     }
-  } finally {
-    state.endHistoryTransaction();
-  }
+  } finally { state.endHistoryTransaction(); }
   return applied;
 }
 
-function migrateOldHipHierarchy(state: RigState, preset: RigPreset, parts: PresetParts): RigPreset {
-  const result = structuredClone(preset);
-  const pose = result.pose?.joints;
-  const proportions = result.proportions?.joints;
-  const oldPivotPose = pose?.["pelvis-pivot"];
-  const oldPivotProportions = proportions?.["pelvis-pivot"];
-  const currentPivot = state.getJoint("pelvis-pivot");
-  const currentWaist = state.getJoint("waist");
-  const rotation = (x: number, y: number, angle: number) => {
-    const radians = angle * Math.PI / 180;
-    return { x: Math.cos(radians) * x - Math.sin(radians) * y, y: Math.sin(radians) * x + Math.cos(radians) * y };
-  };
-  const sourceAngle = parts.pose && isPose(pose?.waist) ? pose.waist.localRotation
-    : currentPivot.localRotation + currentWaist.localRotation;
-  const newPivotAngle = parts.pose && isPose(pose?.waist) ? sourceAngle : currentPivot.localRotation;
-  const transform = (values: Record<string, { x: number; y: number }> | undefined, pivot: { x: number; y: number } | undefined) => {
-    const waist = values?.waist, left = values?.["left-hip"], right = values?.["right-hip"];
-    if (!waist || !left || !right || !values) return null;
-    const oldAngle = isPose(oldPivotPose) ? oldPivotPose.localRotation : 0;
-    const oldHip = (hip: { x: number; y: number }) => {
-      const offset = rotation(hip.x, hip.y, oldAngle);
-      return pivot ? { x: pivot.x + offset.x, y: pivot.y + offset.y } : hip;
-    };
-    const a = oldHip(left), b = oldHip(right);
-    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const offset = rotation(midpoint.x, midpoint.y, sourceAngle);
-    const waistOffset = rotation(-offset.x, -offset.y, -newPivotAngle);
-    const leftOffset = rotation(a.x - midpoint.x, a.y - midpoint.y, sourceAngle - newPivotAngle);
-    const rightOffset = rotation(b.x - midpoint.x, b.y - midpoint.y, sourceAngle - newPivotAngle);
-    values.waist = { ...waist, ...waistOffset };
-    values["left-hip"] = { ...left, ...leftOffset };
-    values["right-hip"] = { ...right, ...rightOffset };
-    return { x: waist.x + offset.x, y: waist.y + offset.y };
-  };
-  if (parts.proportions && proportions) {
-    const position = transform(proportions, isProportions(oldPivotProportions) ? oldPivotProportions : undefined);
-    if (!position && ["waist", "left-hip", "right-hip"].some((id) => id in proportions)) {
-      throw new Error("이전 비율 데이터의 허리·골반 관절이 불완전해 변환할 수 없습니다.");
-    }
-    if (position) proportions["pelvis-pivot"] = { ...position, radius: currentPivot.radius };
+function assertHumanRig(rig: Rig): void {
+  if (rig.joints.length !== jointIds.length || rig.joints.some((joint, index) => joint.id !== jointIds[index]
+    || (joint.parentJointId ?? null) !== (humanTemplate.joints[index].parentJointId ?? null))) {
+    throw new Error("human-v1 인체 리그에서만 프리셋을 저장하거나 적용할 수 있습니다.");
   }
-  if (parts.pose && pose) {
-    const position = transform(pose, isPose(oldPivotPose) ? oldPivotPose : undefined);
-    if (!position && ["waist", "left-hip", "right-hip"].some((id) => id in pose)) {
-      throw new Error("이전 포즈 데이터의 허리·골반 관절이 불완전해 변환할 수 없습니다.");
-    }
-    if (position) {
-      pose["pelvis-pivot"] = { ...position, localRotation: newPivotAngle, axes: {} };
-      pose.waist.localRotation = 0;
-      if (isPose(oldPivotPose)) {
-        pose["left-hip"].localRotation += oldPivotPose.localRotation;
-        pose["right-hip"].localRotation += oldPivotPose.localRotation;
-      }
-    }
-  }
-  return result;
 }
 
-function hasJoint(rig: Rig, jointId: string): boolean {
-  return rig.joints.some((joint) => joint.id === jointId);
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isFiniteNumber(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value); }
+function isPose(value: unknown): boolean {
+  return isRecord(value) && (value.projectionStrength === undefined || isFiniteNumber(value.projectionStrength))
+    && (value.viewYRotation === undefined || isFiniteNumber(value.viewYRotation))
+    && isCompactEntries(value.joints, 6, (entry) => entry.slice(0, 5).every(isFiniteNumber) && Array.isArray(entry[5])
+      && entry[5].every(isFiniteNumber) && (entry[6] === undefined || isFiniteNumber(entry[6])));
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isProportions(value: unknown): boolean { return isRecord(value) && isCompactEntries(value.joints, 4, (entry) => entry.every(isFiniteNumber)); }
+function isCompactEntries(value: unknown, minimumLength: number, valid: (entry: unknown[]) => boolean): boolean {
+  if (!Array.isArray(value)) return false;
+  const seen = new Set<number>();
+  return value.every((entry) => Array.isArray(entry) && entry.length >= minimumLength && Number.isInteger(entry[0])
+    && entry[0] >= 0 && entry[0] < jointIds.length && !seen.has(entry[0]) && (seen.add(entry[0]), valid(entry)));
 }
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function isPose(value: unknown): value is SavedJointPose {
-  if (!isRecord(value) || !isFiniteNumber(value.x) || !isFiniteNumber(value.y)
-    || !isFiniteNumber(value.localRotation) || !isRecord(value.axes)) return false;
-  return Object.values(value.axes).every(isFiniteNumber)
-    && (value.depth === undefined || isFiniteNumber(value.depth));
-}
-
-function isProportions(value: unknown): value is SavedJointProportions {
-  return isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y)
-    && isFiniteNumber(value.radius)
-    && (value.bodyRadius === undefined || isFiniteNumber(value.bodyRadius))
-    && (value.sideRadius === undefined || isFiniteNumber(value.sideRadius));
-}
-
 function isColors(value: unknown): value is NonNullable<RigPreset["colors"]> {
-  return isRecord(value) && typeof value.defaultColor === "string"
-    && Array.isArray(value.palette) && isRecord(value.joints) && isRecord(value.faces);
+  return isRecord(value) && typeof value.defaultColor === "string" && Array.isArray(value.palette) && isRecord(value.joints) && isRecord(value.faces);
 }

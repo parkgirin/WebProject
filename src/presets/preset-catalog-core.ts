@@ -6,14 +6,14 @@ type LoadedModule = unknown | { default: unknown };
 
 export function parseBodyPresetModules(modules: Record<string, LoadedModule>): UserBodyPreset[] {
   return parseCatalog(modules, parseUserBodyPresets, "체형", "body", (path, preset) => {
-    if (!preset.proportions?.joints) throw new Error("체형 정보가 없는 프리셋입니다.");
+    if (!preset.proportions?.joints.length) throw new Error("체형 정보가 없는 프리셋입니다.");
     return createFileEntry(path, "body", preset);
   });
 }
 
 export function parsePosePresetModules(modules: Record<string, LoadedModule>): UserPosePreset[] {
   return parseCatalog(modules, parseUserPosePresets, "포즈", "pose", (path, preset) => {
-    if (!preset.pose?.joints) throw new Error("포즈 정보가 없는 프리셋입니다.");
+    if (!preset.pose?.joints.length) throw new Error("포즈 정보가 없는 프리셋입니다.");
     return createFileEntry(path, "pose", preset);
   });
 }

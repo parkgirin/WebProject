@@ -100,7 +100,7 @@ test("alt-drag on a selected joint preserves the whole multi-selection", () => {
   });
 });
 
-test("shift selects joints without activating the proportion constraint", () => {
+test("shift-drag selects joints and constrains their move to the dominant axis", () => {
   withPointerTest(({ down, move, up, point, length, getSelection }) => {
     const start = point("right-elbow");
     const initial = length("right-elbow");
@@ -108,6 +108,8 @@ test("shift selects joints without activating the proportion constraint", () => 
     move(start.x + 35, start.y + 20, false);
     up();
     assert.deepEqual(getSelection().jointIds, ["left-elbow", "right-elbow"]);
+    assert.ok(Math.abs(point("right-elbow").x - (start.x + 35)) < 1e-8);
+    assert.ok(Math.abs(point("right-elbow").y - start.y) < 1e-8);
     assert.ok(Math.abs(length("right-elbow") - initial) > 1e-3);
   });
 });

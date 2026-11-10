@@ -134,6 +134,7 @@ export function renderInspector(
       ${state.getValidParents(joint.id).map((candidateId) => `<option value="${escapeHtml(candidateId)}"${candidateId === joint.parentJointId ? " selected" : ""}>${escapeHtml(candidateId)}</option>`).join("")}
     </select>
     <p class="hint">부모를 변경해도 현재 화면 포즈는 유지됩니다.</p>
+    ${joint.parentJointId ? `<label class="joint-distance-field"><span>포즈 거리 비율<small>체형 기준 거리의 백분율 · 100%는 원래 길이</small></span><input type="number" min="0" max="300" step="1" value="${state.getJointDistancePercent(joint.id).toFixed(1)}" data-distance-percent="${escapeHtml(joint.id)}" aria-label="${escapeHtml(joint.id)} 포즈 거리 비율" /></label>` : ""}
     ${relatedPeerGroups.map((group) => {
       const distance = state.getPeerGroupDistance(group.id)!;
       const centerOffset = state.getPeerCenterOffset(group.id);
@@ -165,6 +166,26 @@ export function renderInspector(
     <div class="range-number-control">
       <input id="joint-radius" type="range" min="8" max="80" step="1" value="${joint.radius}" />
       <input id="joint-radius-number" type="number" min="8" max="80" step="1" value="${joint.radius.toFixed(0)}" aria-label="관절 반지름 숫자 입력" />
+    </div>
+    <div class="joint-surface-profile">
+      <strong>표면 프로필: ${escapeHtml(joint.surfaceProfileId ?? "원형 (없음)")}</strong>
+      <div class="numeric-field-grid">
+        ${(["x", "y", "z"] as const).map((axis) => `<label><span>로컬 ${axis.toUpperCase()} 스케일${axis === "z" ? " (두께)" : ""}</span><input type="number" min="0.05" max="10" step="0.05" value="${(joint.surfaceScale?.[axis] ?? 1).toFixed(2)}" data-surface-scale-axis="${axis}" /></label>`).join("")}
+      </div>
+      <div class="axis-side-options" aria-label="캡슐 평면 축">${(["x", "y", "z"] as const).map((axis) => {
+        const active = joint.capsuleFlatAxes?.includes(axis) ?? false;
+        return `<label><input type="checkbox" data-capsule-axis="${axis}"${active ? " checked" : ""}${!active && (joint.capsuleFlatAxes?.length ?? 0) >= 2 ? " disabled" : ""} />${axis.toUpperCase()} 평면</label>`;
+      }).join("")}</div>
+      ${(joint.capsuleFlatAxes ?? []).map((axis) => `<label class="field-label">${axis.toUpperCase()} 평면 길이<input type="number" min="0" step="0.5" value="${(joint.capsuleFlatLengths?.[axis] ?? joint.radius).toFixed(1)}" data-capsule-length="${axis}" /></label>`).join("")}
+      <p class="hint">X/Y/Z는 표면 크기입니다. 캡슐 평면은 최대 2축까지 선택해 캡슐 또는 둥근사각형 단면으로 확장합니다.</p>
+    </div>
+    <div class="axis-section">
+      <div class="section-heading"><h3>관절 3D 회전</h3></div>
+      ${(["x", "y", "z"] as const).map((axis) => {
+        const value = axis === "x" ? joint.localRotationX ?? 0 : axis === "y" ? joint.localRotationY ?? 0 : joint.localRotation;
+        return `<label class="field-label" for="joint-rotation-${axis}">로컬 ${axis.toUpperCase()} 축</label><div class="range-number-control angle-control"><input id="joint-rotation-${axis}" type="range" min="-180" max="180" step="1" value="${toSignedAngle(value)}" data-joint-rotation-axis="${axis}" /><span><input type="number" min="-180" max="180" step="1" value="${toSignedAngle(value)}" data-joint-rotation-number="${axis}" />°</span></div>`;
+      }).join("")}
+      <p class="hint">Z는 기존 평면 회전입니다. X·Y는 3D 관절 회전 데이터로 저장되며 다음 변환 단계에서 하위 체인에 적용됩니다.</p>
     </div>
     <div class="axis-section">
       <div class="section-heading">
@@ -631,9 +652,29 @@ export function renderInspector(
   bindLiveRange(element, state, "#joint-radius", "#joint-radius-number", (value) => {
     if (joint) state.setJointRadius(joint.id, value);
   });
+  (["x", "y", "z"] as const).forEach((axis) => {
+    bindLiveRange(element, state, `#joint-rotation-${axis}`, `[data-joint-rotation-number="${axis}"]`, (value) => {
+      if (joint) state.setJointAxisRotation(joint.id, axis, value);
+    });
+  });
   element.querySelector<HTMLInputElement>("#joint-radius-number")?.addEventListener("change", (event) => {
     if (!joint) return;
     state.setJointRadius(joint.id, (event.target as HTMLInputElement).valueAsNumber);
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-surface-scale-axis]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (joint) state.setJointSurfaceScale(joint.id, input.dataset.surfaceScaleAxis as "x" | "y" | "z", input.valueAsNumber);
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-capsule-axis]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (joint) state.setJointCapsuleFlatAxis(joint.id, input.dataset.capsuleAxis as "x" | "y" | "z", input.checked);
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-capsule-length]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (joint) state.setJointCapsuleFlatLength(joint.id, input.dataset.capsuleLength as "x" | "y" | "z", input.valueAsNumber);
+    });
   });
   element.querySelector<HTMLInputElement>("#joint-world-x")?.addEventListener("change", (event) => {
     if (!joint || !jointWorld) return;
@@ -649,6 +690,14 @@ export function renderInspector(
   element.querySelector<HTMLSelectElement>("#parent-joint")?.addEventListener("change", (event) => {
     if (!joint) return;
     state.setParentJoint(joint.id, (event.target as HTMLSelectElement).value || null);
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-distance-percent]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const jointId = input.dataset.distancePercent;
+      if (!jointId || !Number.isFinite(input.valueAsNumber)) return;
+      state.setJointDistancePercent(jointId, input.valueAsNumber);
+      input.value = state.getJointDistancePercent(jointId).toFixed(1);
+    });
   });
   element.querySelectorAll<HTMLInputElement>("[data-distance-moving]").forEach((input) => {
     input.addEventListener("change", () => {

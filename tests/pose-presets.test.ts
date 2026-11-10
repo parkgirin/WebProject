@@ -3,7 +3,8 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { RigState } from "../src/rig/rig-state.ts";
-import { applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
+import { applyBackPose, applySidePose, applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
+import { applyAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 
 test("a user pose preset restores pose without replacing radii, colors, or shapes", () => {
   const source = new RigState(createDefaultRig());
@@ -17,15 +18,14 @@ test("a user pose preset restores pose without replacing radii, colors, or shape
   const colorPaletteId = target.getJoint("right-wrist").paletteId;
   const shapeIds = target.rig.artShapes!.map((shape) => shape.id);
   const beforePose = { ...target.getJoint("right-wrist") };
-  const beforeLength = Math.hypot(beforePose.x, beforePose.y);
   const savedWrist = source.getJoint("right-wrist");
   const savedLength = Math.hypot(savedWrist.x, savedWrist.y);
   applyUserPosePreset(target, entry);
 
   const appliedWrist = target.getJoint("right-wrist");
-  assert.ok(Math.abs(Math.hypot(appliedWrist.x, appliedWrist.y) - beforeLength) < 1e-6);
-  assert.ok(Math.abs(appliedWrist.x / beforeLength - savedWrist.x / savedLength) < 1e-6);
-  assert.ok(Math.abs(appliedWrist.y / beforeLength - savedWrist.y / savedLength) < 1e-6);
+  assert.ok(Math.abs(Math.hypot(appliedWrist.x, appliedWrist.y) - savedLength) < 1e-6);
+  assert.ok(Math.abs(appliedWrist.x / savedLength - savedWrist.x / savedLength) < 1e-6);
+  assert.ok(Math.abs(appliedWrist.y / savedLength - savedWrist.y / savedLength) < 1e-6);
   assert.equal(target.getGlobalRotation(), source.getGlobalRotation());
   assert.equal(target.getJoint("right-wrist").radius, 27);
   assert.equal(target.getJoint("right-wrist").paletteId, colorPaletteId);
@@ -85,7 +85,32 @@ test("the built-in T pose keeps current limb lengths and aligns the body to the 
   assert.ok(elbow.x > 0);
   assert.ok(Math.abs(elbow.y) < 1e-6);
   assert.equal(state.rig.viewYRotation, 0);
-  assert.equal(elbow.depth, 0);
+  assert.equal(elbow.z, 0);
   state.undo();
   assert.equal(state.rig.viewYRotation, 35);
+});
+
+test("built-in side and back poses keep proportions while setting their camera views", () => {
+  const state = new RigState(createDefaultRig());
+  state.setJointDistance("right-elbow", "right-shoulder", 128);
+
+  applySidePose(state);
+  assert.equal(state.rig.viewYRotation, 90);
+  assert.ok(Math.abs(Math.hypot(state.getJoint("right-elbow").x, state.getJoint("right-elbow").y) - 128) < 1e-6);
+
+  applyBackPose(state);
+  assert.equal(state.rig.viewYRotation, 180);
+  assert.ok(Math.abs(Math.hypot(state.getJoint("right-elbow").x, state.getJoint("right-elbow").y) - 128) < 1e-6);
+});
+
+test("the built-in T pose preserves the active body type's shoulder and hip widths", () => {
+  const state = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(state, "child-neutral");
+  const shoulderWidth = state.getPeerGroupDistance("shoulder-band");
+  const hipWidth = state.getPeerGroupDistance("hip-band");
+
+  applyTPose(state);
+
+  assert.equal(state.getPeerGroupDistance("shoulder-band"), shoulderWidth);
+  assert.equal(state.getPeerGroupDistance("hip-band"), hipWidth);
 });

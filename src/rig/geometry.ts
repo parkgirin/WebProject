@@ -13,73 +13,261 @@ export interface Point {
   y: number;
 }
 
+export interface Point3 extends Point {
+  z: number;
+}
+
+export interface TubeSurfaceQuad {
+  points: [Point3, Point3, Point3, Point3];
+  /** Average camera-space Z, for painter's-order rendering. */
+  cameraZ: number;
+  sideIndex: number;
+}
+
+/** The two camera-aligned sphere-circle points at each end of a limb face. */
+export interface CameraFacingLimbSurface {
+  points: [Point3, Point3, Point3, Point3];
+}
+
+/**
+ * Resolves a legacy axis endpoint as a fixed point on its joint sphere.
+ * The point is part of the model, not a camera-facing billboard point: a
+ * side view therefore collapses a zero-depth model exactly at 90 degrees.
+ */
+export function getCameraFacingJointPoint(rig: Rig, ref: JointPointRef): Point3 {
+  const joint = rig.joints.find((candidate) => candidate.id === ref.jointId);
+  const axis = joint?.axes.find((candidate) => candidate.id === ref.axisId);
+  if (!joint || !axis) throw new Error(`Unknown face sphere point: ${ref.jointId}.${ref.axisId}`);
+  const transform = getJointWorldTransform(rig, joint.id);
+  const center: Point3 = { x: transform.x, y: transform.y, z: joint.z };
+  const axisPoint = getAxisPoint(rig, joint, axis, ref.side);
+  const dx = axisPoint.x - center.x;
+  const dy = axisPoint.y - center.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const radius = getJointViewRadius(rig, joint);
+  return { x: center.x + radius * dx / length, y: center.y + radius * dy / length, z: center.z };
+}
+
+export function getCameraFacingFaceSurface(rig: Rig, face: Face): Point3[] {
+  return face.vertices.map((vertex) => getCameraFacingJointPoint(rig, vertex));
+}
+
 export interface JointWorldTransform extends Point {
   rotation: number;
 }
 
 export const PROJECTION_ORIGIN: Point = { x: 300, y: 390 };
 
+function worldRotate(rig: Rig, point: Point, z: number): Point3 {
+  const r = rig.worldRotation ?? { x: 0, y: 0, z: 0 };
+  let x = point.x - PROJECTION_ORIGIN.x, y = point.y - PROJECTION_ORIGIN.y, depth = z;
+  const rx = r.x * Math.PI / 180, ry = r.y * Math.PI / 180, rz = r.z * Math.PI / 180;
+  [y, depth] = [y * Math.cos(rx) - depth * Math.sin(rx), y * Math.sin(rx) + depth * Math.cos(rx)];
+  [x, depth] = [x * Math.cos(ry) + depth * Math.sin(ry), -x * Math.sin(ry) + depth * Math.cos(ry)];
+  [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
+  return { x: PROJECTION_ORIGIN.x + x, y: PROJECTION_ORIGIN.y + y, z: depth };
+}
+
+/** Inverse of worldRotate, used to author camera-facing render points in model space. */
+function worldUnrotate(rig: Rig, point: Point3): Point3 {
+  const r = rig.worldRotation ?? { x: 0, y: 0, z: 0 };
+  let x = point.x - PROJECTION_ORIGIN.x, y = point.y - PROJECTION_ORIGIN.y, depth = point.z;
+  const rx = -r.x * Math.PI / 180, ry = -r.y * Math.PI / 180, rz = -r.z * Math.PI / 180;
+  [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
+  [x, depth] = [x * Math.cos(ry) + depth * Math.sin(ry), -x * Math.sin(ry) + depth * Math.cos(ry)];
+  [y, depth] = [y * Math.cos(rx) - depth * Math.sin(rx), y * Math.sin(rx) + depth * Math.cos(rx)];
+  return { x: PROJECTION_ORIGIN.x + x, y: PROJECTION_ORIGIN.y + y, z: depth };
+}
+
 /**
- * Convert the editor's depth unit into a bounded 2.5D scale. Keeping this
+ * Convert camera-space Z into a bounded 2.5D scale. Keeping this
  * separate from Joint.radius preserves the editable rig proportions.
  */
-export function getProjectionScale(rig: Rig, depth = 0): number {
+export function getProjectionScale(rig: Rig, cameraZ = 0): number {
   const strength = Number.isFinite(rig.projectionStrength) ? rig.projectionStrength : 0;
-  return Math.min(1.5, Math.max(0.5, 1 + depth * strength / 10_000));
+  return Math.min(1.5, Math.max(0.5, 1 + cameraZ * strength / 10_000));
 }
 
-/** Depth after rotating the X/depth plane around the canvas vertical Y axis. */
-export function getProjectedDepth(rig: Rig, point: Point, depth = 0): number {
+/** Camera-space Z after rotating the X/Z plane around the canvas vertical Y axis. */
+export function getCameraZ(rig: Rig, point: Point, z = 0): number {
+  const world = worldRotate(rig, point, z);
   const angle = (rig.viewYRotation * Math.PI) / 180;
-  return depth * Math.cos(angle) - (point.x - PROJECTION_ORIGIN.x) * Math.sin(angle);
+  return world.z * Math.cos(angle) - (world.x - PROJECTION_ORIGIN.x) * Math.sin(angle);
 }
 
-/** Interpolate a joint's front radius to its author-provided side-view radius. */
+/**
+ * Interpolate radius corrections through front → side → back → side → front.
+ * Legacy rigs are normalized with a scale of 1, preserving their silhouette.
+ */
 export function getJointViewRadius(rig: Rig, joint: Joint): number {
-  const sideRadius = joint.sideRadius ?? joint.radius;
-  const amount = Math.min(1, Math.abs(rig.viewYRotation) / 90);
-  return joint.radius + (sideRadius - joint.radius) * amount;
+  const profiles = rig.bodyViewProfiles;
+  const radiusFor = (view: "front" | "side" | "back") => {
+    const base = view === "side" ? joint.sideRadius ?? joint.radius : joint.radius;
+    return base * (profiles[view].jointRadiusScale[joint.id] ?? 1);
+  };
+  const front = radiusFor("front");
+  const side = radiusFor("side");
+  const back = radiusFor("back");
+  const angle = (((rig.viewYRotation + (rig.worldRotation?.y ?? 0)) % 360) + 360) % 360;
+  if (angle <= 90) return front + (side - front) * angle / 90;
+  if (angle <= 180) return side + (back - side) * (angle - 90) / 90;
+  if (angle <= 270) return back + (side - back) * (angle - 180) / 90;
+  return side + (front - side) * (angle - 270) / 90;
+}
+
+/**
+ * Builds the rendered boundary of a limb from the apparent circle of each
+ * joint sphere. The circle is always perpendicular to the camera direction:
+ * its basis is camera-right and screen-up, not an authored joint axis.
+ */
+export function getCameraFacingLimbSurface(
+  rig: Rig,
+  startJointId: string,
+  endJointId: string,
+): CameraFacingLimbSurface | null {
+  const startJoint = rig.joints.find((joint) => joint.id === startJointId);
+  const endJoint = rig.joints.find((joint) => joint.id === endJointId);
+  if (!startJoint || !endJoint) return null;
+
+  const startWorld = getJointWorldTransform(rig, startJointId);
+  const endWorld = getJointWorldTransform(rig, endJointId);
+  const startModel: Point3 = { x: startWorld.x, y: startWorld.y, z: startJoint.z };
+  const endModel: Point3 = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
+  const start = worldRotate(rig, startModel, startModel.z);
+  const end = worldRotate(rig, endModel, endModel.z);
+  const tangent = normalizeVector3({ x: end.x - start.x, y: end.y - start.y, z: end.z - start.z });
+  if (!tangent) return null;
+  const yaw = rig.viewYRotation * Math.PI / 180;
+  const cameraForward: Point3 = { x: -Math.sin(yaw), y: 0, z: Math.cos(yaw) };
+  const radial = normalizeVector3(crossVector3(cameraForward, tangent))
+    ?? normalizeVector3(crossVector3({ x: 0, y: 1, z: 0 }, tangent))
+    ?? { x: 1, y: 0, z: 0 };
+  const ringPoint = (center: Point3, radius: number, side: 1 | -1): Point3 => worldUnrotate(rig, {
+    x: center.x + radial.x * radius * side,
+    y: center.y + radial.y * radius * side,
+    z: center.z + radial.z * radius * side,
+  });
+  const startRadius = getJointViewRadius(rig, startJoint);
+  const endRadius = getJointViewRadius(rig, endJoint);
+  return {
+    points: [
+      ringPoint(start, startRadius, 1),
+      ringPoint(end, endRadius, 1),
+      ringPoint(end, endRadius, -1),
+      ringPoint(start, startRadius, -1),
+    ],
+  };
 }
 
 /** Project a world point away from the canvas centre as it comes forward. */
-export function projectPoint(rig: Rig, point: Point, depth = 0): Point {
+export function projectPoint(rig: Rig, point: Point, z = 0): Point {
+  const world = worldRotate(rig, point, z);
   const angle = (rig.viewYRotation * Math.PI) / 180;
-  const x = point.x - PROJECTION_ORIGIN.x;
+  const x = world.x - PROJECTION_ORIGIN.x;
   // A pure Y-axis rotation: do not retain a synthetic side-view silhouette.
-  const rotatedX = x * Math.cos(angle) + depth * Math.sin(angle);
-  const scale = getProjectionScale(rig, getProjectedDepth(rig, point, depth));
+  const rotatedX = x * Math.cos(angle) + world.z * Math.sin(angle);
+  const scale = getProjectionScale(rig, getCameraZ(rig, point, z));
   return {
     x: PROJECTION_ORIGIN.x + rotatedX * scale,
-    y: PROJECTION_ORIGIN.y + (point.y - PROJECTION_ORIGIN.y) * scale,
+    y: PROJECTION_ORIGIN.y + (world.y - PROJECTION_ORIGIN.y) * scale,
   };
 }
 
 /** Convert a rendered pointer coordinate back to its unprojected rig point. */
-export function unprojectPoint(rig: Rig, point: Point, depth = 0): Point {
+export function unprojectPoint(rig: Rig, point: Point, z = 0): Point {
   const angle = (rig.viewYRotation * Math.PI) / 180;
   const sine = Math.sin(angle);
   const screenX = point.x - PROJECTION_ORIGIN.x;
   let x = screenX;
-  // The depth-dependent scale makes the inverse nonlinear. The selected
-  // joint's known depth keeps this one-dimensional Newton solve stable.
+  // The camera-Z-dependent scale makes the inverse nonlinear. The selected
+  // joint's known Z coordinate keeps this one-dimensional Newton solve stable.
   for (let index = 0; index < 8; index += 1) {
-    const rotatedX = x * Math.cos(angle) + depth * sine;
-    const rotatedDepth = depth * Math.cos(angle) - x * sine;
-    const scale = getProjectionScale(rig, rotatedDepth);
+    const rotatedX = x * Math.cos(angle) + z * sine;
+    const cameraZ = z * Math.cos(angle) - x * sine;
+    const scale = getProjectionScale(rig, cameraZ);
     const error = rotatedX * scale - screenX;
     const epsilon = 0.01;
     const nextX = x + epsilon;
-    const nextScale = getProjectionScale(rig, depth * Math.cos(angle) - nextX * sine);
-    const derivative = ((nextX * Math.cos(angle) + depth * sine) * nextScale - rotatedX * scale) / epsilon;
+    const nextScale = getProjectionScale(rig, z * Math.cos(angle) - nextX * sine);
+    const derivative = ((nextX * Math.cos(angle) + z * sine) * nextScale - rotatedX * scale) / epsilon;
     if (Math.abs(derivative) < 1e-8) break;
     x -= error / derivative;
   }
-  const rotatedDepth = depth * Math.cos(angle) - x * sine;
-  const scale = getProjectionScale(rig, rotatedDepth);
+  const cameraZ = z * Math.cos(angle) - x * sine;
+  const scale = getProjectionScale(rig, cameraZ);
   return {
     x: PROJECTION_ORIGIN.x + x,
     y: PROJECTION_ORIGIN.y + (point.y - PROJECTION_ORIGIN.y) / scale,
   };
+}
+
+/**
+ * Build the side quads of a circular tube between two existing joints. This
+ * uses the current x/y hierarchy and the joints' z coordinates, so it is
+ * compatible with the editor's existing 2.5D projection model.
+ */
+export function getJointTubeSurface(
+  rig: Rig,
+  startJointId: string,
+  endJointId: string,
+  sides = 8,
+): TubeSurfaceQuad[] {
+  const startJoint = rig.joints.find((joint) => joint.id === startJointId);
+  const endJoint = rig.joints.find((joint) => joint.id === endJointId);
+  if (!startJoint || !endJoint || sides < 3) return [];
+  const startWorld = getJointWorldTransform(rig, startJointId);
+  const endWorld = getJointWorldTransform(rig, endJointId);
+  const start = { x: startWorld.x, y: startWorld.y, z: startJoint.z };
+  const end = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
+  const axis = normalizeVector3({ x: end.x - start.x, y: end.y - start.y, z: end.z - start.z });
+  if (!axis) return [];
+  const reference = Math.abs(axis.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+  const firstRadial = normalizeVector3(crossVector3(axis, reference));
+  if (!firstRadial) return [];
+  const secondRadial = crossVector3(axis, firstRadial);
+  const startRing = createTubeRing(start, firstRadial, secondRadial, startJoint.radius, sides);
+  const endRing = createTubeRing(end, firstRadial, secondRadial, endJoint.radius, sides);
+  return startRing.map((point, sideIndex) => {
+    const next = (sideIndex + 1) % sides;
+    const points: [Point3, Point3, Point3, Point3] = [point, startRing[next], endRing[next], endRing[sideIndex]];
+    return {
+      points,
+      cameraZ: points.reduce((sum, candidate) => sum + getCameraZ(rig, candidate, candidate.z), 0) / points.length,
+      sideIndex,
+    };
+  });
+}
+
+function createTubeRing(
+  center: Point3,
+  firstRadial: Point3,
+  secondRadial: Point3,
+  radius: number,
+  sides: number,
+): Point3[] {
+  return Array.from({ length: sides }, (_, index) => {
+    const angle = Math.PI * 2 * index / sides;
+    const firstAmount = Math.cos(angle) * radius;
+    const secondAmount = Math.sin(angle) * radius;
+    return {
+      x: center.x + firstRadial.x * firstAmount + secondRadial.x * secondAmount,
+      y: center.y + firstRadial.y * firstAmount + secondRadial.y * secondAmount,
+      z: center.z + firstRadial.z * firstAmount + secondRadial.z * secondAmount,
+    };
+  });
+}
+
+function crossVector3(first: Point3, second: Point3): Point3 {
+  return {
+    x: first.y * second.z - first.z * second.y,
+    y: first.z * second.x - first.x * second.z,
+    z: first.x * second.y - first.y * second.x,
+  };
+}
+
+function normalizeVector3(value: Point3): Point3 | null {
+  const length = Math.hypot(value.x, value.y, value.z);
+  return length > 1e-9 ? { x: value.x / length, y: value.y / length, z: value.z / length } : null;
 }
 
 /** Return the two points where lines from an external reference touch a circle. */

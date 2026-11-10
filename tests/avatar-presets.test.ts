@@ -94,6 +94,8 @@ test("straight neutral aligns shoulder centers with both waist edges", () => {
   assert.equal(preset.shoulderDistance, preset.waistRadius * 2);
   assert.equal(preset.shoulderDistance, 120);
   assert.equal(preset.waistRadius, 60);
+  assert.equal(preset.armRadius, preset.hipRadius);
+  assert.equal(preset.hipRadius, preset.kneeRadius);
 });
 
 test("new rigs are constructed directly with the straight neutral preset", () => {

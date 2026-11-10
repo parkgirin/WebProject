@@ -1,6 +1,6 @@
 import { addPoseKey, createPoseKey, type PoseClip } from "../rig/pose-interpolation.ts";
-import { validateRig } from "../rig/rig-state.ts";
-import type { Rig } from "../rig/types.ts";
+import { normalizeRigZCoordinates, validateRig } from "../rig/rig-state.ts";
+import { normalizeBodyViewProfiles, type Rig } from "../rig/types.ts";
 
 export interface PoseAnimationFile {
   format: "pose-mesh-animation";
@@ -51,6 +51,8 @@ export function parsePoseAnimationFile(text: string): PoseAnimationFile {
       throw new Error("애니메이션 키프레임 형식이 올바르지 않습니다.");
     }
     const rig = sourceKey.rig as unknown as Rig;
+    normalizeRigZCoordinates(rig);
+    normalizeBodyViewProfiles(rig);
     rig.artShapes ??= [];
     let errors: string[];
     try {

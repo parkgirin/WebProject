@@ -54,6 +54,8 @@ type Interaction =
   | { type: "pending-shift-shape"; shapeId: string; wasSelected: boolean; startX: number; startY: number; clientX: number; clientY: number }
   | { type: "move-shapes"; shapeIds: string[]; startX: number; startY: number; appliedX: number; appliedY: number; axis: "x" | "y" | null; constrained: boolean }
   | { type: "move-shape-vertex"; shapeId: string; vertexId: string }
+  | { type: "move-joint-z"; jointId: string; startClientY: number; startZ: number }
+  | { type: "rotate-view"; startClientX: number; startClientY: number; startWorldX: number; startWorldY: number; startWorldZ: number; axis: "x" | "y" | "z" | null }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
   | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement };
 
@@ -64,7 +66,17 @@ export function enablePointerInput(
   options: PointerInputOptions,
 ): ViewportController {
   let interaction: Interaction | null = null;
-  let jointDrag: { jointId: string; jointIds: string[]; constrained: boolean; lastX: number; lastY: number } | null = null;
+  let jointDrag: {
+    jointId: string;
+    jointIds: string[];
+    constrained: boolean;
+    lastX: number;
+    lastY: number;
+    axisLocked: boolean;
+    startX: number;
+    startY: number;
+    axis: "x" | "y" | null;
+  } | null = null;
   let spacePressed = false;
   let panMode = false;
   let interactionDepth = 0;
@@ -91,9 +103,26 @@ export function enablePointerInput(
     });
   };
 
-  const startJointMove = (jointId: string, jointIds: string[], point: { x: number; y: number }, constrained: boolean) => {
+  const startJointMove = (
+    jointId: string,
+    jointIds: string[],
+    point: { x: number; y: number },
+    constrained: boolean,
+    axisLocked = false,
+    previousAxisLock?: Pick<NonNullable<typeof jointDrag>, "axisLocked" | "startX" | "startY" | "axis">,
+  ) => {
     const joint = options.state.getJoint(jointId);
-    jointDrag = { jointId, jointIds, constrained, lastX: point.x, lastY: point.y };
+    jointDrag = {
+      jointId,
+      jointIds,
+      constrained,
+      lastX: point.x,
+      lastY: point.y,
+      axisLocked: previousAxisLock?.axisLocked ?? axisLocked,
+      startX: previousAxisLock?.startX ?? point.x,
+      startY: previousAxisLock?.startY ?? point.y,
+      axis: previousAxisLock?.axis ?? null,
+    };
     if (constrained && jointIds.length > 1 && jointIds.some((id) => options.state.getJoint(id).parentJointId)) {
       const reference = joint.parentJointId ? joint : options.state.getJoint(jointIds.find((id) => options.state.getJoint(id).parentJointId)!);
       const parent = getJointWorldTransform(options.state.rig, reference.parentJointId!);
@@ -120,7 +149,7 @@ export function enablePointerInput(
   };
 
   const onPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 && event.button !== 1 && !(event.button === 2 && options.getLayerToolActive())) return;
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
     const target = event.target as SVGElement;
     const jointId = target.dataset.jointId;
     const axisId = target.dataset.axisId;
@@ -129,7 +158,7 @@ export function enablePointerInput(
     const vertexId = target.dataset.vertexId;
     const afterVertexId = target.dataset.afterVertexId;
     const peerGroupId = target.dataset.peerGroupId;
-    interactionDepth = jointId ? options.state.getJoint(jointId).depth ?? 0
+    interactionDepth = jointId ? options.state.getJoint(jointId).z ?? 0
       : peerGroupId
         ? getPeerDepth(options.state.rig, peerGroupId)
         : shapeId
@@ -139,7 +168,10 @@ export function enablePointerInput(
           : 0;
     const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
 
-    if (event.button === 0 && options.getPolygonToolActive?.() && !spacePressed && !panMode) {
+    if (event.button === 2 && !options.getLayerToolActive()) {
+      interaction = { type: "rotate-view", startClientX: event.clientX, startClientY: event.clientY, startWorldX: options.state.getGlobalAxisRotation("x"), startWorldY: options.state.getGlobalAxisRotation("y"), startWorldZ: options.state.getGlobalAxisRotation("z"), axis: event.altKey ? "z" : null };
+      options.state.beginHistoryTransaction();
+    } else if (event.button === 0 && options.getPolygonToolActive?.() && !spacePressed && !panMode) {
       if (target.hasAttribute("data-polygon-draft-start")) options.finishPolygon?.();
       else {
         const side = Number(target.dataset.axisSide);
@@ -185,6 +217,13 @@ export function enablePointerInput(
       }
       event.preventDefault();
       return;
+    } else if (event.button === 1 && jointId && (target.hasAttribute("data-drag-joint") || target.hasAttribute("data-body-joint"))) {
+      const joint = options.state.getJoint(jointId);
+      if (!joint.isVirtual) {
+        options.setSelection({ jointId, axisId: joint.axes[0]?.id ?? null, jointIds: [jointId] });
+        interaction = { type: "move-joint-z", jointId, startClientY: event.clientY, startZ: joint.z };
+        options.state.beginHistoryTransaction();
+      }
     } else if (event.button === 1 || (event.button === 0 && (spacePressed || panMode))) {
       interaction = {
         type: "pan",
@@ -291,7 +330,7 @@ export function enablePointerInput(
           axisId: axisId ?? (previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null),
           jointIds,
         });
-        startJointMove(jointId, jointIds, point, options.getPreserveProportions() || event.altKey);
+        startJointMove(jointId, jointIds, point, options.getPreserveProportions() || event.altKey, event.shiftKey);
         options.state.beginHistoryTransaction();
       }
     } else if (faceId && options.getPaintColor()) {
@@ -338,7 +377,7 @@ export function enablePointerInput(
       const previous = options.getSelection();
       const joint = options.state.getJoint(jointId);
       options.setSelection({ jointId, jointIds, axisId: previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null });
-      startJointMove(jointId, jointIds, { x: startX, y: startY }, options.getPreserveProportions() || event.altKey);
+      startJointMove(jointId, jointIds, { x: startX, y: startY }, options.getPreserveProportions() || event.altKey, true);
       options.state.beginHistoryTransaction();
     } else if (interaction.type === "pending-shift-shape") {
       if (Math.hypot(event.clientX - interaction.clientX, event.clientY - interaction.clientY) < 3) return;
@@ -349,6 +388,18 @@ export function enablePointerInput(
         appliedX: startX, appliedY: startY, axis: null, constrained: true };
       options.state.beginHistoryTransaction();
     }
+    if (interaction.type === "rotate-view") {
+      const dx = event.clientX - interaction.startClientX;
+      const dy = event.clientY - interaction.startClientY;
+      if (!interaction.axis && Math.hypot(dx, dy) >= 3) interaction.axis = Math.abs(dx) >= Math.abs(dy) ? "y" : "x";
+      if (!interaction.axis) return;
+      let angle = interaction.axis === "y" ? interaction.startWorldY + dx * 0.5
+        : interaction.axis === "x" ? interaction.startWorldX - dy * 0.5
+          : interaction.startWorldZ + dx * 0.5;
+      if (event.shiftKey) angle = Math.round(angle / 15) * 15;
+      options.state.setGlobalAxisRotation(interaction.axis, angle);
+      return;
+    }
     if (interaction.type === "pan") {
       const bounds = element.getBoundingClientRect();
       const dx = (event.clientX - interaction.startClientX) * interaction.viewBox.width / bounds.width;
@@ -358,29 +409,51 @@ export function enablePointerInput(
     }
 
     const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
+    if (interaction.type === "move-joint-z") {
+      // Moving upward brings the selected joint toward the viewer.
+      options.state.setJointZ(interaction.jointId, interaction.startZ + (interaction.startClientY - event.clientY) * 0.5);
+      return;
+    }
     if (jointDrag && jointDrag.constrained !== (options.getPreserveProportions() || event.altKey)) {
-      startJointMove(jointDrag.jointId, jointDrag.jointIds, { x: jointDrag.lastX, y: jointDrag.lastY }, options.getPreserveProportions() || event.altKey);
+      startJointMove(
+        jointDrag.jointId,
+        jointDrag.jointIds,
+        { x: jointDrag.lastX, y: jointDrag.lastY },
+        options.getPreserveProportions() || event.altKey,
+        jointDrag.axisLocked,
+        jointDrag,
+      );
+    }
+    let jointPoint = point;
+    if (jointDrag?.axisLocked) {
+      if (!jointDrag.axis) {
+        jointDrag.axis = Math.abs(point.x - jointDrag.startX) >= Math.abs(point.y - jointDrag.startY) ? "x" : "y";
+      }
+      jointPoint = {
+        x: jointDrag.axis === "y" ? jointDrag.startX : point.x,
+        y: jointDrag.axis === "x" ? jointDrag.startY : point.y,
+      };
     }
     if (interaction.type === "move-selection") {
       if (interaction.jointIds.length === 1 && options.getMoveSelectedIndividually?.()) {
         const joint = options.state.getJoint(interaction.jointIds[0]);
         const world = getJointWorldTransform(options.state.rig, joint.id);
-        options.state.moveJointIndependently(joint.id, world.x + point.x - interaction.lastX, world.y + point.y - interaction.lastY);
+        options.state.moveJointIndependently(joint.id, world.x + jointPoint.x - interaction.lastX, world.y + jointPoint.y - interaction.lastY);
       } else {
-        options.state.moveJointsBy(interaction.jointIds, point.x - interaction.lastX, point.y - interaction.lastY);
+        options.state.moveJointsBy(interaction.jointIds, jointPoint.x - interaction.lastX, jointPoint.y - interaction.lastY);
       }
-      interaction.lastX = point.x;
-      interaction.lastY = point.y;
+      interaction.lastX = jointPoint.x;
+      interaction.lastY = jointPoint.y;
     } else if (interaction.type === "move-selection-constrained") {
       const angle = getAngle(interaction.parentX, interaction.parentY,
-        point.x + interaction.pointerOffsetX, point.y + interaction.pointerOffsetY);
+        jointPoint.x + interaction.pointerOffsetX, jointPoint.y + interaction.pointerOffsetY);
       const delta = ((angle - interaction.lastAngle + 540) % 360) - 180;
-      options.state.moveJointsConstrainedBy(interaction.jointIds, delta, point.x - interaction.lastX, point.y - interaction.lastY);
+      options.state.moveJointsConstrainedBy(interaction.jointIds, delta, jointPoint.x - interaction.lastX, jointPoint.y - interaction.lastY);
       interaction.lastAngle = angle;
-      interaction.lastX = point.x;
-      interaction.lastY = point.y;
+      interaction.lastX = jointPoint.x;
+      interaction.lastY = jointPoint.y;
     } else if (interaction.type === "move-joint-constrained") {
-      const angle = (getAngle(interaction.parentX, interaction.parentY, point.x, point.y)
+      const angle = (getAngle(interaction.parentX, interaction.parentY, jointPoint.x, jointPoint.y)
         + interaction.angleOffset) * Math.PI / 180;
       options.state.moveJoint(
         interaction.jointId,
@@ -430,7 +503,7 @@ export function enablePointerInput(
       interaction.rectangle.setAttribute("width", String(Math.abs(marqueePoint.x - interaction.startX)));
       interaction.rectangle.setAttribute("height", String(Math.abs(marqueePoint.y - interaction.startY)));
     }
-    if (jointDrag) { jointDrag.lastX = point.x; jointDrag.lastY = point.y; }
+    if (jointDrag) { jointDrag.lastX = jointPoint.x; jointDrag.lastY = jointPoint.y; }
   };
 
   const endInteraction = (event?: PointerEvent) => {
@@ -453,7 +526,7 @@ export function enablePointerInput(
       const selected = interaction.additive ? new Set(options.getSelection().jointIds) : new Set<string>();
       for (const joint of options.state.rig.joints) {
         if (joint.isVirtual || !joint.guideVisible) continue;
-        const world = projectPoint(options.state.rig, getJointWorldTransform(options.state.rig, joint.id), joint.depth ?? 0);
+        const world = projectPoint(options.state.rig, getJointWorldTransform(options.state.rig, joint.id), joint.z ?? 0);
         if (world.x >= left && world.x <= right && world.y >= top && world.y <= bottom) selected.add(joint.id);
       }
       const selectedShapes = interaction.additive ? new Set(options.getSelectedShapeIds?.() ?? []) : new Set<string>();
@@ -480,7 +553,7 @@ export function enablePointerInput(
     zoomAt(event.deltaY > 0 ? 1.12 : 0.89, toSvgPoint(element, event));
   };
   const onContextMenu = (event: MouseEvent) => {
-    if (options.getLayerToolActive()) event.preventDefault();
+    event.preventDefault();
   };
   const onKeyDown = (event: KeyboardEvent) => {
     const target = event.target;
@@ -567,14 +640,14 @@ function toSvgPoint(element: SVGSVGElement, event: MouseEvent | PointerEvent | W
 function getFaceDepth(rig: RigState["rig"], faceId: string): number {
   const face = rig.faces.find((candidate) => candidate.id === faceId);
   if (!face) return 0;
-  return face.vertices.reduce((total, vertex) => total + (rig.joints.find((joint) => joint.id === vertex.jointId)?.depth ?? 0), 0) / face.vertices.length;
+  return face.vertices.reduce((total, vertex) => total + (rig.joints.find((joint) => joint.id === vertex.jointId)?.z ?? 0), 0) / face.vertices.length;
 }
 
 function getPeerDepth(rig: RigState["rig"], peerGroupId: string): number {
   const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
   if (!group) return 0;
-  if (group.centerJointId) return rig.joints.find((joint) => joint.id === group.centerJointId)?.depth ?? 0;
-  return group.jointIds.reduce((total, id) => total + (rig.joints.find((joint) => joint.id === id)?.depth ?? 0), 0) / group.jointIds.length;
+  if (group.centerJointId) return rig.joints.find((joint) => joint.id === group.centerJointId)?.z ?? 0;
+  return group.jointIds.reduce((total, id) => total + (rig.joints.find((joint) => joint.id === id)?.z ?? 0), 0) / group.jointIds.length;
 }
 
 function getShapeDepth(rig: RigState["rig"], shapeId: string, vertexId?: string): number {
@@ -585,7 +658,7 @@ function getShapeDepth(rig: RigState["rig"], shapeId: string, vertexId?: string)
   return vertices.reduce((sum, vertex) => {
     const jointId = vertex.source === "axis-point" || vertex.source === "joint-center" ? vertex.jointId
       : vertex.source === "root" ? vertex.rootJointId : null;
-    return sum + (jointId ? rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0 : 0);
+    return sum + (jointId ? rig.joints.find((joint) => joint.id === jointId)?.z ?? 0 : 0);
   }, 0) / vertices.length;
 }
 
@@ -598,7 +671,7 @@ export function getArtShapeIdsInMarquee(
     const points = shape.vertices.map((vertex) => {
       const jointId = vertex.source === "axis-point" || vertex.source === "joint-center" ? vertex.jointId
         : vertex.source === "root" ? vertex.rootJointId : null;
-      const depth = jointId ? rig.joints.find((joint) => joint.id === jointId)?.depth ?? 0 : 0;
+      const depth = jointId ? rig.joints.find((joint) => joint.id === jointId)?.z ?? 0 : 0;
       return projectPoint(rig, getArtShapeVertexPoint(rig, vertex), depth);
     });
     if (!points.length) return [];
