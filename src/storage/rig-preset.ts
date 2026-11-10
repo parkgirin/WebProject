@@ -23,7 +23,7 @@ export interface RigPreset {
   version: 2;
   createdAt: string;
   rigTemplate: typeof HUMAN_RIG_TEMPLATE_ID;
-  pose?: { projectionStrength?: number; viewYRotation?: number; joints: CompactJointPose[] };
+  pose?: { perspectiveEnabled?: boolean; projectionStrength?: number; viewYRotation?: number; joints: CompactJointPose[] };
   proportions?: { joints: CompactJointProportions[] };
   colors?: {
     defaultColor: string;
@@ -40,6 +40,7 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
   assertHumanRig(rig);
   const preset: RigPreset = { format: "pose-mesh-editor", version: 2, createdAt: new Date().toISOString(), rigTemplate: HUMAN_RIG_TEMPLATE_ID };
   if (parts.pose) preset.pose = {
+    perspectiveEnabled: rig.perspectiveEnabled !== false,
     projectionStrength: rig.projectionStrength,
     viewYRotation: rig.viewYRotation,
     joints: rig.joints.map((joint, index): CompactJointPose => [index, joint.x, joint.y, joint.localRotation, joint.z,
@@ -107,6 +108,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       applied.push("비율");
     }
     if (parts.pose && preset.pose) {
+      if (typeof preset.pose.perspectiveEnabled === "boolean") state.setPerspectiveEnabled(preset.pose.perspectiveEnabled);
       if (isFiniteNumber(preset.pose.projectionStrength)) state.setProjectionStrength(preset.pose.projectionStrength);
       if (isFiniteNumber(preset.pose.viewYRotation)) state.setViewYRotation(preset.pose.viewYRotation);
       for (const [jointId, value] of poseEntries(preset)) if (jointId) {
@@ -153,7 +155,8 @@ function assertHumanRig(rig: Rig): void {
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function isFiniteNumber(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value); }
 function isPose(value: unknown): boolean {
-  return isRecord(value) && (value.projectionStrength === undefined || isFiniteNumber(value.projectionStrength))
+  return isRecord(value) && (value.perspectiveEnabled === undefined || typeof value.perspectiveEnabled === "boolean")
+    && (value.projectionStrength === undefined || isFiniteNumber(value.projectionStrength))
     && (value.viewYRotation === undefined || isFiniteNumber(value.viewYRotation))
     && isCompactEntries(value.joints, 6, (entry) => entry.slice(0, 5).every(isFiniteNumber) && Array.isArray(entry[5])
       && entry[5].every(isFiniteNumber) && (entry[6] === undefined || isFiniteNumber(entry[6])));

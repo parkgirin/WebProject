@@ -5,7 +5,7 @@ import { renderInspector } from "../src/editor/inspector.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
-import { getJointWorldTransform } from "../src/rig/geometry.ts";
+import { getJointParentWorldTransform, getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
 const close = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
@@ -19,14 +19,14 @@ const distance = (state: RigState, a: string, b: string) => {
 test("setting parent-child distance moves the child subtree along its existing direction and supports undo", () => {
   const state = new RigState(createDefaultRig());
   const original = structuredClone(state.rig);
-  const anchor = position(state, "left-shoulder");
+  const anchor = getJointParentWorldTransform(state.rig, "left-elbow")!;
   const elbow = position(state, "left-elbow");
   const wrist = position(state, "left-wrist");
-  const before = distance(state, "left-shoulder", "left-elbow");
+  const before = Math.hypot(state.getJoint("left-elbow").x, state.getJoint("left-elbow").y);
   state.setJointDistance("left-elbow", "left-shoulder", before * 1.5);
   const nextElbow = position(state, "left-elbow");
   const nextWrist = position(state, "left-wrist");
-  close(distance(state, "left-shoulder", "left-elbow"), before * 1.5);
+  close(Math.hypot(state.getJoint("left-elbow").x, state.getJoint("left-elbow").y), before * 1.5);
   close(nextElbow.x - anchor.x, (elbow.x - anchor.x) * 1.5);
   close(nextElbow.y - anchor.y, (elbow.y - anchor.y) * 1.5);
   close(nextWrist.x - wrist.x, nextElbow.x - elbow.x);
@@ -34,7 +34,7 @@ test("setting parent-child distance moves the child subtree along its existing d
   state.undo();
   assert.deepEqual(state.rig, original);
   state.redo();
-  close(distance(state, "left-shoulder", "left-elbow"), before * 1.5);
+  close(Math.hypot(state.getJoint("left-elbow").x, state.getJoint("left-elbow").y), before * 1.5);
 });
 
 test("peer distance holds the other joint fixed; invalid and unrelated distances are ignored", () => {
@@ -77,6 +77,21 @@ test("peer group distance moves both joints symmetrically and preserves their mi
   close(distance(state, "left-shoulder", "right-shoulder"), 200);
 });
 
+test("peer groups toggle their virtual capsule without changing joint transforms", () => {
+  const state = new RigState(createDefaultRig());
+  const before = state.rig.peerGroups.find((group) => group.id === "shoulder-band")!;
+  assert.equal(before.virtualCapsule, true);
+  const left = position(state, "left-shoulder");
+  const right = position(state, "right-shoulder");
+
+  state.setPeerGroupVirtualCapsule("shoulder-band", false);
+  assert.equal(before.virtualCapsule, false);
+  assert.deepEqual(position(state, "left-shoulder"), left);
+  assert.deepEqual(position(state, "right-shoulder"), right);
+  state.undo();
+  assert.equal(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.virtualCapsule, true);
+});
+
 test("distance fields appear only for actual parent, child or peer relationships", () => {
   const rig = createDefaultRig();
   const isolated = structuredClone(rig.joints.find((joint) => joint.id === "head")!);
@@ -92,8 +107,12 @@ test("distance fields appear only for actual parent, child or peer relationships
   render("left-shoulder");
   assert.match(element.innerHTML, /부모 chest/);
   assert.match(element.innerHTML, /자식 left-elbow/);
-  assert.match(element.innerHTML, /shoulder-band 동등 관계/);
+  assert.match(element.innerHTML, /shoulder-band 가상 캡슐/);
   assert.match(element.innerHTML, /data-peer-distance="shoulder-band"/);
+  assert.match(element.innerHTML, /data-peer-capsule="shoulder-band" checked/);
+  assert.match(element.innerHTML, /data-peer-distance-range="shoulder-band"/);
+  assert.match(element.innerHTML, /캡슐 길이/);
+  assert.match(element.innerHTML, /data-peer-distance-step="10" data-peer-group="shoulder-band"/);
   assert.match(element.innerHTML, /data-distance-moving="left-elbow" data-distance-anchor="left-shoulder"/);
   render("left-hip");
   assert.match(element.innerHTML, /data-peer-center-offset-x="hip-band"/);

@@ -67,6 +67,15 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
     if (startJoint.sideRadius !== undefined && endJoint.sideRadius !== undefined) {
       joint.sideRadius = lerp(startJoint.sideRadius, endJoint.sideRadius, t);
     }
+    if (joint.capsuleFlatLengths) {
+      for (const axis of joint.capsuleFlatAxes ?? []) {
+        const startLength = startJoint.capsuleFlatLengths?.[axis];
+        const endLength = endJoint.capsuleFlatLengths?.[axis];
+        if (startLength !== undefined && endLength !== undefined) {
+          joint.capsuleFlatLengths[axis] = lerp(startLength, endLength, t);
+        }
+      }
+    }
     joint.bodyVisible = t < 1 ? startJoint.bodyVisible : endJoint.bodyVisible;
     joint.color = interpolateColor(resolveJointColor(start, startJoint.id), resolveJointColor(end, endJoint.id), t);
     delete joint.paletteId;
@@ -256,7 +265,9 @@ function assertCompatibleRig(start: Rig, end: Rig): void {
   const endJoints = new Map(end.joints.map((joint) => [joint.id, joint]));
   for (const joint of start.joints) {
     const other = endJoints.get(joint.id);
-    if (!other || joint.parentJointId !== other.parentJointId || joint.axes.length !== other.axes.length
+    if (!other || joint.parentJointId !== other.parentJointId
+      || JSON.stringify(joint.parentAnchor ?? null) !== JSON.stringify(other.parentAnchor ?? null)
+      || joint.axes.length !== other.axes.length
       || joint.axes.some((axis) => !other.axes.some((candidate) => candidate.id === axis.id))) {
       throw new Error("키프레임의 관절·축 구조가 일치하지 않습니다.");
     }

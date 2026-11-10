@@ -56,6 +56,46 @@ export interface JointWorldTransform extends Point {
   rotation: number;
 }
 
+/** Resolve a peer-aligned capsule end without turning it into another joint. */
+export function getJointCapsuleEndWorldPoint(
+  rig: Rig,
+  jointId: string,
+  role: "inner" | "outer",
+): Point {
+  const joint = rig.joints.find((candidate) => candidate.id === jointId);
+  if (!joint) throw new Error(`Unknown joint: ${jointId}`);
+  const center = getJointWorldTransform(rig, joint.id);
+  const group = rig.peerGroups.find((candidate) => candidate.jointIds.length === 2
+    && candidate.jointIds.includes(joint.id));
+  const otherId = group?.jointIds.find((candidate) => candidate !== joint.id);
+  const other = otherId ? getJointWorldTransform(rig, otherId) : null;
+  const axis = joint.capsuleFlatAxes?.length === 1 ? joint.capsuleFlatAxes[0] : null;
+  const length = axis ? joint.capsuleFlatLengths?.[axis] ?? 0 : 0;
+  if (!other || !length || (joint.capsuleFlatAlignment !== "peer-inward"
+    && joint.capsuleFlatAlignment !== "peer-outward")) return center;
+  const dx = other.x - center.x;
+  const dy = other.y - center.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1e-9) return center;
+  const derivedRole = joint.capsuleFlatAlignment === "peer-inward" ? "inner" : "outer";
+  if (role !== derivedRole) return center;
+  const direction = joint.capsuleFlatAlignment === "peer-inward" ? 1 : -1;
+  return {
+    x: center.x + dx / distance * length * direction,
+    y: center.y + dy / distance * length * direction,
+  };
+}
+
+/** The transform origin inherited by a child, including a derived parent end. */
+export function getJointParentWorldTransform(rig: Rig, jointId: string): JointWorldTransform | null {
+  const joint = rig.joints.find((candidate) => candidate.id === jointId);
+  if (!joint?.parentJointId) return null;
+  const parent = getJointWorldTransform(rig, joint.parentJointId);
+  if (joint.parentAnchor?.type !== "capsule-end") return parent;
+  const point = getJointCapsuleEndWorldPoint(rig, joint.parentJointId, joint.parentAnchor.role);
+  return { ...point, rotation: parent.rotation };
+}
+
 export const PROJECTION_ORIGIN: Point = { x: 300, y: 390 };
 
 function worldRotate(rig: Rig, point: Point, z: number): Point3 {
@@ -84,6 +124,7 @@ function worldUnrotate(rig: Rig, point: Point3): Point3 {
  * separate from Joint.radius preserves the editable rig proportions.
  */
 export function getProjectionScale(rig: Rig, cameraZ = 0): number {
+  if (rig.perspectiveEnabled === false) return 1;
   const strength = Number.isFinite(rig.projectionStrength) ? rig.projectionStrength : 0;
   return Math.min(1.5, Math.max(0.5, 1 + cameraZ * strength / 10_000));
 }
@@ -131,7 +172,10 @@ export function getCameraFacingLimbSurface(
 
   const startWorld = getJointWorldTransform(rig, startJointId);
   const endWorld = getJointWorldTransform(rig, endJointId);
-  const startModel: Point3 = { x: startWorld.x, y: startWorld.y, z: startJoint.z };
+  const attachedStart = endJoint.parentJointId === startJoint.id && endJoint.parentAnchor?.type === "capsule-end"
+    ? getJointCapsuleEndWorldPoint(rig, startJoint.id, endJoint.parentAnchor.role)
+    : startWorld;
+  const startModel: Point3 = { x: attachedStart.x, y: attachedStart.y, z: startJoint.z };
   const endModel: Point3 = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
   const start = worldRotate(rig, startModel, startModel.z);
   const end = worldRotate(rig, endModel, endModel.z);
@@ -301,8 +345,11 @@ export function getJointWorldTransform(
   }
 
   resolving.add(jointId);
-  const parent = getJointWorldTransform(rig, joint.parentJointId, resolving);
+  const parentJoint = getJointWorldTransform(rig, joint.parentJointId, resolving);
   resolving.delete(jointId);
+  const parent = joint.parentAnchor?.type === "capsule-end"
+    ? { ...getJointCapsuleEndWorldPoint(rig, joint.parentJointId, joint.parentAnchor.role), rotation: parentJoint.rotation }
+    : parentJoint;
   const radians = (parent.rotation * Math.PI) / 180;
   return {
     x: parent.x + Math.cos(radians) * joint.x - Math.sin(radians) * joint.y,
@@ -327,11 +374,16 @@ export function getAxisPoint(
   side: AxisPointSide,
 ): Point {
   const world = getJointWorldTransform(rig, joint.id);
+  const attachedChild = axis.alignment === "child-perpendicular"
+    ? rig.joints.find((candidate) => candidate.parentJointId === joint.id
+      && candidate.parentAnchor?.type === "capsule-end")
+    : undefined;
+  const origin = attachedChild ? getJointParentWorldTransform(rig, attachedChild.id) ?? world : world;
   const radians = (getAxisWorldAngle(rig, joint, axis) * Math.PI) / 180;
 
   return {
-    x: world.x + Math.cos(radians) * (axis.length ?? joint.radius) * side,
-    y: world.y + Math.sin(radians) * (axis.length ?? joint.radius) * side,
+    x: origin.x + Math.cos(radians) * (axis.length ?? joint.radius) * side,
+    y: origin.y + Math.sin(radians) * (axis.length ?? joint.radius) * side,
   };
 }
 

@@ -8,7 +8,7 @@ export interface JointAxis {
   pointSides: AxisPointSide[];
   /** Derives the axis from a connection direction or a reference-axis tangent. */
   alignment?: "parent-perpendicular" | "parent-parallel" | "parent-peer-perpendicular" | "parent-peer-parallel"
-    | "reference-axis-outer-tangent";
+    | "child-perpendicular" | "reference-axis-outer-tangent";
   /** Reference-axis endpoint and this axis endpoint used by tangent alignment. */
   referenceAxisId?: string;
   referenceAxisSide?: AxisPointSide;
@@ -26,6 +26,8 @@ export interface Joint {
   localRotationX?: number;
   localRotationY?: number;
   parentJointId?: string;
+  /** Optional derived point on the parent used as this joint's transform origin. */
+  parentAnchor?: { type: "capsule-end"; role: "outer" };
   /** Optional reference for automatically aligned axes, independent of the transform parent. */
   axisReferenceJointId?: string;
   /** Non-body transform control, such as a pelvis or scene pivot. */
@@ -38,6 +40,12 @@ export interface Joint {
   /** Up to two local axes can expose a flat capsule/rounded-rect span. */
   capsuleFlatAxes?: Array<"x" | "y" | "z">;
   capsuleFlatLengths?: Partial<Record<"x" | "y" | "z", number>>;
+  /**
+   * A peer-aligned capsule keeps this joint at one sphere and derives the
+   * other sphere toward or away from the paired joint. Omitted capsules
+   * remain centred on the joint transform.
+   */
+  capsuleFlatAlignment?: "peer-inward" | "peer-outward";
   /** Optional radius used at a full left or right side view (±90°). */
   sideRadius?: number;
   /** Local Z coordinate. Positive values are closer to the viewer. */
@@ -100,6 +108,8 @@ export interface PeerGroup {
   jointIds: string[];
   /** Optional virtual parent used as the group's rotation center. */
   centerJointId?: string;
+  /** Draw the two member spheres and their camera-facing bridge as one derived capsule. */
+  virtualCapsule?: boolean;
 }
 
 export interface JointPointRef {
@@ -115,6 +125,8 @@ export type FaceRotationTarget =
 export interface Face {
   id: string;
   vertices: JointPointRef[];
+  /** Procedural surfaces retain face styling/selection without authored axis endpoints. */
+  proceduralSurface?: "torso" | "peer-capsule" | "waist-hip";
   /**
    * Renders this face from the camera-facing great circles of the two joint
    * spheres. The authored axis points remain available for editing and for
@@ -186,6 +198,8 @@ export type ElementLayerVisibility = Record<ElementLayerId, boolean>;
 
 export interface Rig {
   defaultColor: string;
+  /** False uses orthographic size while retaining camera rotation and depth ordering. Defaults to true. */
+  perspectiveEnabled?: boolean;
   /** 0..100: how strongly camera-space Z affects the rendered 2.5D projection. */
   projectionStrength: number;
   /** -180..180: camera rotation around the canvas' vertical (Y) axis. */

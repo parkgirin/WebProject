@@ -70,7 +70,8 @@ test("circle shapes render from one centre, and the default head follows its hea
 test("axis-point polygon vertices follow an extended endpoint while retaining local offsets", () => {
   const state = new RigState(createDefaultRig());
   const head = state.getJoint("head");
-  const axis = head.axes[0];
+  const axisId = state.addAxis(head.id);
+  const axis = head.axes.find((candidate) => candidate.id === axisId)!;
   state.setAxisLength(head.id, axis.id, 90);
   const endpoint = getAxisPoint(state.rig, head, axis, 1);
   const shape = state.getArtShape(state.addPolygon([
@@ -107,7 +108,8 @@ test("compatible polygon vertices and colors interpolate without changing their 
 test("presets round-trip polygon geometry and axis bindings", () => {
   const source = new RigState(createDefaultRig());
   const head = source.getJoint("head");
-  const axis = head.axes[0];
+  const axisId = source.addAxis(head.id);
+  const axis = head.axes.find((candidate) => candidate.id === axisId)!;
   const endpoint = getAxisPoint(source.rig, head, axis, 1);
   const polygonId = source.addPolygon([
     { ...endpoint, axisPoint: { jointId: head.id, axisId: axis.id, side: 1 } },
@@ -142,7 +144,8 @@ test("an existing polygon vertex can bind, snap and unbind while preserving the 
   const vertex = shape.vertices[0];
   const original = getArtShapeVertexPoint(state.rig, vertex);
   const head = state.getJoint("head");
-  const axis = head.axes[0];
+  const axisId = state.addAxis(head.id);
+  const axis = head.axes.find((candidate) => candidate.id === axisId)!;
 
   state.bindArtShapeVertexToAxis(shape.id, vertex.id, head.id, axis.id, 1, false);
   assert.deepEqual(getArtShapeVertexPoint(state.rig, shape.vertices[0]), original);
@@ -158,10 +161,10 @@ test("an existing polygon vertex can bind, snap and unbind while preserving the 
 test("new art axes expose configurable endpoints and protect endpoints used by polygons", () => {
   const state = new RigState(createDefaultRig());
   const head = state.getJoint("right-hip");
-  assert.equal(head.axes.length, 3);
+  assert.equal(head.axes.length, 1);
   const axisId = state.addAxis(head.id);
   const axis = head.axes.find((candidate) => candidate.id === axisId)!;
-  assert.equal(head.axes.length, 4);
+  assert.equal(head.axes.length, 2);
   assert.deepEqual(axis.pointSides, [-1, 1]);
   assert.equal(axis.length, head.radius);
 
@@ -182,7 +185,7 @@ test("new art axes expose configurable endpoints and protect endpoints used by p
   assert.equal(restored.rig.artShapes?.find((shape) => shape.id === shapeId)?.vertices[0].source, "axis-point");
 });
 
-test("a body face can be promoted to an art polygon with the same axis references and appearance", () => {
+test("a procedural body face can be promoted to a root-bound art polygon", () => {
   const state = new RigState(createDefaultRig());
   const face = state.getFace("torso");
   face.color = "#123456";
@@ -192,16 +195,16 @@ test("a body face can be promoted to an art polygon with the same axis reference
   assert.equal(shape.color, face.color);
   assert.equal(shape.groupId, face.groupId);
   assert.equal(shape.layerOrder, state.getFaceLayerOrder(face.id) + 1);
-  assert.deepEqual(shape.vertices.map((vertex) => vertex.source === "axis-point"
-    ? { jointId: vertex.jointId, axisId: vertex.axisId, side: vertex.side }
-    : null), face.vertices);
+  assert.equal(shape.vertices.length, 4);
+  assert.ok(shape.vertices.every((vertex) => vertex.source === "root"));
 });
 
 test("thick line segments retain endpoint bindings and interpolate their width", () => {
   const start = createDefaultRig();
   const state = new RigState(start);
   const head = state.getJoint("head");
-  const axis = head.axes[0];
+  const axisId = state.addAxis(head.id);
+  const axis = head.axes.find((candidate) => candidate.id === axisId)!;
   const endpoint = getAxisPoint(state.rig, head, axis, 1);
   const line = state.getArtShape(state.addLine([
     { ...endpoint, axisPoint: { jointId: head.id, axisId: axis.id, side: 1 } },

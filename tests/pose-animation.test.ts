@@ -46,10 +46,47 @@ test("pose animation files reject duplicate frames and invalid rigs", () => {
   assert.throws(() => parsePoseAnimationFile(JSON.stringify(malformed)), /형식/);
 });
 
+test("legacy animation keys gain shoulder capsules without changing their poses", () => {
+  const rig = createDefaultRig();
+  const left = rig.joints.find((joint) => joint.id === "left-shoulder")!;
+  const elbow = rig.joints.find((joint) => joint.id === "left-elbow")!;
+  const original = { x: left.x, y: left.y, localRotation: left.localRotation };
+  delete elbow.parentAnchor;
+  const originalElbow = structuredClone(elbow);
+  delete rig.joints.find((joint) => joint.id === "right-elbow")!.parentAnchor;
+  for (const id of ["left-shoulder", "right-shoulder"]) {
+    const shoulder = rig.joints.find((joint) => joint.id === id)!;
+    delete shoulder.surfaceProfileId;
+    delete shoulder.surfaceScale;
+    delete shoulder.capsuleFlatAxes;
+    delete shoulder.capsuleFlatLengths;
+    delete shoulder.capsuleFlatAlignment;
+  }
+  const file = createPoseAnimationFile({
+    id: "legacy",
+    name: "이전 애니메이션",
+    fps: 12,
+    keys: [createPoseKey("a", "A", 0, rig)],
+  });
+
+  const restored = parsePoseAnimationFile(JSON.stringify(file)).clip.keys[0].rig;
+  const restoredLeft = restored.joints.find((joint) => joint.id === "left-shoulder")!;
+
+  assert.equal(restoredLeft.capsuleFlatAlignment, "peer-outward");
+  assert.equal(restoredLeft.capsuleFlatLengths?.x, restoredLeft.radius);
+  assert.deepEqual({ x: restoredLeft.x, y: restoredLeft.y, localRotation: restoredLeft.localRotation }, original);
+  const restoredElbow = restored.joints.find((joint) => joint.id === "left-elbow")!;
+  assert.deepEqual(restoredElbow.parentAnchor, { type: "capsule-end", role: "outer" });
+  assert.equal(restoredElbow.x - restoredLeft.radius, originalElbow.x);
+  assert.equal(restoredElbow.y, originalElbow.y);
+});
+
 test("pose animation files reject keyframes with a different joint hierarchy", () => {
   const first = createDefaultRig();
   const second = structuredClone(first);
-  second.joints.find((joint) => joint.id === "left-elbow")!.parentJointId = "chest";
+  const reparentedElbow = second.joints.find((joint) => joint.id === "left-elbow")!;
+  reparentedElbow.parentJointId = "chest";
+  delete reparentedElbow.parentAnchor;
   const file = createPoseAnimationFile({
     id: "clip",
     name: "클립",

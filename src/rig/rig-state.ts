@@ -12,8 +12,10 @@ import {
 import {
   getAxisPoint,
   getArtShapeVertexPoint,
+  getCameraFacingLimbSurface,
   getCircleTangentPoints,
   getJointWorldTransform,
+  getJointParentWorldTransform,
   getPeerGroupCentroid,
   getPeerGroupPivot,
   normalizeAngle,
@@ -36,12 +38,13 @@ export function normalizeRigZCoordinates(rig: Rig): void {
 
 /**
  * Upgrades the stock limb faces in documents saved before their rendered
- * boundary became camera-facing. It deliberately recognizes only the eight
- * canonical ids, leaving custom faces and their authored axis endpoints
+ * boundary became camera-facing. It deliberately recognizes only the stock
+ * neck and limb ids, leaving custom faces and their authored axis endpoints
  * untouched.
  */
 export function normalizeCameraFacingLimbFaces(rig: Rig): void {
   const endpoints: Record<string, readonly [string, string]> = {
+    neck: ["chest", "head"],
     "left-upper-arm": ["left-shoulder", "left-elbow"],
     "left-lower-arm": ["left-elbow", "left-wrist"],
     "right-upper-arm": ["right-shoulder", "right-elbow"],
@@ -61,7 +64,103 @@ export function normalizeCameraFacingLimbFaces(rig: Rig): void {
   }
 }
 
-/** Adds the generic waist profile to documents created before profiles existed. */
+/** Upgrades the stock shoulder pair to the derived virtual-capsule surface. */
+export function normalizePeerGroupCapsules(rig: Rig): void {
+  const shoulderGroup = rig.peerGroups.find((group) => group.id === "shoulder-band");
+  if (shoulderGroup?.jointIds.includes("left-shoulder")
+    && shoulderGroup.jointIds.includes("right-shoulder")
+    && shoulderGroup.virtualCapsule === undefined) {
+    shoulderGroup.virtualCapsule = true;
+  }
+
+  const hipGroup = rig.peerGroups.find((group) => group.id === "hip-band");
+  const canonicalHips = hipGroup?.jointIds.length === 2
+    && hipGroup.jointIds.includes("left-hip") && hipGroup.jointIds.includes("right-hip");
+  if (!canonicalHips || !hipGroup) return;
+  hipGroup.virtualCapsule ??= true;
+  if (!hipGroup.virtualCapsule) return;
+
+  // The capsule and its procedural waist bridge supersede the old tangent
+  // construction. Keep only the upper-leg section used by the thigh connection.
+  for (const jointId of hipGroup.jointIds) {
+    const hip = rig.joints.find((joint) => joint.id === jointId);
+    if (!hip) continue;
+    hip.axes = hip.axes.filter((axis) => axis.id !== "pelvis-horizontal" && axis.id !== "pelvis-vertical");
+    if (hip.axisReferenceJointId === "waist") delete hip.axisReferenceJointId;
+  }
+  const waist = rig.joints.find((joint) => joint.id === "waist");
+  if (waist) waist.axes = waist.axes.filter((axis) => axis.id !== "pelvis");
+  const legacyPelvisFaces = new Set(["pelvis", "left-pelvis-triangle", "right-pelvis-triangle"]);
+  rig.faces = rig.faces.filter((face) => !legacyPelvisFaces.has(face.id));
+  if (!rig.faces.some((face) => face.id === "waist-hip")) {
+    rig.faces.push({
+      id: "waist-hip", proceduralSurface: "waist-hip",
+      rotationTarget: { type: "peer", peerGroupId: hipGroup.id, referenceJointId: "left-hip" },
+      groupId: "torso", layerOrder: 19, vertices: [], orderOffset: 0,
+    });
+  }
+}
+
+/**
+ * Stock connection surfaces are procedural, so each joint keeps only the axis
+ * that controls its own child connection. Shape vertices bound to a removed
+ * legacy axis are rebased to the model root before the axis is discarded.
+ */
+export function normalizeConnectionControlAxes(rig: Rig): void {
+  const allowedAxes: Record<string, readonly string[]> = {
+    waist: ["upper-torso"], chest: ["neck"], head: [],
+    "left-shoulder": ["upper-arm"], "right-shoulder": ["upper-arm"],
+    "left-elbow": ["lower-arm"], "right-elbow": ["lower-arm"],
+    "left-wrist": [], "right-wrist": [],
+    "left-hip": ["upper-leg"], "right-hip": ["upper-leg"],
+    "left-knee": ["lower-leg"], "right-knee": ["lower-leg"],
+    "left-ankle": [], "right-ankle": [],
+  };
+  if (!Object.keys(allowedAxes).every((jointId) => rig.joints.some((joint) => joint.id === jointId))) return;
+
+  const root = rig.joints.find((joint) => joint.id === "scene-root") ?? rig.joints.find((joint) => !joint.parentJointId);
+  const rootWorld = root ? getJointWorldTransform(rig, root.id) : { x: 0, y: 0, rotation: 0 };
+  const radians = rootWorld.rotation * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  for (const shape of rig.artShapes ?? []) {
+    shape.vertices = shape.vertices.map((vertex) => {
+      if (vertex.source !== "axis-point") return vertex;
+      const allowed = allowedAxes[vertex.jointId];
+      if (!allowed || allowed.includes(vertex.axisId) || vertex.axisId.startsWith("art-axis-")) return vertex;
+      const point = getArtShapeVertexPoint(rig, vertex);
+      const dx = point.x - rootWorld.x;
+      const dy = point.y - rootWorld.y;
+      return {
+        id: vertex.id, source: "root" as const, rootJointId: root?.id ?? "scene-root",
+        x: cosine * dx + sine * dy,
+        y: -sine * dx + cosine * dy,
+      };
+    });
+  }
+  for (const [jointId, allowed] of Object.entries(allowedAxes)) {
+    const joint = rig.joints.find((candidate) => candidate.id === jointId)!;
+    joint.axes = joint.axes.filter((axis) => allowed.includes(axis.id) || axis.id.startsWith("art-axis-"));
+    for (const axis of joint.axes) {
+      if (allowed.includes(axis.id)) axis.alignment = "child-perpendicular";
+    }
+  }
+
+  const proceduralFaceIds = new Set([
+    "neck", "shoulder-band", "torso", "waist-hip",
+    "left-upper-arm", "left-lower-arm", "right-upper-arm", "right-lower-arm",
+    "left-upper-leg", "left-lower-leg", "right-upper-leg", "right-lower-leg",
+  ]);
+  for (const face of rig.faces) {
+    if (!proceduralFaceIds.has(face.id)) continue;
+    face.vertices = [];
+    if (face.id === "shoulder-band") face.proceduralSurface = "peer-capsule";
+    if (face.id === "torso") face.proceduralSurface = "torso";
+    if (face.id === "waist-hip") face.proceduralSurface = "waist-hip";
+  }
+}
+
+/** Adds the stock capsule profiles to documents created before profiles existed. */
 export function normalizeSurfaceProfiles(rig: Rig): void {
   const profiles = rig.surfaceProfiles ??= [];
   for (const profile of profiles) if (profile.id === "waist-flat") profile.id = "rounded-rect";
@@ -73,15 +172,62 @@ export function normalizeSurfaceProfiles(rig: Rig): void {
     ] });
   }
   const waist = rig.joints.find((joint) => joint.id === "waist");
-  if (!waist) return;
-  waist.surfaceProfileId ??= "rounded-rect";
-  if (!waist.surfaceScale) {
-    const limbRadius = rig.joints.find((joint) => joint.id === "left-shoulder")?.radius ?? waist.radius;
-    waist.surfaceScale = { x: 1, y: 1, z: limbRadius / waist.radius };
+  if (waist) {
+    waist.surfaceProfileId ??= "rounded-rect";
+    if (!waist.surfaceScale) {
+      const limbRadius = rig.joints.find((joint) => joint.id === "left-shoulder")?.radius ?? waist.radius;
+      waist.surfaceScale = { x: 1, y: 1, z: limbRadius / waist.radius };
+    }
+    waist.capsuleFlatAxes ??= ["x"];
+    waist.capsuleFlatLengths ??= { x: waist.radius };
+    waist.capsuleFlatLengths.x ??= waist.radius;
+    // Older documents stored the front half-width in radius and reduced only Z
+    // for the side view. Rebase that depth to the actual capsule radius while
+    // retaining the intended front width through the flat X span.
+    if (Math.abs(waist.surfaceScale.z - 1) > 1e-9) {
+      const frontHalfWidth = waist.radius * waist.surfaceScale.x;
+      const sideRadius = waist.radius * waist.surfaceScale.z;
+      waist.radius = sideRadius;
+      waist.surfaceScale = { x: 1, y: 1, z: 1 };
+      waist.capsuleFlatLengths.x = Math.max(0, (frontHalfWidth - sideRadius) * 2);
+    }
   }
-  waist.capsuleFlatAxes ??= ["x"];
-  waist.capsuleFlatLengths ??= { x: waist.radius };
-  waist.capsuleFlatLengths.x ??= waist.radius;
+
+  const shoulderGroup = rig.peerGroups.find((group) => group.id === "shoulder-band"
+    && group.jointIds.length === 2
+    && group.jointIds.includes("left-shoulder") && group.jointIds.includes("right-shoulder"));
+  if (shoulderGroup) {
+    const shoulderChildren: Record<string, string> = {
+      "left-shoulder": "left-elbow", "right-shoulder": "right-elbow",
+    };
+    const childSnapshots = shoulderGroup.jointIds.flatMap((jointId) => {
+      const joint = rig.joints.find((candidate) => candidate.id === shoulderChildren[jointId]
+        && candidate.parentJointId === jointId && !candidate.parentAnchor);
+      return joint ? [{ joint, world: getJointWorldTransform(rig, joint.id) }] : [];
+    });
+    for (const jointId of shoulderGroup.jointIds) {
+      const shoulder = rig.joints.find((joint) => joint.id === jointId);
+      if (!shoulder) continue;
+      shoulder.surfaceProfileId ??= "rounded-rect";
+      shoulder.surfaceScale ??= { x: 1, y: 1, z: 1 };
+      shoulder.capsuleFlatAxes ??= ["x"];
+      shoulder.capsuleFlatLengths ??= {};
+      shoulder.capsuleFlatLengths.x ??= shoulder.radius;
+      shoulder.capsuleFlatAlignment = "peer-outward";
+    }
+    for (const { joint, world } of childSnapshots) {
+      joint.parentAnchor = { type: "capsule-end", role: "outer" };
+      const parent = getJointParentWorldTransform(rig, joint.id);
+      if (!parent) continue;
+      const radians = -parent.rotation * Math.PI / 180;
+      const dx = world.x - parent.x;
+      const dy = world.y - parent.y;
+      joint.x = Math.cos(radians) * dx - Math.sin(radians) * dy;
+      joint.y = Math.sin(radians) * dx + Math.cos(radians) * dy;
+      const percent = joint.distancePercent && joint.distancePercent > 1e-9 ? joint.distancePercent : 100;
+      joint.baseDistance = Math.hypot(joint.x, joint.y) / (percent / 100);
+    }
+  }
 }
 
 export interface PolygonDraftPoint {
@@ -109,6 +255,9 @@ export function validateRig(
   }
   if (!Number.isFinite(rig.projectionStrength) || rig.projectionStrength < 0 || rig.projectionStrength > 100) {
     errors.push(`Projection strength must be between 0 and 100: ${rig.projectionStrength}`);
+  }
+  if (rig.perspectiveEnabled !== undefined && typeof rig.perspectiveEnabled !== "boolean") {
+    errors.push("Perspective enabled must be boolean");
   }
   if (!Number.isFinite(rig.viewYRotation) || rig.viewYRotation < -180 || rig.viewYRotation > 180) {
     errors.push(`View Y rotation must be between -180 and 180: ${rig.viewYRotation}`);
@@ -175,6 +324,14 @@ export function validateRig(
     if (joint.bodyRadius !== undefined && !(joint.bodyRadius > 0)) {
       errors.push(`Joint body radius must be positive: ${joint.id}`);
     }
+    if (joint.capsuleFlatAlignment !== undefined && joint.capsuleFlatAlignment !== "peer-inward"
+      && joint.capsuleFlatAlignment !== "peer-outward") {
+      errors.push(`Invalid capsule flat alignment: ${joint.id}`);
+    }
+    if (joint.parentAnchor !== undefined
+      && (joint.parentAnchor.type !== "capsule-end" || joint.parentAnchor.role !== "outer")) {
+      errors.push(`Invalid parent anchor: ${joint.id}`);
+    }
     if (joint.color !== undefined && !isHexColor(joint.color)) {
       errors.push(`Invalid joint color: ${joint.id}.${joint.color}`);
     }
@@ -210,6 +367,13 @@ export function validateRig(
   for (const joint of rig.joints) {
     if (joint.parentJointId && !jointIds.has(joint.parentJointId)) {
       errors.push(`Unknown parent joint: ${joint.id}.${joint.parentJointId}`);
+    }
+    if (joint.parentAnchor && !joint.parentJointId) errors.push(`Parent anchor needs a parent joint: ${joint.id}`);
+    if (joint.parentAnchor && joint.parentJointId) {
+      const parent = rig.joints.find((candidate) => candidate.id === joint.parentJointId);
+      if (parent && (!parent.capsuleFlatAlignment || parent.capsuleFlatAxes?.length !== 1)) {
+        errors.push(`Parent anchor needs a peer-aligned capsule: ${joint.id}.${parent.id}`);
+      }
     }
     if (joint.axisReferenceJointId && !jointIds.has(joint.axisReferenceJointId)) errors.push(`Unknown axis reference joint: ${joint.id}.${joint.axisReferenceJointId}`);
     for (const axis of joint.axes) {
@@ -259,6 +423,12 @@ export function validateRig(
       if (!center?.isVirtual) errors.push(`Peer center must be a virtual joint: ${group.id}.${group.centerJointId}`);
       if (members.has(group.centerJointId)) errors.push(`Peer center cannot be a member: ${group.id}`);
     }
+    if (group.virtualCapsule !== undefined && typeof group.virtualCapsule !== "boolean") {
+      errors.push(`Peer virtual capsule must be boolean: ${group.id}`);
+    }
+    if (group.virtualCapsule && group.jointIds.length !== 2) {
+      errors.push(`Peer virtual capsule needs exactly two joints: ${group.id}`);
+    }
   }
 
   for (const face of rig.faces) {
@@ -279,6 +449,11 @@ export function validateRig(
     }
     if (face.groupId && !groupIds.has(face.groupId)) {
       errors.push(`Unknown face layer group: ${face.id}.${face.groupId}`);
+    }
+    if (face.proceduralSurface !== undefined
+      && face.proceduralSurface !== "torso" && face.proceduralSurface !== "peer-capsule"
+      && face.proceduralSurface !== "waist-hip") {
+      errors.push(`Invalid procedural face surface: ${face.id}`);
     }
     if (face.cameraFacingLimb) {
       for (const jointId of [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]) {
@@ -406,7 +581,10 @@ export class RigState {
     normalizeRigZCoordinates(rig);
     normalizeBodyViewProfiles(rig);
     normalizeCameraFacingLimbFaces(rig);
+    normalizePeerGroupCapsules(rig);
+    normalizeConnectionControlAxes(rig);
     normalizeSurfaceProfiles(rig);
+    rig.perspectiveEnabled ??= true;
     rig.artShapes ??= [];
     rig.artCompositeGroups ??= [];
     rig.elementLayers ??= { joints: true, axes: true, faces: true, shapes: true };
@@ -533,13 +711,21 @@ export class RigState {
     let index = 1;
     let id = `${face.id}-shape-${index}`;
     while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `${face.id}-shape-${++index}`;
-    const vertices: ArtShapeVertex[] = face.vertices.map((vertex, vertexIndex) => ({
-      id: `vertex-${vertexIndex + 1}`,
-      source: "axis-point",
-      ...vertex,
-      offsetX: 0,
-      offsetY: 0,
-    }));
+    const rootJointId = this.rig.joints.some((joint) => joint.id === "scene-root") ? "scene-root" : this.rig.joints[0].id;
+    const proceduralPoints = this.getProceduralFacePoints(face);
+    const vertices: ArtShapeVertex[] = proceduralPoints
+      ? proceduralPoints.map((point, vertexIndex) => ({
+        id: `vertex-${vertexIndex + 1}`, source: "root", rootJointId,
+        ...this.worldToLocal(rootJointId, point.x, point.y),
+      }))
+      : face.vertices.map((vertex, vertexIndex) => ({
+        id: `vertex-${vertexIndex + 1}`,
+        source: "axis-point",
+        ...vertex,
+        offsetX: 0,
+        offsetY: 0,
+      }));
+    if (vertices.length < 3) throw new Error("도형으로 변환할 수 없는 연결 면입니다.");
     this.rig.artShapes ??= [];
     this.rig.artShapes.push({
       id,
@@ -1000,6 +1186,14 @@ export class RigState {
     this.notify();
   }
 
+  /** Toggle a derived capsule bridge without changing either member joint. */
+  public setPeerGroupVirtualCapsule(peerGroupId: string, enabled: boolean): void {
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group || group.jointIds.length !== 2 || group.virtualCapsule === enabled) return;
+    group.virtualCapsule = enabled;
+    this.notify();
+  }
+
   /** Return the virtual pivot offset in peer-axis coordinates: X along first-to-second, Y perpendicular. */
   public getPeerCenterOffset(peerGroupId: string): { x: number; y: number } | null {
     const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
@@ -1117,6 +1311,10 @@ export class RigState {
 
     const world = getJointWorldTransform(this.rig, jointId);
     joint.parentJointId = parentJointId ?? undefined;
+    // A capsule-end anchor belongs to the previous parent. Reparenting keeps
+    // the joint's world pose, but must not carry that endpoint binding onto an
+    // unrelated joint.
+    delete joint.parentAnchor;
     this.setJointWorldPosition(joint, world.x, world.y);
     const parentRotation = parentJointId
       ? getJointWorldTransform(this.rig, parentJointId).rotation
@@ -1172,7 +1370,8 @@ export class RigState {
   public rotateChildAroundParent(jointId: string, worldAngle: number): void {
     const joint = this.getJoint(jointId);
     if (!joint.parentJointId) return;
-    const parent = getJointWorldTransform(this.rig, joint.parentJointId);
+    const parent = getJointParentWorldTransform(this.rig, joint.id);
+    if (!parent) return;
     const current = getJointWorldTransform(this.rig, jointId);
     const currentAngle = Math.atan2(current.y - parent.y, current.x - parent.x) * 180 / Math.PI;
     const delta = worldAngle - currentAngle;
@@ -1222,7 +1421,8 @@ export class RigState {
     const target = this.getFaceRotationTarget(faceId);
     if (!target) return null;
     if (target.type === "child") {
-      const parent = getJointWorldTransform(this.rig, target.parentJointId);
+      const parent = getJointParentWorldTransform(this.rig, target.childJointId);
+      if (!parent) return null;
       const child = getJointWorldTransform(this.rig, target.childJointId);
       return normalizeAngle(Math.atan2(child.y - parent.y, child.x - parent.x) * 180 / Math.PI);
     }
@@ -1281,6 +1481,9 @@ export class RigState {
   public setJointCapsuleFlatAxis(jointId: string, axis: "x" | "y" | "z", enabled: boolean): void {
     const joint = this.getJoint(jointId);
     const axes = new Set(joint.capsuleFlatAxes ?? []);
+    const anchorsChild = this.rig.joints.some((candidate) => candidate.parentJointId === joint.id
+      && candidate.parentAnchor?.type === "capsule-end");
+    if (anchorsChild && (!enabled || !axes.has(axis))) return;
     if (enabled) { if (axes.size >= 2) return; axes.add(axis); } else axes.delete(axis);
     joint.capsuleFlatAxes = [...axes];
     joint.capsuleFlatLengths ??= {};
@@ -1293,6 +1496,7 @@ export class RigState {
     const joint = this.getJoint(jointId);
     joint.capsuleFlatLengths ??= {};
     joint.capsuleFlatLengths[axis] = value;
+    this.alignOutgoingConnectionAxes(joint.id);
     this.notify();
   }
 
@@ -1348,6 +1552,11 @@ export class RigState {
   public setProjectionStrength(strength: number): void {
     if (!Number.isFinite(strength)) return;
     this.rig.projectionStrength = Math.min(100, Math.max(0, strength));
+    this.notify();
+  }
+
+  public setPerspectiveEnabled(enabled: boolean): void {
+    this.rig.perspectiveEnabled = enabled;
     this.notify();
   }
 
@@ -1495,7 +1704,7 @@ export class RigState {
   public getFaceLayerOrder(faceId: string): number {
     const face = this.getFace(faceId);
     if (face.layerOrder !== undefined) return face.layerOrder;
-    const jointIds = [...new Set(face.vertices.map((vertex) => vertex.jointId))];
+    const jointIds = getFaceJointIds(this.rig, face);
     const total = jointIds.reduce((sum, jointId) => sum + this.getJoint(jointId).renderOrder, 0);
     return total / Math.max(jointIds.length, 1) + face.orderOffset;
   }
@@ -1621,7 +1830,7 @@ export class RigState {
     const assignedFaces = new Set(assignments.filter(({ entry }) => entry.type === "face").map(({ entry }) => entry.id));
     for (const face of this.rig.faces) {
       if (face.layerOrder === undefined && !assignedFaces.has(face.id)
-        && face.vertices.some((vertex) => movedJoints.has(vertex.jointId))) {
+        && getFaceJointIds(this.rig, face).some((jointId) => movedJoints.has(jointId))) {
         face.layerOrder = this.getFaceLayerOrder(face.id);
       }
     }
@@ -1775,7 +1984,7 @@ export class RigState {
     if (!axis) {
       throw new Error(`Unknown axis: ${jointId}.${axisId}`);
     }
-    if (axis.alignment) return;
+    if (axis.alignment && axis.alignment !== "child-perpendicular") return;
     const currentWorldAngle = normalizeAngle(
       getJointWorldTransform(this.rig, jointId).rotation + axis.angle,
     );
@@ -1789,7 +1998,8 @@ export class RigState {
     }
     const connectionChild = this.findAxisConnectionChild(jointId, axisId);
     if (connectionChild?.parentJointId) {
-      const parent = getJointWorldTransform(this.rig, connectionChild.parentJointId);
+      const parent = getJointParentWorldTransform(this.rig, connectionChild.id);
+      if (!parent) return;
       const child = getJointWorldTransform(this.rig, connectionChild.id);
       const currentAngle = Math.atan2(child.y - parent.y, child.x - parent.x) * 180 / Math.PI;
       this.rotateChildAroundParent(connectionChild.id, currentAngle + delta);
@@ -1887,6 +2097,65 @@ export class RigState {
     ];
   }
 
+  private getProceduralFacePoints(face: Rig["faces"][number]): Array<{ x: number; y: number }> | null {
+    if (face.cameraFacingLimb) {
+      return getCameraFacingLimbSurface(this.rig, face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId)
+        ?.points.map(({ x, y }) => ({ x, y })) ?? null;
+    }
+    if (face.proceduralSurface === "peer-capsule" && face.rotationTarget.type === "peer") {
+      const peerGroupId = face.rotationTarget.peerGroupId;
+      const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+      if (!group || group.jointIds.length !== 2) return null;
+      return getCameraFacingLimbSurface(this.rig, group.jointIds[0], group.jointIds[1])
+        ?.points.map(({ x, y }) => ({ x, y })) ?? null;
+    }
+    if (face.proceduralSurface === "waist-hip") {
+      const waist = this.getJoint("waist");
+      const left = this.getJoint("left-hip");
+      const right = this.getJoint("right-hip");
+      const waistCenter = getJointWorldTransform(this.rig, waist.id);
+      const leftCenter = getJointWorldTransform(this.rig, left.id);
+      const rightCenter = getJointWorldTransform(this.rig, right.id);
+      const waistScale = waist.surfaceScale ?? { x: 1, y: 1, z: 1 };
+      const waistWidth = waist.radius * waistScale.x
+        + ((waist.capsuleFlatAxes ?? []).includes("x") ? (waist.capsuleFlatLengths?.x ?? 0) / 2 : 0);
+      const angle = waistCenter.rotation * Math.PI / 180;
+      const offset = { x: Math.cos(angle) * waistWidth, y: Math.sin(angle) * waistWidth };
+      const hipDx = rightCenter.x - leftCenter.x;
+      const hipDy = rightCenter.y - leftCenter.y;
+      const hipLength = Math.hypot(hipDx, hipDy);
+      const hipAxis = hipLength > 1e-9 ? { x: hipDx / hipLength, y: hipDy / hipLength } : { x: 1, y: 0 };
+      return [
+        { x: waistCenter.x - offset.x, y: waistCenter.y - offset.y },
+        { x: waistCenter.x + offset.x, y: waistCenter.y + offset.y },
+        { x: rightCenter.x + hipAxis.x * right.radius, y: rightCenter.y + hipAxis.y * right.radius },
+        { x: leftCenter.x - hipAxis.x * left.radius, y: leftCenter.y - hipAxis.y * left.radius },
+      ];
+    }
+    if (face.proceduralSurface !== "torso") return null;
+    const waist = this.getJoint("waist");
+    const left = this.getJoint("left-shoulder");
+    const right = this.getJoint("right-shoulder");
+    const waistCenter = getJointWorldTransform(this.rig, waist.id);
+    const leftCenter = getJointWorldTransform(this.rig, left.id);
+    const rightCenter = getJointWorldTransform(this.rig, right.id);
+    const dx = rightCenter.x - leftCenter.x;
+    const dy = rightCenter.y - leftCenter.y;
+    const length = Math.hypot(dx, dy);
+    const normal = length > 1e-9 ? { x: -dy / length, y: dx / length } : { x: 0, y: 1 };
+    const waistScale = waist.surfaceScale ?? { x: 1, y: 1, z: 1 };
+    const waistWidth = waist.radius * waistScale.x
+      + ((waist.capsuleFlatAxes ?? []).includes("x") ? (waist.capsuleFlatLengths?.x ?? 0) / 2 : 0);
+    const angle = waistCenter.rotation * Math.PI / 180;
+    const offset = { x: Math.cos(angle) * waistWidth, y: Math.sin(angle) * waistWidth };
+    return [
+      { x: leftCenter.x + normal.x * left.radius, y: leftCenter.y + normal.y * left.radius },
+      { x: rightCenter.x + normal.x * right.radius, y: rightCenter.y + normal.y * right.radius },
+      { x: waistCenter.x + offset.x, y: waistCenter.y + offset.y },
+      { x: waistCenter.x - offset.x, y: waistCenter.y - offset.y },
+    ];
+  }
+
   private worldToLocal(jointId: string, x: number, y: number): { x: number; y: number } {
     const joint = getJointWorldTransform(this.rig, jointId);
     const radians = -joint.rotation * Math.PI / 180;
@@ -1929,7 +2198,8 @@ export class RigState {
       joint.y = y;
       return;
     }
-    const parent = getJointWorldTransform(this.rig, joint.parentJointId);
+    const parent = getJointParentWorldTransform(this.rig, joint.id);
+    if (!parent) return;
     const radians = (-parent.rotation * Math.PI) / 180;
     const relativeX = x - parent.x;
     const relativeY = y - parent.y;
@@ -1959,9 +2229,14 @@ export class RigState {
   }
 
   private findAxisConnectionChild(jointId: string, axisId: string) {
+    const joint = this.getJoint(jointId);
+    const isPrimaryControlAxis = joint.axes.find((axis) => !axis.id.startsWith("art-axis-"))?.id === axisId;
     const matchesAxis = (face: Rig["faces"][number]) => face.vertices.some(
       (vertex) => vertex.jointId === jointId && vertex.axisId === axisId,
-    );
+    ) || (isPrimaryControlAxis && (
+      face.cameraFacingLimb?.startJointId === jointId
+      || face.proceduralSurface === "torso" && jointId === "waist"
+    ));
     const outgoing = this.rig.faces.find((face) => {
       if (face.rotationTarget.type !== "child" || !matchesAxis(face)) return false;
       return this.getJoint(face.rotationTarget.childJointId).parentJointId === jointId;
@@ -1979,9 +2254,14 @@ export class RigState {
 
   private alignDirectConnectionAxes(childJointId: string): void {
     const child = this.getJoint(childJointId);
-    if (!child.parentJointId) return;
+    if (!child.parentJointId) {
+      this.alignOutgoingConnectionAxes(child.id);
+      return;
+    }
     const parent = this.getJoint(child.parentJointId);
-    const parentWorld = getJointWorldTransform(this.rig, child.axisReferenceJointId ?? parent.id);
+    const parentWorld = child.axisReferenceJointId
+      ? getJointWorldTransform(this.rig, child.axisReferenceJointId)
+      : getJointParentWorldTransform(this.rig, child.id) ?? getJointWorldTransform(this.rig, parent.id);
     const childWorld = getJointWorldTransform(this.rig, child.id);
     const connectionWorldAngle = Math.atan2(
       childWorld.y - parentWorld.y,
@@ -2062,6 +2342,26 @@ export class RigState {
         axis.angle = normalizeAngle(crossSectionWorldAngle - endpointWorld.rotation);
       }
     }
+    this.alignOutgoingConnectionAxes(parent.id);
+    this.alignOutgoingConnectionAxes(child.id);
+  }
+
+  /** Keep a child-control handle on the same cross-section as its procedural face. */
+  private alignOutgoingConnectionAxes(jointId: string): void {
+    const joint = this.getJoint(jointId);
+    const jointWorld = getJointWorldTransform(this.rig, joint.id);
+    for (const axis of joint.axes) {
+      if (axis.alignment !== "child-perpendicular") continue;
+      const child = this.findAxisConnectionChild(joint.id, axis.id);
+      if (!child || child.parentJointId !== joint.id) continue;
+      const connectionOrigin = getJointParentWorldTransform(this.rig, child.id) ?? jointWorld;
+      const childWorld = getJointWorldTransform(this.rig, child.id);
+      const connectionWorldAngle = Math.atan2(
+        childWorld.y - connectionOrigin.y,
+        childWorld.x - connectionOrigin.x,
+      ) * 180 / Math.PI;
+      axis.angle = normalizeAngle(connectionWorldAngle - 90 - jointWorld.rotation);
+    }
   }
 
   private alignShoulderBandAxes(): void {
@@ -2109,13 +2409,18 @@ export class RigState {
   private rotateSharedParentAxes(parentJointId: string, childJointId: string, delta: number): void {
     const sharedAxisIds = new Set<string>();
     for (const face of this.rig.faces) {
-      const jointIds = new Set(face.vertices.map((vertex) => vertex.jointId));
+      const jointIds = new Set(getFaceJointIds(this.rig, face));
       const reachesRotatedBranch = [...jointIds].some(
         (jointId) => jointId === childJointId || this.isDescendant(jointId, childJointId),
       );
       if (!jointIds.has(parentJointId) || !reachesRotatedBranch) continue;
       for (const vertex of face.vertices) {
         if (vertex.jointId === parentJointId) sharedAxisIds.add(vertex.axisId);
+      }
+      if (face.cameraFacingLimb?.startJointId === parentJointId
+        || face.proceduralSurface === "torso" && parentJointId === "waist") {
+        const controlAxis = this.getJoint(parentJointId).axes.find((axis) => !axis.id.startsWith("art-axis-"));
+        if (controlAxis) sharedAxisIds.add(controlAxis.id);
       }
     }
 
@@ -2126,6 +2431,19 @@ export class RigState {
       }
     }
   }
+}
+
+function getFaceJointIds(rig: Rig, face: Rig["faces"][number]): string[] {
+  if (face.cameraFacingLimb) {
+    return [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId];
+  }
+  if (face.proceduralSurface === "peer-capsule" && face.rotationTarget.type === "peer") {
+    const peerGroupId = face.rotationTarget.peerGroupId;
+    return [...(rig.peerGroups.find((group) => group.id === peerGroupId)?.jointIds ?? [])];
+  }
+  if (face.proceduralSurface === "torso") return ["left-shoulder", "right-shoulder", "waist"];
+  if (face.proceduralSurface === "waist-hip") return ["waist", "left-hip", "right-hip"];
+  return [...new Set(face.vertices.map((vertex) => vertex.jointId))];
 }
 
 function isHexColor(value: string): boolean {

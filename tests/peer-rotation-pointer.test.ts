@@ -66,3 +66,40 @@ for (const groupId of ["shoulder-band", "hip-band"]) {
     }
   });
 }
+
+test("clicking a virtual capsule selects both peer joints instead of its legacy face", () => {
+  const state = new RigState(createDefaultRig());
+  const hostEvents = new Map<string, (event: any) => void>();
+  const host = {
+    addEventListener: (name: string, fn: (event: any) => void) => hostEvents.set(name, fn),
+    removeEventListener: () => {}, createSVGPoint: () => ({ x: 0, y: 0 }), getScreenCTM: () => null,
+    classList: { toggle: () => {}, remove: () => {} },
+  } as unknown as SVGSVGElement;
+  let selected: { jointId: string | null; axisId: string | null; jointIds: string[] } | null = null;
+  let selectedFace: string | null = null;
+  const originalWindow = globalThis.window;
+  Object.assign(globalThis, { window: { addEventListener: () => {}, removeEventListener: () => {} } });
+  try {
+    const controller = enablePointerInput(host, {
+      state, getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
+      getPreserveProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
+      setSelection: (selection) => { selected = selection; }, setSelectedFace: (faceId) => { selectedFace = faceId; },
+    });
+
+    hostEvents.get("pointerdown")!({
+      button: 0, clientX: 300, clientY: 224,
+      target: {
+        dataset: { peerGroupId: "shoulder-band", faceId: "shoulder-band" },
+        hasAttribute: (name: string) => name === "data-peer-capsule",
+      },
+      preventDefault: () => {},
+    });
+
+    assert.deepEqual(selected?.jointIds, ["left-shoulder", "right-shoulder"]);
+    assert.equal(selectedFace, null);
+    controller.destroy();
+  } finally {
+    if (originalWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else Object.assign(globalThis, { window: originalWindow });
+  }
+});

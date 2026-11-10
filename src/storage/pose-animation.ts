@@ -1,5 +1,5 @@
 import { addPoseKey, createPoseKey, type PoseClip } from "../rig/pose-interpolation.ts";
-import { normalizeRigZCoordinates, validateRig } from "../rig/rig-state.ts";
+import { normalizeRigZCoordinates, normalizeSurfaceProfiles, validateRig } from "../rig/rig-state.ts";
 import { normalizeBodyViewProfiles, type Rig } from "../rig/types.ts";
 
 export interface PoseAnimationFile {
@@ -53,6 +53,7 @@ export function parsePoseAnimationFile(text: string): PoseAnimationFile {
     const rig = sourceKey.rig as unknown as Rig;
     normalizeRigZCoordinates(rig);
     normalizeBodyViewProfiles(rig);
+    normalizeSurfaceProfiles(rig);
     rig.artShapes ??= [];
     let errors: string[];
     try {

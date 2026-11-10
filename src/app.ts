@@ -29,7 +29,12 @@ import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./e
 import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
-import { createWorkspaceCache, loadWorkspaceCache, saveWorkspaceCache } from "./storage/workspace-cache.ts";
+import {
+  createWorkspaceCache,
+  createWorkspaceSourceRevision,
+  loadWorkspaceCacheForSource,
+  saveWorkspaceCache,
+} from "./storage/workspace-cache.ts";
 import {
   addPoseKey,
   advancePosePlayback,
@@ -45,8 +50,15 @@ import type { Rig } from "./rig/types.ts";
 import type { EditorSelection, EditorViewState } from "./editor/types.ts";
 
 export function createApp(container: HTMLDivElement): void {
-  const restoredWorkspace = loadWorkspaceCache();
-  const state = new RigState(restoredWorkspace?.rig ?? createDefaultRig());
+  const defaultRig = createDefaultRig();
+  const sourceRevision = createWorkspaceSourceRevision({
+    defaultRig,
+    bodyPresets: FILE_BODY_PRESETS,
+    posePresets: FILE_POSE_PRESETS,
+  });
+  const workspaceLoad = loadWorkspaceCacheForSource(sourceRevision);
+  const restoredWorkspace = workspaceLoad.cache;
+  const state = new RigState(restoredWorkspace?.rig ?? defaultRig);
   let selection: EditorSelection = {
     jointId: "right-elbow",
     axisId: "upper-arm",
@@ -161,6 +173,7 @@ export function createApp(container: HTMLDivElement): void {
             <section class="world-transform-panel" data-world-panel aria-label="월드 회전 제어">
               <header><strong>월드 좌표 · 회전</strong><button type="button" data-hide-world-panel aria-label="월드 회전 패널 숨기기">×</button></header>
               <div class="world-axis-guide" aria-label="월드 좌표축 안내"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg><span>우클릭: X/Y<br /><small>Alt+우클릭: Z</small></span></div>
+              <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
               <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
             </section>
           </div>
@@ -327,9 +340,16 @@ export function createApp(container: HTMLDivElement): void {
   const workspaceCacheStatus = requireElement<HTMLElement>(container, "[data-workspace-cache-status]");
   if (restoredWorkspace) {
     workspaceCacheStatus.textContent = `자동 저장 작업 복원됨 · ${new Date(restoredWorkspace.savedAt).toLocaleString()}`;
+  } else if (workspaceLoad.dataRevisionChanged) {
+    const savedAt = workspaceLoad.previousSavedAt
+      ? ` · ${new Date(workspaceLoad.previousSavedAt).toLocaleString()}` : "";
+    workspaceCacheStatus.textContent = workspaceLoad.backupSaved
+      ? `호환되지 않는 데이터 버전 적용됨 · 이전 자동 저장 백업됨${savedAt}`
+      : `호환되지 않는 데이터 버전 적용됨 · 이전 자동 저장은 복원하지 않음${savedAt}`;
   }
   const globalAxisInputs = [...container.querySelectorAll<HTMLInputElement>("[data-global-axis]")];
   const globalAxisNumbers = [...container.querySelectorAll<HTMLInputElement>("[data-global-axis-number]")];
+  const perspectiveEnabledInput = requireElement<HTMLInputElement>(container, "[data-perspective-enabled]");
   const worldPanel = requireElement<HTMLElement>(container, "[data-world-panel]");
   const worldPanelToggle = requireElement<HTMLButtonElement>(container, "[data-toggle-world-panel]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
@@ -421,7 +441,7 @@ export function createApp(container: HTMLDivElement): void {
   let workspaceCacheTimer: number | null = null;
   const persistWorkspaceCache = () => {
     const cache = createWorkspaceCache(state.rig, poseClip, Math.round(poseFrame), selectedPoseKeyId,
-      interpolationPreviewActive, posePresets, bodyPresets);
+      interpolationPreviewActive, posePresets, bodyPresets, sourceRevision);
     if (saveWorkspaceCache(cache)) {
       workspaceCacheStatus.textContent = `자동 저장됨 · ${new Date(cache.savedAt).toLocaleTimeString()}`;
     } else {
@@ -529,6 +549,7 @@ export function createApp(container: HTMLDivElement): void {
     }
     for (const input of globalAxisInputs) { const axis = input.dataset.globalAxis as "x" | "y" | "z"; input.value = String(toSignedAngle(state.getGlobalAxisRotation(axis))); }
     for (const input of globalAxisNumbers) { const axis = input.dataset.globalAxisNumber as "x" | "y" | "z"; input.value = state.getGlobalAxisRotation(axis).toFixed(0); }
+    perspectiveEnabledInput.checked = state.rig.perspectiveEnabled !== false;
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
@@ -1146,6 +1167,7 @@ export function createApp(container: HTMLDivElement): void {
   }));
   globalAxisInputs.forEach((input) => input.addEventListener("change", () => { delete input.dataset.historyActive; state.endHistoryTransaction(); }));
   globalAxisNumbers.forEach((input) => input.addEventListener("change", () => state.setGlobalAxisRotation(input.dataset.globalAxisNumber as "x" | "y" | "z", input.valueAsNumber)));
+  perspectiveEnabledInput.addEventListener("change", () => state.setPerspectiveEnabled(perspectiveEnabledInput.checked));
   container.querySelectorAll<HTMLButtonElement>("[data-reset-global-axis]").forEach((button) => {
     button.addEventListener("click", () => {
       const axis = button.dataset.resetGlobalAxis as "x" | "y" | "z";

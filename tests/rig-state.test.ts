@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
-import { getAxisPoint, getAxisWorldAngle, getCircleTangentPoints, getJointViewRadius, getJointWorldTransform, getPeerGroupCentroid, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisWorldAngle, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const closeTo = (actual: number, expected: number, message?: string) => {
@@ -22,6 +22,19 @@ test("depth projection scales around the canvas centre and remains invertible", 
   closeTo(projected.x, 420);
   closeTo(projected.y, 522);
   assert.deepEqual(unprojectPoint(rig, projected, 40), { x: 400, y: 500 });
+});
+
+test("perspective can be disabled without disabling camera rotation", () => {
+  const rig = createDefaultRig();
+  rig.projectionStrength = 100;
+  rig.perspectiveEnabled = false;
+  assert.equal(getProjectionScale(rig, 80), 1);
+  assert.deepEqual(projectPoint(rig, { x: 400, y: 500 }, 80), { x: 400, y: 500 });
+
+  rig.viewYRotation = 90;
+  const rotated = projectPoint(rig, { x: 400, y: 500 }, 80);
+  closeTo(rotated.x, 380);
+  closeTo(rotated.y, 500);
 });
 
 test("Y-axis view rotation interpolates X into depth and remains invertible", () => {
@@ -50,14 +63,89 @@ test("side radius interpolates from front to side without mutating the base rig"
   const waist = rig.joints.find((joint) => joint.id === "waist")!;
   waist.sideRadius = 24;
   rig.viewYRotation = 45;
-  assert.equal(waist.radius, getAvatarProportionPreset(DEFAULT_AVATAR_PRESET_ID)!.waistRadius);
-  assert.equal(getJointViewRadius(rig, waist), 42);
+  assert.equal(waist.radius, getAvatarProportionPreset(DEFAULT_AVATAR_PRESET_ID)!.armRadius);
+  assert.equal(getJointViewRadius(rig, waist), 27);
   rig.viewYRotation = 90;
   assert.equal(getJointViewRadius(rig, waist), 24);
 });
 
+test("legacy waist width migrates to a side-sized capsule radius without changing its front width", () => {
+  const rig = createDefaultRig();
+  const waist = rig.joints.find((joint) => joint.id === "waist")!;
+  waist.radius = 60;
+  waist.surfaceScale = { x: 1, y: 1, z: .5 };
+  waist.capsuleFlatAxes = ["x"];
+  waist.capsuleFlatLengths = { x: 60 };
+
+  const state = new RigState(rig);
+  const migrated = state.getJoint("waist");
+  assert.equal(migrated.radius, 30);
+  assert.deepEqual(migrated.surfaceScale, { x: 1, y: 1, z: 1 });
+  assert.equal(migrated.capsuleFlatLengths?.x, 60);
+  assert.equal(migrated.radius + migrated.capsuleFlatLengths!.x! / 2, 60);
+});
+
+test("legacy stock shoulders migrate to outward capsules without moving the current arm pose", () => {
+  const rig = createDefaultRig();
+  const elbowBefore = structuredClone(rig.joints.find((joint) => joint.id === "left-elbow")!);
+  delete rig.joints.find((joint) => joint.id === "left-elbow")!.parentAnchor;
+  delete rig.joints.find((joint) => joint.id === "right-elbow")!.parentAnchor;
+  for (const id of ["left-shoulder", "right-shoulder"]) {
+    const shoulder = rig.joints.find((joint) => joint.id === id)!;
+    delete shoulder.surfaceProfileId;
+    delete shoulder.surfaceScale;
+    delete shoulder.capsuleFlatAxes;
+    delete shoulder.capsuleFlatLengths;
+    delete shoulder.capsuleFlatAlignment;
+  }
+  const before = rig.joints
+    .filter((joint) => joint.id.endsWith("shoulder"))
+    .map((joint) => ({ id: joint.id, x: joint.x, y: joint.y }));
+
+  const state = new RigState(rig);
+
+  for (const shoulder of rig.joints.filter((joint) => joint.id.endsWith("shoulder"))) {
+    assert.equal(shoulder.surfaceProfileId, "rounded-rect");
+    assert.deepEqual(shoulder.capsuleFlatAxes, ["x"]);
+    assert.equal(shoulder.capsuleFlatLengths?.x, shoulder.radius);
+    assert.equal(shoulder.capsuleFlatAlignment, "peer-outward");
+  }
+  assert.deepEqual(rig.joints
+    .filter((joint) => joint.id.endsWith("shoulder"))
+    .map((joint) => ({ id: joint.id, x: joint.x, y: joint.y })), before);
+  const elbowAfter = state.getJoint("left-elbow");
+  assert.deepEqual(elbowAfter.parentAnchor, { type: "capsule-end", role: "outer" });
+  assert.equal(elbowAfter.x - state.getJoint("left-shoulder").radius, elbowBefore.x);
+  assert.equal(elbowAfter.y, elbowBefore.y);
+});
+
+test("shoulder capsule length moves only the anchored arm while keeping torso width", () => {
+  const state = new RigState(createDefaultRig());
+  const shoulderBefore = getJointWorldTransform(state.rig, "left-shoulder");
+  const elbowBefore = getJointWorldTransform(state.rig, "left-elbow");
+  const wristBefore = getJointWorldTransform(state.rig, "left-wrist");
+  const rightElbowBefore = getJointWorldTransform(state.rig, "right-elbow");
+  const peerDistance = state.getPeerGroupDistance("shoulder-band");
+  const localElbow = { x: state.getJoint("left-elbow").x, y: state.getJoint("left-elbow").y };
+
+  state.setJointCapsuleFlatLength("left-shoulder", "x", 60);
+
+  const shoulderAfter = getJointWorldTransform(state.rig, "left-shoulder");
+  const elbowAfter = getJointWorldTransform(state.rig, "left-elbow");
+  const wristAfter = getJointWorldTransform(state.rig, "left-wrist");
+  assert.deepEqual(shoulderAfter, shoulderBefore);
+  assert.equal(state.getPeerGroupDistance("shoulder-band"), peerDistance);
+  assert.deepEqual({ x: state.getJoint("left-elbow").x, y: state.getJoint("left-elbow").y }, localElbow);
+  closeTo(elbowAfter.x, elbowBefore.x - 30);
+  closeTo(elbowAfter.y, elbowBefore.y);
+  closeTo(wristAfter.x, wristBefore.x - 30);
+  closeTo(wristAfter.y, wristBefore.y);
+  assert.deepEqual(getJointWorldTransform(state.rig, "right-elbow"), rightElbowBefore);
+});
+
 test("joint depth and projection strength are bounded and undoable", () => {
   const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
   state.setJointZ("head", 200);
   state.setProjectionStrength(-1);
   state.setViewYRotation(240);
@@ -66,6 +154,10 @@ test("joint depth and projection strength are bounded and undoable", () => {
   assert.equal(state.rig.viewYRotation, 180);
   state.undo();
   assert.equal(state.rig.viewYRotation, 0);
+  state.undo();
+  state.undo();
+  state.undo();
+  assert.equal(state.rig.perspectiveEnabled, true);
 });
 
 test("validation reports broken references, duplicate axes, and parent cycles", () => {
@@ -75,7 +167,7 @@ test("validation reports broken references, duplicate axes, and parent cycles", 
   waist.parentJointId = "chest";
   chest.parentJointId = "waist";
   waist.axes.push({ ...waist.axes[0], pointSides: [...waist.axes[0].pointSides] });
-  rig.faces[0].vertices[0].axisId = "missing-axis";
+  rig.faces[0].vertices = [{ jointId: "head", axisId: "missing-axis", side: 1 }];
 
   const errors = validateRig(rig);
 
@@ -86,7 +178,7 @@ test("validation reports broken references, duplicate axes, and parent cycles", 
 
 test("rotating a child connection moves its descendant subtree and leaves the opposite limb unchanged", () => {
   const state = new RigState(createDefaultRig());
-  const shoulder = getJointWorldTransform(state.rig, "left-shoulder");
+  const shoulder = getJointParentWorldTransform(state.rig, "left-elbow")!;
   const elbowBefore = getJointWorldTransform(state.rig, "left-elbow");
   const wristBefore = getJointWorldTransform(state.rig, "left-wrist");
   const rightElbowBefore = getJointWorldTransform(state.rig, "right-elbow");
@@ -128,13 +220,21 @@ test("independent joint movement keeps direct children at their current world po
 test("changing a parent preserves world pose and rejects cyclic parenting", () => {
   const state = new RigState(createDefaultRig());
   const before = getJointWorldTransform(state.rig, "left-wrist");
+  const elbowBefore = getJointWorldTransform(state.rig, "left-elbow");
 
   state.setParentJoint("left-wrist", "waist");
+  state.setParentJoint("left-elbow", "waist");
 
   const after = getJointWorldTransform(state.rig, "left-wrist");
+  const elbowAfter = getJointWorldTransform(state.rig, "left-elbow");
   closeTo(after.x, before.x);
   closeTo(after.y, before.y);
   closeTo(after.rotation, before.rotation);
+  closeTo(elbowAfter.x, elbowBefore.x);
+  closeTo(elbowAfter.y, elbowBefore.y);
+  closeTo(elbowAfter.rotation, elbowBefore.rotation);
+  assert.equal(state.getJoint("left-elbow").parentAnchor, undefined);
+  assert.deepEqual(validateRig(state.rig), []);
   assert.throws(() => state.setParentJoint("waist", "left-wrist"), /descendant/i);
 });
 
@@ -154,8 +254,7 @@ test("constrained multi-selection applies the same angle to each connection, inc
   const state = new RigState(createDefaultRig());
   const ids = ["left-wrist", "right-elbow", "left-elbow"];
   const before = new Map(ids.map((id) => {
-    const joint = state.getJoint(id);
-    const parent = getJointWorldTransform(state.rig, joint.parentJointId!);
+    const parent = getJointParentWorldTransform(state.rig, id)!;
     const world = getJointWorldTransform(state.rig, id);
     return [id, { dx: world.x - parent.x, dy: world.y - parent.y }];
   }));
@@ -164,7 +263,7 @@ test("constrained multi-selection applies the same angle to each connection, inc
   state.moveJointsConstrainedBy(ids, 90, 0, 0);
   state.endHistoryTransaction();
   for (const id of ids) {
-    const parent = getJointWorldTransform(state.rig, state.getJoint(id).parentJointId!);
+    const parent = getJointParentWorldTransform(state.rig, id)!;
     const world = getJointWorldTransform(state.rig, id);
     const vector = before.get(id)!;
     closeTo(world.x - parent.x, -vector.dy, id);
@@ -174,7 +273,7 @@ test("constrained multi-selection applies the same angle to each connection, inc
   assert.deepEqual(state.rig, original);
   state.redo();
   const elbow = getJointWorldTransform(state.rig, "left-elbow");
-  const shoulder = getJointWorldTransform(state.rig, "left-shoulder");
+  const shoulder = getJointParentWorldTransform(state.rig, "left-elbow")!;
   closeTo(elbow.x - shoulder.x, -before.get("left-elbow")!.dy);
 });
 
@@ -193,109 +292,126 @@ test("constrained multi-selection moves a selected root once and preserves child
     Math.hypot(childBefore.x - rootBefore.x, childBefore.y - rootBefore.y));
 });
 
-function assertShoulderBandPerpendicular(state: RigState) {
-  const left = getJointWorldTransform(state.rig, "left-shoulder");
-  const right = getJointWorldTransform(state.rig, "right-shoulder");
-  const dx = right.x - left.x;
-  const dy = right.y - left.y;
-  for (const id of ["left-shoulder", "right-shoulder"]) {
-    const joint = state.getJoint(id);
-    const axis = joint.axes.find((candidate) => candidate.id === "torso")!;
-    const radians = getAxisWorldAngle(state.rig, joint, axis) * Math.PI / 180;
-    closeTo(dx * Math.cos(radians) + dy * Math.sin(radians), 0, id);
+test("stock joints keep only axes that control their direct children", () => {
+  const state = new RigState(createDefaultRig());
+  const expected: Record<string, string[]> = {
+    waist: ["upper-torso"], chest: ["neck"], head: [],
+    "left-shoulder": ["upper-arm"], "right-shoulder": ["upper-arm"],
+    "left-elbow": ["lower-arm"], "right-elbow": ["lower-arm"],
+    "left-wrist": [], "right-wrist": [],
+    "left-hip": ["upper-leg"], "right-hip": ["upper-leg"],
+    "left-knee": ["lower-leg"], "right-knee": ["lower-leg"],
+    "left-ankle": [], "right-ankle": [],
+  };
+  for (const [jointId, axisIds] of Object.entries(expected)) {
+    assert.deepEqual(state.getJoint(jointId).axes.map((axis) => axis.id), axisIds, jointId);
   }
-}
-
-test("shoulder-band axes remain perpendicular after joint and multi-selection movement", () => {
-  const state = new RigState(createDefaultRig());
-  state.moveJoint("left-shoulder", 200, 170);
-  assertShoulderBandPerpendicular(state);
-  state.beginHistoryTransaction();
-  state.moveJointsConstrainedBy(["left-shoulder", "right-shoulder", "left-elbow"], 35, 0, 0);
-  state.endHistoryTransaction();
-  assertShoulderBandPerpendicular(state);
-  state.undo();
-  assertShoulderBandPerpendicular(state);
-  state.redo();
-  assertShoulderBandPerpendicular(state);
-  state.rotateJointsAround(["chest"], 300, 320, 25);
-  assertShoulderBandPerpendicular(state);
 });
 
-test("rotating a shoulder-band axis rotates its peer group and keeps both axes perpendicular", () => {
+test("connection control axes stay perpendicular to their procedural faces", () => {
   const state = new RigState(createDefaultRig());
-  const initialAngle = state.getFaceRotationAngle("shoulder-band")!;
-  const joint = state.getJoint("left-shoulder");
-  const axis = joint.axes.find((candidate) => candidate.id === "torso")!;
-  state.setAxisAngle(joint.id, axis.id, getAxisWorldAngle(state.rig, joint, axis) + 30);
-  closeTo(state.getFaceRotationAngle("shoulder-band")!, (initialAngle + 30) % 360);
-  assertShoulderBandPerpendicular(state);
-});
-
-test("hip pelvis vertical axes are editable while outer axes track exact tangents", () => {
-  const state = new RigState(createDefaultRig());
-  const pelvis = state.getFace("pelvis");
-  assert.equal(pelvis.vertices.length, 4);
-  assert.equal(state.getFace("left-pelvis-triangle").vertices.length, 3);
-  assert.equal(state.getFace("right-pelvis-triangle").vertices.length, 3);
-
-  const assertHipAxes = () => {
-    const peerCenter = getPeerGroupCentroid(state.rig, "hip-band");
-    const waistJoint = state.getJoint("waist");
-    const waistAxis = waistJoint.axes.find((axis) => axis.id === "pelvis")!;
-    const hips = [
-      { id: "left-hip", referenceSide: -1 as const, outerSide: -1 as const },
-      { id: "right-hip", referenceSide: 1 as const, outerSide: 1 as const },
-    ];
-    for (const { id, referenceSide, outerSide } of hips) {
-      const joint = state.getJoint(id);
-      const center = getJointWorldTransform(state.rig, id);
-      const outerAxis = joint.axes.find((axis) => axis.id === "pelvis-horizontal")!;
-      const reference = getAxisPoint(state.rig, waistJoint, waistAxis, referenceSide);
-      const outer = getAxisPoint(state.rig, joint, outerAxis, outerSide);
-      const tangentPoints = getCircleTangentPoints(reference, center, joint.radius)!;
-      closeTo(
-        (outer.x - center.x) * (outer.x - reference.x) + (outer.y - center.y) * (outer.y - reference.y),
-        0,
-        `${id} outer boundary is not tangent`,
-      );
-      const distanceToPeer = (point: { x: number; y: number }) => Math.hypot(point.x - peerCenter.x, point.y - peerCenter.y);
-      closeTo(distanceToPeer(outer), Math.max(...tangentPoints.map(distanceToPeer)), `${id} did not select the outer tangent`);
-    }
+  const connections = [
+    ["waist", "upper-torso", "chest"], ["chest", "neck", "head"],
+    ["left-shoulder", "upper-arm", "left-elbow"], ["right-shoulder", "upper-arm", "right-elbow"],
+    ["left-elbow", "lower-arm", "left-wrist"], ["right-elbow", "lower-arm", "right-wrist"],
+    ["left-hip", "upper-leg", "left-knee"], ["right-hip", "upper-leg", "right-knee"],
+    ["left-knee", "lower-leg", "left-ankle"], ["right-knee", "lower-leg", "right-ankle"],
+  ] as const;
+  const assertPerpendicular = (parentId: string, axisId: string, childId: string) => {
+    const parent = state.getJoint(parentId);
+    const axis = parent.axes.find((candidate) => candidate.id === axisId)!;
+    const parentWorld = getJointParentWorldTransform(state.rig, childId)!;
+    const childWorld = getJointWorldTransform(state.rig, childId);
+    const radians = getAxisWorldAngle(state.rig, parent, axis) * Math.PI / 180;
+    const dot = (childWorld.x - parentWorld.x) * Math.cos(radians)
+      + (childWorld.y - parentWorld.y) * Math.sin(radians);
+    closeTo(dot, 0, `${parentId}.${axisId} is not perpendicular to ${childId}`);
+    assert.equal(axis.alignment, "child-perpendicular");
   };
 
-  assertHipAxes();
-  const fixedAxis = state.getJoint("left-hip").axes.find((axis) => axis.id === "pelvis-vertical")!;
-  const fixedAngle = fixedAxis.angle;
-  assert.equal(fixedAxis.alignment, undefined);
-  state.setAxisAngle("left-hip", "pelvis-vertical", fixedAngle + 20);
-  closeTo(fixedAxis.angle, fixedAngle + 20, "ordinary hip axis should be directly editable");
-  const outerAxis = state.getJoint("left-hip").axes.find((axis) => axis.id === "pelvis-horizontal")!;
-  const outerAngle = outerAxis.angle;
-  state.setAxisAngle("left-hip", "pelvis-horizontal", outerAngle + 20);
-  closeTo(outerAxis.angle, outerAngle, "derived tangent axis should not be directly editable");
-  state.setPeerGroupDistance("hip-band", 110);
-  state.setJointRadius("left-hip", 35);
-  state.setJointRadius("right-hip", 35);
-  assertHipAxes();
+  for (const connection of connections) assertPerpendicular(...connection);
+  state.moveJoint("left-elbow", 170, 300);
+  assertPerpendicular("left-shoulder", "upper-arm", "left-elbow");
+  assertPerpendicular("left-elbow", "lower-arm", "left-wrist");
+});
 
-  const beforeOffsetAngles = ["left-hip", "right-hip"].flatMap((id) => {
-    const joint = state.getJoint(id);
-    return ["pelvis-vertical", "pelvis-horizontal"].map((axisId) => (
-      getAxisWorldAngle(state.rig, joint, joint.axes.find((axis) => axis.id === axisId)!)
-    ));
+test("legacy connection axes are removed while bound art vertices keep their world position", () => {
+  const rig = createDefaultRig();
+  const shoulder = rig.joints.find((joint) => joint.id === "left-shoulder")!;
+  shoulder.axes.push({ id: "torso", angle: -90, pointSides: [-1, 1] });
+  rig.artShapes!.push({
+    id: "legacy-bound-shape", kind: "polygon", layerOrder: 1,
+    vertices: [
+      { id: "a", source: "axis-point", jointId: shoulder.id, axisId: "torso", side: 1, offsetX: 0, offsetY: 0 },
+      { id: "b", source: "root", rootJointId: "scene-root", x: 0, y: 0 },
+      { id: "c", source: "root", rootJointId: "scene-root", x: 20, y: 0 },
+    ],
   });
-  state.setPeerCenterOffset("hip-band", 18, -12);
-  assertHipAxes();
-  ["left-hip", "right-hip"].flatMap((id) => {
+  const before = getArtShapeVertexPoint(rig, rig.artShapes!.at(-1)!.vertices[0]);
+  const state = new RigState(rig);
+  const migrated = state.getArtShape("legacy-bound-shape").vertices[0];
+  assert.equal(shoulder.axes.some((axis) => axis.id === "torso"), false);
+  assert.equal(migrated.source, "root");
+  const after = getArtShapeVertexPoint(state.rig, migrated);
+  closeTo(after.x, before.x);
+  closeTo(after.y, before.y);
+});
+
+test("rotating a remaining connection axis rotates its child subtree", () => {
+  const state = new RigState(createDefaultRig());
+  const joint = state.getJoint("left-shoulder");
+  const axis = joint.axes.find((candidate) => candidate.id === "upper-arm")!;
+  const shoulder = getJointParentWorldTransform(state.rig, "left-elbow")!;
+  const before = getJointWorldTransform(state.rig, "left-elbow");
+  state.setAxisAngle(joint.id, axis.id, getAxisWorldAngle(state.rig, joint, axis) + 30);
+  const after = getJointWorldTransform(state.rig, "left-elbow");
+  closeTo(Math.hypot(after.x - shoulder.x, after.y - shoulder.y), Math.hypot(before.x - shoulder.x, before.y - shoulder.y));
+  assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 1);
+});
+
+test("hip peer group uses one virtual capsule and keeps only upper-leg axes", () => {
+  const state = new RigState(createDefaultRig());
+  const group = state.rig.peerGroups.find((candidate) => candidate.id === "hip-band")!;
+  assert.equal(group.virtualCapsule, true);
+  assert.equal(group.centerJointId, "pelvis-pivot");
+  for (const id of group.jointIds) {
     const joint = state.getJoint(id);
-    return ["pelvis-vertical", "pelvis-horizontal"].map((axisId) => (
-      getAxisWorldAngle(state.rig, joint, joint.axes.find((axis) => axis.id === axisId)!)
-    ));
-  }).forEach((angle, index) => {
-    closeTo(angle, beforeOffsetAngles[index], "virtual pivot offset changed a structural axis");
+    assert.deepEqual(joint.axes.map((axis) => axis.id), ["upper-leg"]);
+    assert.equal(joint.axisReferenceJointId, undefined);
+  }
+  assert.deepEqual(state.getJoint("waist").axes.map((axis) => axis.id), ["upper-torso"]);
+  assert.equal(state.rig.faces.some((face) => ["pelvis", "left-pelvis-triangle", "right-pelvis-triangle"].includes(face.id)), false);
+  assert.equal(state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralSurface, "waist-hip");
+
+  const before = state.getPeerGroupDistance("hip-band")!;
+  state.setPeerGroupDistance("hip-band", before + 20);
+  closeTo(state.getPeerGroupDistance("hip-band")!, before + 20);
+});
+
+test("legacy pelvis faces and helper axes migrate to the hip capsule", () => {
+  const rig = createDefaultRig();
+  const group = rig.peerGroups.find((candidate) => candidate.id === "hip-band")!;
+  delete group.virtualCapsule;
+  rig.joints.find((joint) => joint.id === "waist")!.axes.push({ id: "pelvis", angle: 0, pointSides: [-1, 1] });
+  for (const id of group.jointIds) {
+    const hip = rig.joints.find((joint) => joint.id === id)!;
+    hip.axisReferenceJointId = "waist";
+    hip.axes.unshift(
+      { id: "pelvis-horizontal", angle: 0, pointSides: [-1] },
+      { id: "pelvis-vertical", angle: 90, pointSides: [-1, 1] },
+    );
+  }
+  rig.faces.push({
+    id: "pelvis", rotationTarget: { type: "peer", peerGroupId: "hip-band", referenceJointId: "left-hip" },
+    vertices: [], orderOffset: 0,
   });
-  state.rotatePeerGroup("hip-band", state.getFaceRotationAngle("pelvis")! + 35);
-  assertHipAxes();
+  rig.faces = rig.faces.filter((face) => face.id !== "waist-hip");
+
+  const state = new RigState(rig);
+  assert.equal(group.virtualCapsule, true);
+  assert.equal(state.rig.faces.some((face) => face.id === "pelvis"), false);
+  assert.equal(state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralSurface, "waist-hip");
+  assert.deepEqual(state.getJoint("waist").axes.map((axis) => axis.id), ["upper-torso"]);
+  assert.deepEqual(state.getJoint("left-hip").axes.map((axis) => axis.id), ["upper-leg"]);
 });
 

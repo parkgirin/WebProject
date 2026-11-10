@@ -18,6 +18,7 @@ export interface AvatarProportionPreset {
   description: string;
   rootY: number;
   shoulderDistance: number;
+  shoulderFlatLength: number;
   waistRadius: number;
   hipDistance: number;
   armRadius: number;
@@ -41,19 +42,19 @@ const ADULT_LENGTHS = {
 
 export const AVATAR_PROPORTION_PRESETS: readonly AvatarProportionPreset[] = [
   { id: "large", name: "대형", description: "넓어진 어깨와 큰 체격", ...ADULT_LENGTHS,
-    shoulderDistance: 168, waistRadius: 48, hipDistance: 62.4, armRadius: 24, hipRadius: 30, kneeRadius: 30 },
+    shoulderDistance: 168, shoulderFlatLength: 12, waistRadius: 48, hipDistance: 62.4, armRadius: 24, hipRadius: 30, kneeRadius: 30 },
   { id: "male-standard", name: "일반 남성체", description: "표준 균형형", ...ADULT_LENGTHS,
-    shoulderDistance: 150, waistRadius: 42, hipDistance: 63, armRadius: 21, hipRadius: 28.5, kneeRadius: 28.5 },
+    shoulderDistance: 150, shoulderFlatLength: 10.5, waistRadius: 42, hipDistance: 63, armRadius: 21, hipRadius: 28.5, kneeRadius: 28.5 },
   { id: "male-slim", name: "슬림 남성체", description: "기본 여성체와 같은 인물의 남성형", ...ADULT_LENGTHS,
-    shoulderDistance: 150, waistRadius: 39, hipDistance: 66, armRadius: 19.5, hipRadius: 28.5, kneeRadius: 28.5 },
+    shoulderDistance: 150, shoulderFlatLength: 9.75, waistRadius: 39, hipDistance: 66, armRadius: 19.5, hipRadius: 28.5, kneeRadius: 28.5 },
   { id: "female", name: "기본 여성체", description: "슬림 남성체와 같은 인물의 여성형", ...ADULT_LENGTHS,
-    shoulderDistance: 132, waistRadius: 36, hipDistance: 84, armRadius: 19.5, hipRadius: 28.5, kneeRadius: 28.5 },
+    shoulderDistance: 132, shoulderFlatLength: 9.75, waistRadius: 36, hipDistance: 84, armRadius: 19.5, hipRadius: 28.5, kneeRadius: 28.5 },
   { id: "female-trapezoid", name: "사다리꼴 여성체", description: "고관절에서 무릎까지 점진 축소", ...ADULT_LENGTHS,
-    shoulderDistance: 132, waistRadius: 36, hipDistance: 79.2, armRadius: 21, hipRadius: 38.4, kneeRadius: 27 },
+    shoulderDistance: 132, shoulderFlatLength: 10.5, waistRadius: 36, hipDistance: 79.2, armRadius: 21, hipRadius: 38.4, kneeRadius: 27 },
   { id: "neutral-straight", name: "직선형 기본체", description: "굴곡이 적은 기본 픽토그램형", ...ADULT_LENGTHS,
-    shoulderDistance: 120, waistRadius: 60, hipDistance: 60, armRadius: 30, hipRadius: 30, kneeRadius: 30 },
+    shoulderDistance: 120, shoulderFlatLength: 30, waistRadius: 60, hipDistance: 60, armRadius: 30, hipRadius: 30, kneeRadius: 30 },
   { id: "child-neutral", name: "아동체", description: "성별 구분 없는 4등신", rootY: 422,
-    shoulderDistance: 108, waistRadius: 42, hipDistance: 50.4, armRadius: 18, hipRadius: 24, kneeRadius: 24,
+    shoulderDistance: 108, shoulderFlatLength: 9, waistRadius: 42, hipDistance: 50.4, armRadius: 18, hipRadius: 24, kneeRadius: 24,
     chestDistance: 84, headDistance: 78, armSegmentLength: 69, upperLegLength: 78, lowerLegLength: 96 },
 ];
 
@@ -84,11 +85,18 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
 
     state.setJointRadius("head", 18);
     state.setJointRadius("chest", 18);
-    state.setJointRadius("waist", preset.waistRadius);
+    // The waist joint radius is the capsule's side-visible thickness. Preserve
+    // the authored front half-width by assigning the remaining span to X.
+    state.setJointRadius("waist", preset.armRadius);
+    for (const axis of ["x", "y", "z"] as const) state.setJointSurfaceScale("waist", axis, 1);
+    state.setJointCapsuleFlatAxis("waist", "x", true);
+    state.setJointCapsuleFlatLength("waist", "x", Math.max(0, (preset.waistRadius - preset.armRadius) * 2));
     for (const side of ["left", "right"] as const) {
       for (const part of ["shoulder", "elbow", "wrist"] as const) {
         state.setJointRadius(`${side}-${part}`, preset.armRadius);
       }
+      state.setJointCapsuleFlatAxis(`${side}-shoulder`, "x", true);
+      state.setJointCapsuleFlatLength(`${side}-shoulder`, "x", preset.shoulderFlatLength);
       state.setJointRadius(`${side}-hip`, preset.hipRadius);
       state.setJointRadius(`${side}-knee`, preset.kneeRadius);
       state.setJointRadius(`${side}-ankle`, preset.kneeRadius);

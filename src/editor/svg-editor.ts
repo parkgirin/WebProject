@@ -1,5 +1,5 @@
 import type { ArtCompositeMode, ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
-import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraFacingFaceSurface, getCameraFacingLimbSurface, getCameraZ, getFacePoints, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectionScale, projectPoint, type Point } from "../rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraFacingFaceSurface, getCameraFacingLimbSurface, getCameraZ, getFacePoints, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectionScale, projectPoint, type Point } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -25,6 +25,82 @@ export function renderSvgEditor(
     const bodyRadius = joint.bodyRadius ?? joint.radius;
     return bodyRadius * viewRadiusOf(jointId) / joint.radius;
   };
+  type ProjectedCircle = { center: Point; radius: number };
+  const projectedJointCircle = (jointId: string): ProjectedCircle => ({
+    center: projectJoint(jointId),
+    radius: bodyRadiusOf(jointId) * scaleOf(jointId),
+  });
+  const projectedJointCapsuleCircles = (jointId: string): [ProjectedCircle, ProjectedCircle] | null => {
+    const joint = rig.joints.find((candidate) => candidate.id === jointId);
+    const flatAxes = joint?.capsuleFlatAxes ?? [];
+    if (!joint || flatAxes.length !== 1) return null;
+    const surfaceScale = joint.surfaceScale ?? { x: 1, y: 1, z: 1 };
+    if (Math.max(surfaceScale.x, surfaceScale.y, surfaceScale.z)
+      - Math.min(surfaceScale.x, surfaceScale.y, surfaceScale.z) > 1e-9) return null;
+    const axis = flatAxes[0];
+    const flatLength = joint.capsuleFlatLengths?.[axis] ?? 0;
+    const center = getJointWorldTransform(rig, joint.id);
+    const circle = (world: Point, depth: number): ProjectedCircle => ({
+      center: project(world, depth),
+      radius: bodyRadiusOf(joint.id) * surfaceScale.x
+        * getProjectionScale(rig, getCameraZ(rig, world, depth)),
+    });
+    if (joint.capsuleFlatAlignment === "peer-inward" || joint.capsuleFlatAlignment === "peer-outward") {
+      const peerGroup = rig.peerGroups.find((group) => group.jointIds.length === 2
+        && group.jointIds.includes(joint.id));
+      const otherId = peerGroup?.jointIds.find((candidate) => candidate !== joint.id);
+      const other = otherId ? rig.joints.find((candidate) => candidate.id === otherId) : undefined;
+      if (other) {
+        const otherCenter = getJointWorldTransform(rig, other.id);
+        const dx = otherCenter.x - center.x;
+        const dy = otherCenter.y - center.y;
+        const dz = other.z - joint.z;
+        const distance = Math.hypot(dx, dy, dz);
+        if (distance > 1e-9) {
+          const direction = joint.capsuleFlatAlignment === "peer-inward" ? 1 : -1;
+          const inner = {
+            x: center.x + dx / distance * flatLength * direction,
+            y: center.y + dy / distance * flatLength * direction,
+          };
+          return [circle(center, joint.z), circle(inner, joint.z + dz / distance * flatLength * direction)];
+        }
+      }
+    }
+    const halfLength = flatLength / 2;
+    const radiansX = (joint.localRotationX ?? 0) * Math.PI / 180;
+    const radiansY = (joint.localRotationY ?? 0) * Math.PI / 180;
+    const radiansZ = center.rotation * Math.PI / 180;
+    const endpoint = (side: -1 | 1): ProjectedCircle => {
+      let x = axis === "x" ? halfLength * side : 0;
+      let y = axis === "y" ? halfLength * side : 0;
+      let z = axis === "z" ? halfLength * side : 0;
+      [y, z] = [y * Math.cos(radiansX) - z * Math.sin(radiansX), y * Math.sin(radiansX) + z * Math.cos(radiansX)];
+      [x, z] = [x * Math.cos(radiansY) + z * Math.sin(radiansY), -x * Math.sin(radiansY) + z * Math.cos(radiansY)];
+      [x, y] = [x * Math.cos(radiansZ) - y * Math.sin(radiansZ), x * Math.sin(radiansZ) + y * Math.cos(radiansZ)];
+      const world = { x: center.x + x, y: center.y + y };
+      const depth = joint.z + z;
+      return circle(world, depth);
+    };
+    return [endpoint(-1), endpoint(1)];
+  };
+  const sampleCircle = (circle: ProjectedCircle, sides = 24): Point[] => Array.from({ length: sides }, (_, index) => {
+    const angle = Math.PI * 2 * index / sides;
+    return {
+      x: circle.center.x + Math.cos(angle) * circle.radius,
+      y: circle.center.y + Math.sin(angle) * circle.radius,
+    };
+  });
+  const capsuleSupport = (circles: readonly ProjectedCircle[], normal: Point, direction: -1 | 1): Point => {
+    const circle = circles.reduce((selected, candidate) => {
+      const selectedScore = direction * (selected.center.x * normal.x + selected.center.y * normal.y) + selected.radius;
+      const candidateScore = direction * (candidate.center.x * normal.x + candidate.center.y * normal.y) + candidate.radius;
+      return candidateScore > selectedScore ? candidate : selected;
+    });
+    return {
+      x: circle.center.x + normal.x * circle.radius * direction,
+      y: circle.center.y + normal.y * circle.radius * direction,
+    };
+  };
   const renderedDepthOf = (jointId: string) => {
     const world = getJointWorldTransform(rig, jointId);
     return getCameraZ(rig, world, zOf(jointId));
@@ -39,27 +115,18 @@ export function renderSvgEditor(
   };
   const visibleJoints = rig.joints
     .filter((joint) => showJointLayer && joint.bodyVisible && isGroupVisible(rig, joint.groupId));
-  // The chest-to-waist surface is generated from 3D section rings below.
-  const faceDefinitions = rig.faces.filter((face) => face.id !== "torso" && showFaceLayer && isGroupVisible(rig, face.groupId));
-  const usingFaceExtension = viewState.extendHiddenJointFaces === true && rig.viewYRotation === 0;
-  const extension = usingFaceExtension
-    ? getHiddenJointFaceExtensions(rig, faceDefinitions)
-    : { points: new Map<string, Point>(), jointIds: new Set<string>(), fillOnlyJointIds: new Set<string>() };
+  const virtualCapsuleFaceIds = new Set(rig.peerGroups
+    .filter((group) => group.virtualCapsule && group.jointIds.length === 2)
+    .map((group) => group.id));
+  const faceDefinitions = rig.faces.filter((face) => face.proceduralSurface !== "torso"
+    && face.proceduralSurface !== "waist-hip"
+    && !virtualCapsuleFaceIds.has(face.id)
+    && showFaceLayer && isGroupVisible(rig, face.groupId));
   const visibleFaces = faceDefinitions.map((face) => ({
     face,
-    // Legacy hidden-joint extension operates on persisted axis references.
-    // Keep that explicit edit mode coherent; in the normal renderer, limbs
-    // instead take their boundary from the camera-facing joint circles.
-    points: !usingFaceExtension && face.cameraFacingLimb
+    points: face.cameraFacingLimb
         ? getCameraFacingLimbSurface(rig, face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId)?.points.map((point) => project(point, point.z)) ?? getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z))
-        : !usingFaceExtension
-          ? getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z))
-        : face.vertices.map((vertex, index) => {
-      const extended = extension.points.get(`${face.id}:${index}`);
-      return extended
-        ? project(extended, zOf(vertex.jointId))
-        : projectedAxisPoint(vertex.jointId, vertex.axisId, vertex.side);
-        }),
+        : getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z)),
   }));
 
   const jointItems = visibleJoints
@@ -69,6 +136,11 @@ export function renderSvgEditor(
       const profile = joint.surfaceProfileId ? rig.surfaceProfiles?.find((candidate) => candidate.id === joint.surfaceProfileId) : undefined;
       const profileMarkup = profile
         ? (() => {
+          const capsuleCircles = projectedJointCapsuleCircles(joint.id);
+          if (capsuleCircles) {
+            const silhouette = getOuterPoints(capsuleCircles.flatMap((circle) => sampleCircle(circle)));
+            return `<polygon class="body-joint" data-body-joint data-joint-capsule data-joint-id="${escapeXml(joint.id)}" points="${silhouette.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${escapeXml(resolveColor(rig, joint.color, joint.paletteId))}" />`;
+          }
           const center = getJointWorldTransform(rig, joint.id);
           const surfaceScale = joint.surfaceScale ?? { x: 1, y: 1, z: 1 };
           const flatAxes = new Set(joint.capsuleFlatAxes ?? []);
@@ -100,7 +172,7 @@ export function renderSvgEditor(
         order: joint.renderOrder,
         markup: `<g class="body-joint-item">
           ${profileMarkup}
-          ${joint.outlineVisible !== false && !profile ? `<circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />` : ""}
+          ${joint.outlineVisible !== false && (!profile || joint.capsuleFlatAlignment === "peer-inward" || joint.capsuleFlatAlignment === "peer-outward") ? `<circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />` : ""}
         </g>`,
       };
     });
@@ -111,8 +183,10 @@ export function renderSvgEditor(
       const outlinePath = points.map((point, index) => {
         const nextIndex = (index + 1) % points.length;
         const nextPoint = points[nextIndex];
-        const sameJoint = face.vertices[index].jointId === face.vertices[nextIndex].jointId;
-        const sharedGroupEdge = visibleFaces.some(({ face: candidate }) => (
+        const sameJoint = face.cameraFacingLimb
+          ? index === 1 || index === 3
+          : face.vertices[index]?.jointId === face.vertices[nextIndex]?.jointId;
+        const sharedGroupEdge = face.vertices.length === points.length && visibleFaces.some(({ face: candidate }) => (
           candidate.id !== face.id
           && candidate.groupId === face.groupId
           && hasMatchingEdge(candidate, face.vertices[index], face.vertices[nextIndex])
@@ -132,32 +206,129 @@ export function renderSvgEditor(
       };
     });
 
+  const peerCapsuleItems = showFaceLayer ? rig.peerGroups.flatMap((group) => {
+    if (!group.virtualCapsule || group.jointIds.length !== 2) return [];
+    const [startJointId, endJointId] = group.jointIds;
+    const startJoint = rig.joints.find((joint) => joint.id === startJointId);
+    const endJoint = rig.joints.find((joint) => joint.id === endJointId);
+    if (!startJoint || !endJoint) return [];
+    const sourceFace = rig.faces.find((face) => face.id === group.id);
+    const centerJoint = group.centerJointId
+      ? rig.joints.find((joint) => joint.id === group.centerJointId) : undefined;
+    const groupId = sourceFace?.groupId ?? centerJoint?.groupId
+      ?? (startJoint.groupId === endJoint.groupId ? startJoint.groupId : undefined);
+    if (!isGroupVisible(rig, groupId)) return [];
+    const surface = getCameraFacingLimbSurface(rig, startJointId, endJointId);
+    if (!surface) return [];
+    const points = surface.points.map((point) => project(point, point.z));
+    const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
+    const selected = sourceFace && viewState.selectedTarget === "face" && viewState.selectedFaceId === sourceFace.id
+      ? " is-selected" : "";
+    const color = resolveColor(rig, sourceFace?.color ?? startJoint.color, sourceFace?.paletteId ?? startJoint.paletteId);
+    return [{
+      id: `peer-capsule:${group.id}`,
+      groupId,
+      order: sourceFace ? getFaceOrder(rig, sourceFace) : 20,
+      depth: surface.points.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0) / surface.points.length,
+      markup: `<g class="body-face-item peer-capsule-item">
+        <polygon class="body-face${selected}" data-peer-capsule data-peer-group-id="${escapeXml(group.id)}"${sourceFace ? ` data-face-id="${escapeXml(sourceFace.id)}"` : ""} points="${pointList}" fill="${escapeXml(color)}" />
+        <polygon class="body-face-outline" points="${pointList}" />
+      </g>`,
+    }];
+  }) : [];
+
   const torsoStripItems = showFaceLayer && isGroupVisible(rig, "torso") ? (() => {
-    const chest = rig.joints.find((joint) => joint.id === "chest");
     const waist = rig.joints.find((joint) => joint.id === "waist");
     const left = rig.joints.find((joint) => joint.id === "left-shoulder");
     const right = rig.joints.find((joint) => joint.id === "right-shoulder");
-    if (!chest || !waist || !left || !right) return [];
-    const chestCenter = getJointWorldTransform(rig, chest.id);
+    const torsoFace = rig.faces.find((face) => face.id === "torso");
+    if (!waist || !left || !right || !torsoFace) return [];
     const waistCenter = getJointWorldTransform(rig, waist.id);
     const leftCenter = getJointWorldTransform(rig, left.id);
     const rightCenter = getJointWorldTransform(rig, right.id);
-    const chestDepth = Math.max(left.radius, right.radius);
-    const waistScale = waist.surfaceScale ?? { x: 1, y: 1, z: 1 };
-    const waistDepth = waist.radius * waistScale.z;
-    const waistWidth = waist.radius * waistScale.x + ((waist.capsuleFlatAxes ?? []).includes("x") ? (waist.capsuleFlatLengths?.x ?? 0) / 2 : 0);
-    const ring = (center: { x: number; y: number }, z: number, halfWidth: number, halfDepth: number) => [
-      { x: center.x - halfWidth, y: center.y, z: z - halfDepth }, { x: center.x + halfWidth, y: center.y, z: z - halfDepth },
-      { x: center.x + halfWidth, y: center.y, z: z + halfDepth }, { x: center.x - halfWidth, y: center.y, z: z + halfDepth },
+    const leftCapsule = projectedJointCapsuleCircles(left.id);
+    const rightCapsule = projectedJointCapsuleCircles(right.id);
+    const torsoViewAngle = (rig.viewYRotation + (rig.worldRotation?.y ?? 0)) * Math.PI / 180;
+    const shoulderDepthExposure = Math.abs(Math.sin(torsoViewAngle)) < 1e-9
+      ? 0 : Math.abs(Math.sin(torsoViewAngle));
+    const torsoCircle = (joint: typeof left, capsule: [ProjectedCircle, ProjectedCircle] | null): ProjectedCircle => {
+      // The torso's front/back top edge ends at the inner shoulder centres so
+      // the straight preset keeps a vertical silhouette. As the model turns,
+      // expose the shoulder sphere's depth instead of letting that edge
+      // collapse to a zero-width line in the side view.
+      if (joint.capsuleFlatAlignment === "peer-outward" && capsule) {
+        return { ...capsule[0], radius: capsule[0].radius * shoulderDepthExposure };
+      }
+      if (joint.capsuleFlatAlignment === "peer-inward" && capsule) return capsule[1];
+      return projectedJointCircle(joint.id);
+    };
+    const shoulderCircles = [torsoCircle(left, leftCapsule), torsoCircle(right, rightCapsule)];
+    const waistCircles = projectedJointCapsuleCircles(waist.id);
+    if (!waistCircles) return [];
+    const shoulderMidpoint = {
+      x: (leftCenter.x + rightCenter.x) / 2,
+      y: (leftCenter.y + rightCenter.y) / 2,
+      z: (left.z + right.z) / 2,
+    };
+    const shoulderProjected = project(shoulderMidpoint, shoulderMidpoint.z);
+    const waistProjected = project(waistCenter, waist.z);
+    const connectionX = waistProjected.x - shoulderProjected.x;
+    const connectionY = waistProjected.y - shoulderProjected.y;
+    const connectionLength = Math.hypot(connectionX, connectionY);
+    const screenNormal = connectionLength > 1e-9
+      ? { x: -connectionY / connectionLength, y: connectionX / connectionLength }
+      : { x: 1, y: 0 };
+    const points = [
+      capsuleSupport(shoulderCircles, screenNormal, -1), capsuleSupport(shoulderCircles, screenNormal, 1),
+      capsuleSupport(waistCircles, screenNormal, 1), capsuleSupport(waistCircles, screenNormal, -1),
     ];
-    const upper = ring(chestCenter, chest.z, Math.abs(rightCenter.x - leftCenter.x) / 2, chestDepth);
-    const lower = ring(waistCenter, waist.z, waistWidth, waistDepth);
-    const quads = upper.map((point, index) => [point, upper[(index + 1) % 4], lower[(index + 1) % 4], lower[index]]);
-    const color = escapeXml(resolveColor(rig, undefined, undefined));
-    return quads.sort((a, b) => a.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0) - b.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0)).map((quad, index) => ({
-      id: `torso-strip:${index}`, groupId: "torso", order: 20, depth: quad.reduce((sum, point) => sum + getCameraZ(rig, point, point.z), 0) / 4,
-      markup: `<polygon class="body-face" data-face-id="torso-strip" points="${quad.map((point) => project(point, point.z)).map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`,
-    }));
+    const color = escapeXml(resolveColor(rig, torsoFace.color, torsoFace.paletteId));
+    const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === torsoFace.id ? " is-selected" : "";
+    return [{
+      id: "torso-surface", groupId: "torso", order: 20,
+      depth: (renderedDepthOf(left.id) + renderedDepthOf(right.id) + renderedDepthOf(waist.id)) / 3,
+      markup: `<polygon class="body-face${selected}" data-face-id="torso" data-torso-surface points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`,
+    }];
+  })() : [];
+
+  const waistHipStripItems = showFaceLayer && isGroupVisible(rig, "torso") ? (() => {
+    const face = rig.faces.find((candidate) => candidate.proceduralSurface === "waist-hip");
+    const waist = rig.joints.find((joint) => joint.id === "waist");
+    const hipGroup = rig.peerGroups.find((group) => group.id === "hip-band" && group.virtualCapsule);
+    const leftHip = rig.joints.find((joint) => joint.id === "left-hip");
+    const rightHip = rig.joints.find((joint) => joint.id === "right-hip");
+    if (!face || !waist || !hipGroup || !leftHip || !rightHip
+      || !hipGroup.jointIds.includes(leftHip.id) || !hipGroup.jointIds.includes(rightHip.id)) return [];
+    const waistCenter = getJointWorldTransform(rig, waist.id);
+    const leftCenter = getJointWorldTransform(rig, leftHip.id);
+    const rightCenter = getJointWorldTransform(rig, rightHip.id);
+    const waistCircles = projectedJointCapsuleCircles(waist.id);
+    if (!waistCircles) return [];
+    const hipCircles = [projectedJointCircle(leftHip.id), projectedJointCircle(rightHip.id)];
+    const waistProjected = project(waistCenter, waist.z);
+    const hipMidpoint = {
+      x: (leftCenter.x + rightCenter.x) / 2,
+      y: (leftCenter.y + rightCenter.y) / 2,
+      z: (leftHip.z + rightHip.z) / 2,
+    };
+    const hipProjected = project(hipMidpoint, hipMidpoint.z);
+    const connectionX = hipProjected.x - waistProjected.x;
+    const connectionY = hipProjected.y - waistProjected.y;
+    const connectionLength = Math.hypot(connectionX, connectionY);
+    const screenNormal = connectionLength > 1e-9
+      ? { x: -connectionY / connectionLength, y: connectionX / connectionLength }
+      : { x: 1, y: 0 };
+    const points = [
+      capsuleSupport(waistCircles, screenNormal, -1), capsuleSupport(waistCircles, screenNormal, 1),
+      capsuleSupport(hipCircles, screenNormal, 1), capsuleSupport(hipCircles, screenNormal, -1),
+    ];
+    const color = escapeXml(resolveColor(rig, face.color, face.paletteId));
+    const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
+    return [{
+      id: "waist-hip-surface", groupId: face.groupId, order: getFaceOrder(rig, face),
+      depth: (renderedDepthOf(waist.id) + renderedDepthOf(leftHip.id) + renderedDepthOf(rightHip.id)) / 3,
+      markup: `<polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-waist-hip-surface points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`,
+    }];
   })() : [];
 
   const vertexDepth = (vertex: ArtShapeVertex) => {
@@ -295,19 +466,23 @@ export function renderSvgEditor(
   // Complete the exposed boundary of a hidden joint using only endpoints
   // referenced by visible faces. The convex hull avoids self-intersections.
   const bridgeItems = rig.joints.flatMap((joint) => {
-    if (joint.isVirtual || joint.bodyVisible || extension.jointIds.has(joint.id)
+    if (joint.isVirtual || joint.bodyVisible
       || !isGroupVisible(rig, joint.groupId)) return [];
-    const connected = visibleFaces.filter(({ face }) => face.vertices.some((vertex) => vertex.jointId === joint.id));
-    const points = getOuterPoints(connected.flatMap(({ face }) => face.vertices
-      .filter((vertex) => vertex.jointId === joint.id)
-      .map((vertex) => projectedAxisPoint(vertex.jointId, vertex.axisId, vertex.side))));
+    const connected = visibleFaces.filter(({ face }) => face.cameraFacingLimb
+      ? face.cameraFacingLimb.startJointId === joint.id || face.cameraFacingLimb.endJointId === joint.id
+      : face.vertices.some((vertex) => vertex.jointId === joint.id));
+    const points = getOuterPoints(connected.flatMap(({ face, points: facePoints }) => {
+      if (face.cameraFacingLimb?.startJointId === joint.id) return [facePoints[0], facePoints[3]];
+      if (face.cameraFacingLimb?.endJointId === joint.id) return [facePoints[1], facePoints[2]];
+      return face.vertices.flatMap((vertex, index) => vertex.jointId === joint.id ? [facePoints[index]] : []);
+    }));
     if (points.length < 2) return [];
     const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
     const groupOrder = joint.groupId ? rig.groups.find((group) => group.id === joint.groupId)?.order ?? 0 : 0;
     const order = Math.min(...connected.map(({ face }) => getItemStackOrder(rig, {
       groupId: face.groupId, order: getFaceOrder(rig, face),
     }))) - groupOrder - 0.001;
-    const outline = extension.fillOnlyJointIds.has(joint.id) || joint.outlineVisible === false ? "" : points.length === 2
+    const outline = joint.outlineVisible === false ? "" : points.length === 2
       ? `<polyline class="body-face-outline" points="${pointList}" />`
       : `<polygon class="body-face-outline" points="${pointList}" />`;
     const fill = points.length > 2
@@ -319,8 +494,11 @@ export function renderSvgEditor(
 
   const bodyItems = [...jointItems.map((item) => ({ ...item, depth: renderedDepthOf(item.id.slice(6)) })), ...faceItems.map((item) => {
     const face = rig.faces.find((candidate) => `face:${candidate.id}` === item.id)!;
-    return { ...item, depth: face.vertices.reduce((sum, vertex) => sum + renderedDepthOf(vertex.jointId), 0) / face.vertices.length };
-  }), ...torsoStripItems, ...shapeItems, ...bridgeItems];
+    const jointIds = face.cameraFacingLimb
+      ? [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]
+      : [...new Set(face.vertices.map((vertex) => vertex.jointId))];
+    return { ...item, depth: jointIds.reduce((sum, jointId) => sum + renderedDepthOf(jointId), 0) / Math.max(1, jointIds.length) };
+  }), ...peerCapsuleItems, ...torsoStripItems, ...waistHipStripItems, ...shapeItems, ...bridgeItems];
   const renderedBody = bodyItems
     .sort((a, b) => getItemStackOrder(rig, a) - getItemStackOrder(rig, b) || a.id.localeCompare(b.id))
     .map((item) => item.markup)
@@ -329,7 +507,9 @@ export function renderSvgEditor(
   const relationshipGuides = showJointLayer ? rig.joints
     .filter((joint) => joint.guideVisible && joint.parentJointId && isGroupVisible(rig, joint.groupId))
     .map((joint) => {
-      const parent = projectJoint(joint.parentJointId!);
+      const parentWorld = getJointParentWorldTransform(rig, joint.id)
+        ?? getJointWorldTransform(rig, joint.parentJointId!);
+      const parent = project(parentWorld, zOf(joint.parentJointId!));
       const child = projectJoint(joint.id);
       return `<line class="hierarchy-line" x1="${parent.x}" y1="${parent.y}" x2="${child.x}" y2="${child.y}"
         data-child-rotation data-joint-id="${escapeXml(joint.id)}" />`;
@@ -379,7 +559,7 @@ export function renderSvgEditor(
           const lineStart = axis.pointSides.includes(-1) ? start : world;
           const lineEnd = axis.pointSides.includes(1) ? end : world;
           const selectedAxis = primaryJoint && selection.axisId === axis.id;
-          const axisMode = axis.alignment ? "is-derived" : "is-editable";
+          const axisMode = !axis.alignment || axis.alignment === "child-perpendicular" ? "is-editable" : "is-derived";
           return `
             <g class="axis-guide axis-${axisIndex + 1} ${axisMode}${selectedAxis ? " is-selected" : ""}">
               <line class="axis-hit" x1="${lineStart.x}" y1="${lineStart.y}" x2="${lineEnd.x}" y2="${lineEnd.y}"
@@ -411,8 +591,10 @@ export function renderSvgEditor(
   const selectedJoint = rig.joints.find((joint) => joint.id === selection.jointId);
   const selectedAxis = showAxisLayer ? selectedJoint?.axes.find((axis) => axis.id === selection.axisId) : undefined;
   let rotationHandle = "";
-  if (selectedJoint && selectedAxis && !selectedAxis.alignment) {
-    const world = projectJoint(selectedJoint.id);
+  if (selectedJoint && selectedAxis && (!selectedAxis.alignment || selectedAxis.alignment === "child-perpendicular")) {
+    const axisStart = projectedAxisPoint(selectedJoint.id, selectedAxis.id, -1);
+    const axisEnd = projectedAxisPoint(selectedJoint.id, selectedAxis.id, 1);
+    const world = { x: (axisStart.x + axisEnd.x) / 2, y: (axisStart.y + axisEnd.y) / 2 };
     const radians = (getAxisWorldAngle(rig, selectedJoint, selectedAxis) * Math.PI) / 180;
     const distance = (viewRadiusOf(selectedJoint.id) + 34) * scaleOf(selectedJoint.id);
     const handle = { x: world.x + Math.cos(radians) * distance, y: world.y + Math.sin(radians) * distance };

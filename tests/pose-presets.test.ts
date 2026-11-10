@@ -5,6 +5,7 @@ import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 import { applyBackPose, applySidePose, applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
 import { applyAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
+import { getJointParentWorldTransform } from "../src/rig/geometry.ts";
 
 test("a user pose preset restores pose without replacing radii, colors, or shapes", () => {
   const source = new RigState(createDefaultRig());
@@ -38,10 +39,12 @@ test("a user pose preset restores pose without replacing radii, colors, or shape
 
 test("a pose preset changes limb directions without replacing body-specific joint distances", () => {
   const source = new RigState(createDefaultRig());
-  source.moveJoint("left-elbow", 240, 320);
-  source.moveJoint("right-elbow", 360, 320);
-  source.moveJoint("left-wrist", 240, 416);
-  source.moveJoint("right-wrist", 360, 416);
+  const leftPivot = getJointParentWorldTransform(source.rig, "left-elbow")!;
+  const rightPivot = getJointParentWorldTransform(source.rig, "right-elbow")!;
+  source.moveJoint("left-elbow", leftPivot.x, leftPivot.y + 96);
+  source.moveJoint("right-elbow", rightPivot.x, rightPivot.y + 96);
+  source.moveJoint("left-wrist", leftPivot.x, leftPivot.y + 192);
+  source.moveJoint("right-wrist", rightPivot.x, rightPivot.y + 192);
   const entry = createUserPosePreset("arms-down", "팔 수직 내리기", source.rig);
 
   const child = new RigState(createDefaultRig());

@@ -12,6 +12,7 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   source.setJointZ("head", 45);
   source.setJointSideRadius("head", 22);
   source.setProjectionStrength(70);
+  source.setPerspectiveEnabled(false);
   source.setViewYRotation(35);
   source.setPeerGroupDistance("shoulder-band", 180);
   source.setPeerCenterOffset("hip-band", 12, -8);
@@ -35,6 +36,7 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   assert.equal(target.getJoint("head").z, 45);
   assert.equal(target.getJoint("head").sideRadius, 22);
   assert.equal(target.rig.projectionStrength, 70);
+  assert.equal(target.rig.perspectiveEnabled, false);
   assert.equal(target.rig.viewYRotation, 35);
   assert.equal(target.rig.defaultColor, "#123456");
   assert.equal(target.getFace("torso").color, "#abcdef");

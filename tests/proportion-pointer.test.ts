@@ -4,7 +4,7 @@ import test from "node:test";
 import { enablePointerInput } from "../src/editor/pointer-input.ts";
 import type { EditorSelection } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
-import { getJointWorldTransform } from "../src/rig/geometry.ts";
+import { getJointParentWorldTransform, getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
 function withPointerTest(run: (h: {
@@ -30,7 +30,7 @@ function withPointerTest(run: (h: {
   const point = (id: string) => getJointWorldTransform(state.rig, id);
   const length = (id: string) => {
     const child = point(id);
-    const parent = point(state.getJoint(id).parentJointId!);
+    const parent = getJointParentWorldTransform(state.rig, id)!;
     return Math.hypot(child.x - parent.x, child.y - parent.y);
   };
   try {

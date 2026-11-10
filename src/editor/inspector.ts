@@ -137,11 +137,20 @@ export function renderInspector(
     ${joint.parentJointId ? `<label class="joint-distance-field"><span>포즈 거리 비율<small>체형 기준 거리의 백분율 · 100%는 원래 길이</small></span><input type="number" min="0" max="300" step="1" value="${state.getJointDistancePercent(joint.id).toFixed(1)}" data-distance-percent="${escapeHtml(joint.id)}" aria-label="${escapeHtml(joint.id)} 포즈 거리 비율" /></label>` : ""}
     ${relatedPeerGroups.map((group) => {
       const distance = state.getPeerGroupDistance(group.id)!;
+      const distanceRangeMax = Math.max(300, Math.ceil(distance * 2 / 10) * 10);
       const centerOffset = state.getPeerCenterOffset(group.id);
       return `
       <div class="joint-distance-section">
-        <strong>${escapeHtml(group.id)} 동등 관계</strong>
-        <label class="joint-distance-field"><span>관절 중심 간격<small>두 관절을 중점 기준으로 대칭 이동</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-peer-distance="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 동등 관절 중심 간격" /></label>
+        <strong>${escapeHtml(group.id)} ${group.virtualCapsule ? "가상 캡슐" : "동등 관계"}</strong>
+        <label class="face-override-toggle"><input type="checkbox" data-peer-capsule="${escapeHtml(group.id)}"${group.virtualCapsule ? " checked" : ""} />두 관절을 가상 캡슐로 표시</label>
+        <label class="joint-distance-field"><span>${group.virtualCapsule ? "캡슐 길이" : "관절 중심 간격"}<small>양 끝 중심 간격 · 중점 기준 대칭 이동</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-peer-distance="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 동등 관절 중심 간격" /></label>
+        <input class="peer-distance-range" type="range" min="0" max="${distanceRangeMax}" step="1" value="${distance.toFixed(2)}" data-peer-distance-range="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 캡슐 길이 슬라이더" />
+        <div class="peer-distance-actions" aria-label="${escapeHtml(group.id)} 간격 빠른 조정">
+          <button type="button" data-peer-distance-step="-10" data-peer-group="${escapeHtml(group.id)}">−10</button>
+          <button type="button" data-peer-distance-step="-1" data-peer-group="${escapeHtml(group.id)}">−1</button>
+          <button type="button" data-peer-distance-step="1" data-peer-group="${escapeHtml(group.id)}">+1</button>
+          <button type="button" data-peer-distance-step="10" data-peer-group="${escapeHtml(group.id)}">+10</button>
+        </div>
         ${group.centerJointId ? `<p class="hint">가상 부모: ${escapeHtml(group.centerJointId)}</p>
           <div class="numeric-field-grid">
             <label><span>중심 오프셋 X</span><input type="number" step="any" value="${centerOffset!.x.toFixed(2)}" data-peer-center-offset-x="${escapeHtml(group.id)}" /></label>
@@ -157,7 +166,10 @@ export function renderInspector(
         ${relations.map((relation) => {
           const moving = getJointWorldTransform(state.rig, relation.movingId);
           const anchor = getJointWorldTransform(state.rig, relation.anchorId);
-          const distance = Math.hypot(moving.x - anchor.x, moving.y - anchor.y);
+          const movingJoint = state.getJoint(relation.movingId);
+          const distance = movingJoint.parentJointId === relation.anchorId
+            ? Math.hypot(movingJoint.x, movingJoint.y)
+            : Math.hypot(moving.x - anchor.x, moving.y - anchor.y);
           return `<label class="joint-distance-field"><span>${escapeHtml(relation.label)}<small>${escapeHtml(relation.movingId)} 이동 · ${escapeHtml(relation.anchorId)} 고정</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-distance-moving="${escapeHtml(relation.movingId)}" data-distance-anchor="${escapeHtml(relation.anchorId)}" aria-label="${escapeHtml(relation.label)} 관절 간 거리" /></label>`;
         }).join("")}
         <p class="hint">거리를 바꾸면 이동 관절과 그 하위 관절이 함께 이동합니다. 거리가 0이면 다시 늘릴 때 오른쪽 방향을 사용합니다.</p>
@@ -174,10 +186,11 @@ export function renderInspector(
       </div>
       <div class="axis-side-options" aria-label="캡슐 평면 축">${(["x", "y", "z"] as const).map((axis) => {
         const active = joint.capsuleFlatAxes?.includes(axis) ?? false;
-        return `<label><input type="checkbox" data-capsule-axis="${axis}"${active ? " checked" : ""}${!active && (joint.capsuleFlatAxes?.length ?? 0) >= 2 ? " disabled" : ""} />${axis.toUpperCase()} 평면</label>`;
+        const fixedShoulderAxis = joint.capsuleFlatAlignment === "peer-outward";
+        return `<label><input type="checkbox" data-capsule-axis="${axis}"${active ? " checked" : ""}${fixedShoulderAxis || !active && (joint.capsuleFlatAxes?.length ?? 0) >= 2 ? " disabled" : ""} />${axis.toUpperCase()} 평면</label>`;
       }).join("")}</div>
-      ${(joint.capsuleFlatAxes ?? []).map((axis) => `<label class="field-label">${axis.toUpperCase()} 평면 길이<input type="number" min="0" step="0.5" value="${(joint.capsuleFlatLengths?.[axis] ?? joint.radius).toFixed(1)}" data-capsule-length="${axis}" /></label>`).join("")}
-      <p class="hint">X/Y/Z는 표면 크기입니다. 캡슐 평면은 최대 2축까지 선택해 캡슐 또는 둥근사각형 단면으로 확장합니다.</p>
+      ${(joint.capsuleFlatAxes ?? []).map((axis) => `<label class="field-label">${joint.capsuleFlatAlignment === "peer-outward" ? "어깨 바깥 길이" : `${axis.toUpperCase()} 평면 길이`}<input type="number" min="0" step="0.5" value="${(joint.capsuleFlatLengths?.[axis] ?? joint.radius).toFixed(1)}" data-capsule-length="${axis}" /></label>`).join("")}
+      <p class="hint">${joint.capsuleFlatAlignment === "peer-outward" ? "어깨 중심은 몸통 쪽 안쪽 구입니다. 길이를 늘리면 바깥 구와 연결된 팔 전체가 몸 바깥으로 이동합니다." : "X/Y/Z는 표면 크기입니다. 캡슐 평면은 최대 2축까지 선택해 캡슐 또는 둥근사각형 단면으로 확장합니다."}</p>
     </div>
     <div class="axis-section">
       <div class="section-heading"><h3>관절 3D 회전</h3></div>
@@ -195,17 +208,20 @@ export function renderInspector(
       </div>
       ${joint.axes.length === 0 ? `<p class="muted">이 관절에는 연결 축선이 없습니다.</p>` : `
         <div class="axis-tabs">
-          ${joint.axes.map((axis) => `
-            <button type="button" class="axis-tab ${axis.alignment ? "is-derived" : "is-editable"}${axis.id === selection.axisId ? " is-active" : ""}"
+          ${joint.axes.map((axis) => {
+            const editable = !axis.alignment || axis.alignment === "child-perpendicular";
+            return `
+            <button type="button" class="axis-tab ${editable ? "is-editable" : "is-derived"}${axis.id === selection.axisId ? " is-active" : ""}"
               data-inspector-axis="${escapeHtml(axis.id)}">
-              <i class="axis-swatch"></i><span>${escapeHtml(axis.id)}</span><small>${axis.alignment ? "자동 고정" : "직접 회전"}</small>
-            </button>`).join("")}
+              <i class="axis-swatch"></i><span>${escapeHtml(axis.id)}</span><small>${editable ? "직접 회전" : "자동 고정"}</small>
+            </button>`;
+          }).join("")}
         </div>`}
       ${selectedAxis ? `
         <label class="field-label" for="axis-angle">선택 축 각도</label>
         <div class="range-number-control angle-control">
-          <input id="axis-angle" type="range" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle}"${selectedAxis.alignment ? " disabled" : ""} />
-          <span><input id="axis-angle-number" type="number" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment ? " disabled" : ""} />°</span>
+          <input id="axis-angle" type="range" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle}"${selectedAxis.alignment && selectedAxis.alignment !== "child-perpendicular" ? " disabled" : ""} />
+          <span><input id="axis-angle-number" type="number" min="-180" max="180" step="1" value="${selectedAxisDisplayAngle!.toFixed(0)}" aria-label="선택 축 각도 숫자 입력"${selectedAxis.alignment && selectedAxis.alignment !== "child-perpendicular" ? " disabled" : ""} />°</span>
         </div>
         <label class="field-label">축 끝점 길이</label>
         <input type="number" min="1" step="1" value="${(selectedAxis.length ?? joint.radius).toFixed(1)}" data-axis-length />
@@ -214,7 +230,9 @@ export function renderInspector(
           <label><input type="checkbox" data-axis-side="1"${selectedAxis.pointSides.includes(1) ? " checked" : ""} />＋ 끝점</label>
         </div>
         <p class="hint">관절 반지름과 독립적으로 설정됩니다. 한쪽 끝점만 활성화하면 단일 축, 양쪽을 활성화하면 대칭 축으로 사용합니다.</p>
-        <p class="hint">${selectedAxis.alignment
+        <p class="hint">${selectedAxis.alignment === "child-perpendicular"
+          ? "연결 면 단면과 일치하도록 표시됩니다. 직접 회전하면 연결된 하위 관절과 도형도 함께 회전합니다."
+          : selectedAxis.alignment
           ? selectedAxis.alignment === "reference-axis-outer-tangent"
             ? "이 축은 허리 축 끝점에서 고관절 원으로 이어지는 외측 접점을 자동 추적합니다."
             : `이 축은 부모 관절${selectedAxis.alignment.includes("peer") ? "과 동등 관절 중심의" : ""} 연결선과 항상 ${selectedAxis.alignment.includes("perpendicular") ? "직교" : "평행"}하도록 자동 계산됩니다.`
@@ -632,6 +650,46 @@ export function renderInspector(
       const groupId = input.dataset.peerDistance;
       if (!groupId) return;
       state.setPeerGroupDistance(groupId, input.valueAsNumber);
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-peer-distance-range]").forEach((input) => {
+    let editing = false;
+    const applyDistance = (finish: boolean) => {
+      const groupId = input.dataset.peerDistanceRange;
+      if (!groupId) return;
+      if (!editing) {
+        state.beginHistoryTransaction();
+        editing = true;
+      }
+      const numberInput = [...element.querySelectorAll<HTMLInputElement>("[data-peer-distance]")]
+        .find((candidate) => candidate.dataset.peerDistance === groupId);
+      if (numberInput) numberInput.value = input.valueAsNumber.toFixed(2);
+      state.setPeerGroupDistance(groupId, input.valueAsNumber);
+      if (finish) {
+        state.endHistoryTransaction();
+        editing = false;
+      }
+    };
+    input.addEventListener("input", () => applyDistance(false));
+    input.addEventListener("change", () => applyDistance(true));
+    input.addEventListener("blur", () => {
+      if (editing) applyDistance(true);
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-peer-capsule]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const groupId = input.dataset.peerCapsule;
+      if (groupId) state.setPeerGroupVirtualCapsule(groupId, input.checked);
+    });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-peer-distance-step]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const groupId = button.dataset.peerGroup;
+      const step = Number(button.dataset.peerDistanceStep);
+      const distance = groupId ? state.getPeerGroupDistance(groupId) : null;
+      if (groupId && distance !== null && Number.isFinite(step)) {
+        state.setPeerGroupDistance(groupId, Math.max(0, distance + step));
+      }
     });
   });
   element.querySelectorAll<HTMLInputElement>("[data-peer-center-offset-x], [data-peer-center-offset-y]").forEach((input) => {

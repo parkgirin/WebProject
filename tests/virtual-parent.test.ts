@@ -24,7 +24,8 @@ test("hip peer rotation rotates its virtual parent and upper body together", () 
   const state = new RigState(createDefaultRig());
   const pivot = getPeerGroupPivot(state.rig, "hip-band");
   const waist = point(state, "waist");
-  const angle = state.getFaceRotationAngle("pelvis")!;
+  const first = point(state, "left-hip");
+  const angle = Math.atan2(first.y - pivot.y, first.x - pivot.x) * 180 / Math.PI;
   state.rotatePeerGroup("hip-band", angle + 90);
   close(point(state, "waist"), { x: pivot.x - (waist.y - pivot.y), y: pivot.y + (waist.x - pivot.x) });
   state.undo();
@@ -63,7 +64,7 @@ test("virtual peer center offset changes only the future rotation pivot", () => 
   assert.ok(Math.hypot(pivot.x - originalPivot.x, pivot.y - originalPivot.y) > 1);
 
   const leftHip = point(state, "left-hip");
-  const angle = state.getFaceRotationAngle("pelvis")!;
+  const angle = Math.atan2(leftHip.y - pivot.y, leftHip.x - pivot.x) * 180 / Math.PI;
   state.rotatePeerGroup("hip-band", angle + 90);
   close(point(state, "left-hip"), {
     x: pivot.x - (leftHip.y - pivot.y),
