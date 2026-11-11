@@ -39,7 +39,7 @@ export interface ViewportController {
   zoomBy(factor: number): void;
   resetView(): void;
   fitSelection(): void;
-  setPanMode(enabled: boolean): void;
+  setScreenMode(enabled: boolean): void;
   destroy(): void;
 }
 
@@ -57,7 +57,7 @@ type Interaction =
   | { type: "move-shapes"; shapeIds: string[]; startX: number; startY: number; appliedX: number; appliedY: number; axis: "x" | "y" | null; constrained: boolean }
   | { type: "move-shape-vertex"; shapeId: string; vertexId: string }
   | { type: "move-joint-z"; jointId: string; startClientY: number; startZ: number }
-  | { type: "rotate-view"; startClientX: number; startClientY: number; startWorldX: number; startWorldY: number; startWorldZ: number; axis: "x" | "y" | "z" | null }
+  | { type: "rotate-view"; startClientX: number; startClientY: number; startWorldX: number; startWorldY: number; startWorldZ: number; axis: "x" | "y" | "z" | null; free?: boolean }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
   | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement };
 
@@ -80,8 +80,13 @@ export function enablePointerInput(
     axis: "x" | "y" | null;
   } | null = null;
   let spacePressed = false;
-  let panMode = false;
+  let screenMode = false;
   let interactionDepth = 0;
+  const screenTouches = new Map<number, { x: number; y: number }>();
+  let screenGesture:
+    | { type: "rotate"; pointerId: number; startX: number; startY: number; worldX: number; worldY: number }
+    | { type: "transform"; pointerIds: [number, number]; centroidX: number; centroidY: number; distance: number; angle: number; viewBox: ViewBox; worldZ: number }
+    | null = null;
   const shouldConstrainJointDistance = (altKey: boolean) => !(options.getEditBodyProportions() || altKey);
 
   const readViewBox = (): ViewBox => {
@@ -104,6 +109,72 @@ export function enablePointerInput(
       width: nextWidth,
       height: nextHeight,
     });
+  };
+
+  const beginScreenGesture = () => {
+    const touches = [...screenTouches.entries()];
+    if (touches.length === 1) {
+      const [pointerId, point] = touches[0];
+      screenGesture = { type: "rotate", pointerId, startX: point.x, startY: point.y,
+        worldX: options.state.getGlobalAxisRotation("x"), worldY: options.state.getGlobalAxisRotation("y") };
+      return;
+    }
+    if (touches.length >= 2) {
+      const [[firstId, first], [secondId, second]] = touches;
+      screenGesture = {
+        type: "transform", pointerIds: [firstId, secondId],
+        centroidX: (first.x + second.x) / 2, centroidY: (first.y + second.y) / 2,
+        distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
+        angle: Math.atan2(second.y - first.y, second.x - first.x),
+        viewBox: readViewBox(), worldZ: options.state.getGlobalAxisRotation("z"),
+      };
+    }
+  };
+
+  const onScreenTouchMove = (event: PointerEvent) => {
+    if (!screenMode || event.pointerType !== "touch" || !screenTouches.has(event.pointerId)) return;
+    screenTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (!screenGesture) beginScreenGesture();
+    if (screenGesture?.type === "rotate") {
+      const point = screenTouches.get(screenGesture.pointerId);
+      if (!point) return;
+      options.state.setGlobalAxisRotation("x", screenGesture.worldX - (point.y - screenGesture.startY) * 0.5);
+      options.state.setGlobalAxisRotation("y", screenGesture.worldY + (point.x - screenGesture.startX) * 0.5);
+    } else if (screenGesture?.type === "transform") {
+      const [firstId, secondId] = screenGesture.pointerIds;
+      const first = screenTouches.get(firstId);
+      const second = screenTouches.get(secondId);
+      if (!first || !second) return;
+      const bounds = element.getBoundingClientRect();
+      const centroidX = (first.x + second.x) / 2;
+      const centroidY = (first.y + second.y) / 2;
+      const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+      const requestedScale = screenGesture.distance / distance;
+      const minimumScale = Math.max(120 / screenGesture.viewBox.width, 156 / screenGesture.viewBox.height);
+      const maximumScale = Math.min(2400 / screenGesture.viewBox.width, 3120 / screenGesture.viewBox.height);
+      const scale = Math.min(maximumScale, Math.max(minimumScale, requestedScale));
+      const width = screenGesture.viewBox.width * scale;
+      const height = screenGesture.viewBox.height * scale;
+      const anchorX = screenGesture.viewBox.x + (screenGesture.centroidX - bounds.left) / bounds.width * screenGesture.viewBox.width;
+      const anchorY = screenGesture.viewBox.y + (screenGesture.centroidY - bounds.top) / bounds.height * screenGesture.viewBox.height;
+      applyViewBox({
+        x: anchorX - (centroidX - bounds.left) / bounds.width * width,
+        y: anchorY - (centroidY - bounds.top) / bounds.height * height,
+        width, height,
+      });
+      const angle = Math.atan2(second.y - first.y, second.x - first.x);
+      options.state.setGlobalAxisRotation("z", screenGesture.worldZ + (angle - screenGesture.angle) * 180 / Math.PI);
+    }
+    event.preventDefault();
+  };
+
+  const onScreenTouchEnd = (event: PointerEvent) => {
+    if (!screenTouches.delete(event.pointerId)) return;
+    if (screenTouches.size) beginScreenGesture();
+    else {
+      screenGesture = null;
+      options.state.endHistoryTransaction();
+    }
   };
 
   const startJointMove = (
@@ -154,6 +225,14 @@ export function enablePointerInput(
 
   const onPointerDown = (event: PointerEvent) => {
     if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
+    if (screenMode && event.pointerType === "touch" && event.button === 0) {
+      if (screenTouches.size === 0) options.state.beginHistoryTransaction();
+      screenTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      element.setPointerCapture?.(event.pointerId);
+      beginScreenGesture();
+      event.preventDefault();
+      return;
+    }
     const target = event.target as SVGElement;
     const jointId = target.dataset.jointId;
     const axisId = target.dataset.axisId;
@@ -176,7 +255,12 @@ export function enablePointerInput(
     if (event.button === 2 && !options.getLayerToolActive()) {
       interaction = { type: "rotate-view", startClientX: event.clientX, startClientY: event.clientY, startWorldX: options.state.getGlobalAxisRotation("x"), startWorldY: options.state.getGlobalAxisRotation("y"), startWorldZ: options.state.getGlobalAxisRotation("z"), axis: event.altKey ? "z" : null };
       options.state.beginHistoryTransaction();
-    } else if (event.button === 0 && options.getPolygonToolActive?.() && !spacePressed && !panMode) {
+    } else if (event.button === 0 && screenMode) {
+      interaction = { type: "rotate-view", startClientX: event.clientX, startClientY: event.clientY,
+        startWorldX: options.state.getGlobalAxisRotation("x"), startWorldY: options.state.getGlobalAxisRotation("y"),
+        startWorldZ: options.state.getGlobalAxisRotation("z"), axis: null, free: true };
+      options.state.beginHistoryTransaction();
+    } else if (event.button === 0 && options.getPolygonToolActive?.() && !spacePressed && !screenMode) {
       if (target.hasAttribute("data-polygon-draft-start")) options.finishPolygon?.();
       else {
         const side = Number(target.dataset.axisSide);
@@ -189,15 +273,15 @@ export function enablePointerInput(
       }
       event.preventDefault();
       return;
-    } else if (event.button === 0 && options.getCircleToolActive?.() && !spacePressed && !panMode) {
+    } else if (event.button === 0 && options.getCircleToolActive?.() && !spacePressed && !screenMode) {
       options.addCircle?.(point);
       event.preventDefault();
       return;
-    } else if (event.button === 0 && options.getSphereToolActive?.() && !spacePressed && !panMode) {
+    } else if (event.button === 0 && options.getSphereToolActive?.() && !spacePressed && !screenMode) {
       options.addSphere?.(point);
       event.preventDefault();
       return;
-    } else if (event.button === 0 && options.getLineToolActive?.() && !spacePressed && !panMode) {
+    } else if (event.button === 0 && options.getLineToolActive?.() && !spacePressed && !screenMode) {
       const side = Number(target.dataset.axisSide);
       options.addLinePoint?.({
         x: point.x,
@@ -207,13 +291,13 @@ export function enablePointerInput(
       });
       event.preventDefault();
       return;
-    } else if (event.button === 0 && options.getVertexAddToolActive?.() && !spacePressed && !panMode) {
+    } else if (event.button === 0 && options.getVertexAddToolActive?.() && !spacePressed && !screenMode) {
       if (shapeId && afterVertexId && target.hasAttribute("data-shape-edge")) {
         options.insertShapeVertex?.(shapeId, afterVertexId, point);
       } else if (shapeId) options.setSelectedShape?.(shapeId, vertexId);
       event.preventDefault();
       return;
-    } else if (event.button === 0 && options.getVertexBindToolActive?.() && !spacePressed && !panMode) {
+    } else if (event.button === 0 && options.getVertexBindToolActive?.() && !spacePressed && !screenMode) {
       if (shapeId && vertexId && target.hasAttribute("data-shape-vertex")) {
         options.setSelectedShape?.(shapeId, vertexId);
       } else if (shapeId) {
@@ -233,7 +317,7 @@ export function enablePointerInput(
         interaction = { type: "move-joint-z", jointId, startClientY: event.clientY, startZ: joint.z };
         options.state.beginHistoryTransaction();
       }
-    } else if (event.button === 1 || (event.button === 0 && (spacePressed || panMode))) {
+    } else if (event.button === 1 || (event.button === 0 && spacePressed)) {
       interaction = {
         type: "pan",
         startClientX: event.clientX,
@@ -419,6 +503,11 @@ export function enablePointerInput(
     if (interaction.type === "rotate-view") {
       const dx = event.clientX - interaction.startClientX;
       const dy = event.clientY - interaction.startClientY;
+      if (interaction.free) {
+        options.state.setGlobalAxisRotation("x", interaction.startWorldX - dy * 0.5);
+        options.state.setGlobalAxisRotation("y", interaction.startWorldY + dx * 0.5);
+        return;
+      }
       if (!interaction.axis && Math.hypot(dx, dy) >= 3) interaction.axis = Math.abs(dx) >= Math.abs(dy) ? "y" : "x";
       if (!interaction.axis) return;
       let angle = interaction.axis === "y" ? interaction.startWorldY + dx * 0.5
@@ -623,6 +712,9 @@ export function enablePointerInput(
   };
 
   element.addEventListener("pointerdown", onPointerDown);
+  element.addEventListener("pointermove", onScreenTouchMove);
+  element.addEventListener("pointerup", onScreenTouchEnd);
+  element.addEventListener("pointercancel", onScreenTouchEnd);
   element.addEventListener("contextmenu", onContextMenu);
   element.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKeyDown);
@@ -650,12 +742,20 @@ export function enablePointerInput(
       else width = height * aspect;
       applyViewBox({ x: (left + right - width) / 2, y: (top + bottom - height) / 2, width, height });
     },
-    setPanMode: (enabled) => {
-      panMode = enabled;
-      element.classList.toggle("is-pan-mode", enabled);
+    setScreenMode: (enabled) => {
+      screenMode = enabled;
+      element.classList.toggle("is-screen-mode", enabled);
+      if (!enabled && screenTouches.size) {
+        screenTouches.clear();
+        screenGesture = null;
+        options.state.endHistoryTransaction();
+      }
     },
     destroy: () => {
       element.removeEventListener("pointerdown", onPointerDown);
+      element.removeEventListener("pointermove", onScreenTouchMove);
+      element.removeEventListener("pointerup", onScreenTouchEnd);
+      element.removeEventListener("pointercancel", onScreenTouchEnd);
       element.removeEventListener("contextmenu", onContextMenu);
       element.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKeyDown);

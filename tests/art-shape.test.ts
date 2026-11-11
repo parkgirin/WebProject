@@ -109,6 +109,27 @@ test("sphere art shapes render as camera-facing circles", () => {
   assert.doesNotMatch(host.innerHTML, /<ellipse[^>]+data-shape-id="head-base"/);
 });
 
+test("sphere art shapes use camera-space depth when the view rotates", () => {
+  const state = new RigState(createDefaultRig());
+  const leftId = state.addSphere(200, 300, 30);
+  const rightId = state.addSphere(400, 300, 30);
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: false, selectedFaceId: "torso",
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+  const spherePosition = (id: string) => host.innerHTML.indexOf(`data-shape-id="${id}" data-art-sphere`);
+
+  state.setViewYRotation(90);
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.ok(spherePosition(rightId) < spherePosition(leftId), "right sphere is camera-farther at +90°");
+
+  state.setViewYRotation(-90);
+  renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.ok(spherePosition(leftId) < spherePosition(rightId), "left sphere is camera-farther at -90°");
+});
+
 test("axis-point polygon vertices follow an extended endpoint while retaining local offsets", () => {
   const state = new RigState(createDefaultRig());
   const head = state.getJoint("head");

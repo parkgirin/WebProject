@@ -408,8 +408,14 @@ export function renderSvgEditor(
           ? `<g class="body-art-shape-item"><circle class="body-art-shape body-art-sphere${selectedClass}" data-shape-id="${escapeXml(shape.id)}" data-art-sphere cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" fill="${color}" /><circle class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" /></g>`
         : `<g class="body-art-shape-item"><polygon class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" /><polygon class="body-art-shape-outline" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" /></g>`;
   };
-  const shapeDepth = (record: (typeof shapeRecords)[number]) => record.shape.vertices
-    .reduce((sum, vertex) => sum + vertexDepth(vertex), 0) / record.shape.vertices.length;
+  const shapeDepth = (record: (typeof shapeRecords)[number]) => {
+    if (record.shape.kind === "sphere" && record.shape.vertices[0]) {
+      const center = record.shape.vertices[0];
+      return getCameraZ(rig, getArtShapeVertexPoint(rig, center), vertexDepth(center));
+    }
+    return record.shape.vertices
+      .reduce((sum, vertex) => sum + vertexDepth(vertex), 0) / record.shape.vertices.length;
+  };
   const shapeMaskIds = new Map<string, string>();
   for (const [index, record] of shapeRecords.entries()) {
     const maskId = `art-shape-mask-${index}`;

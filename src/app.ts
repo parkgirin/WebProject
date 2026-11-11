@@ -135,7 +135,7 @@ export function createApp(container: HTMLDivElement): void {
             <details class="toolbox-section" open>
               <summary>보기</summary>
               <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">확대</button>
-              <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 이동 모드" title="화면 이동 모드">화면</button>
+              <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 탐색 모드" title="드래그: 모델 3D 회전 · 두 손가락: 이동, 확대, Z 회전">화면</button>
               <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
             </details>
           </div>
@@ -143,6 +143,12 @@ export function createApp(container: HTMLDivElement): void {
         <div class="editor-column">
           <div class="canvas-panel">
             <div class="canvas-toolbar">
+              <div class="mobile-workspace-actions" aria-label="모바일 작업 패널">
+                <button type="button" data-toggle-mobile-toolbox aria-expanded="true">도구</button>
+                <button type="button" data-toggle-mobile-settings aria-expanded="false">설정</button>
+                <button type="button" data-toggle-mobile-inspector aria-expanded="false">속성</button>
+                <button type="button" data-toggle-mobile-world aria-expanded="false">월드 회전</button>
+              </div>
               <div class="canvas-actions">
                 <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length} · 도형 <b data-shape-count>0</b></span>
                 <label class="avatar-preset-control">체형
@@ -167,12 +173,18 @@ export function createApp(container: HTMLDivElement): void {
                 <label class="toolbar-toggle"><input type="checkbox" data-extend-hidden-joint-faces />숨김 관절 면 연장</label>
               </div>
             </div>
+            <div class="mobile-history-actions" aria-label="실행 기록">
+              <button type="button" data-mobile-undo title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↶</button>
+              <button type="button" data-mobile-redo title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행">↷</button>
+            </div>
             <svg class="rig-canvas" viewBox="0 0 600 780" role="img" aria-label="관절과 연결 면 편집 화면"></svg>
             <section class="world-transform-panel" data-world-panel aria-label="월드 회전 제어">
-              <header><strong>월드 좌표 · 회전</strong><button type="button" data-hide-world-panel aria-label="월드 회전 패널 숨기기">×</button></header>
-              <div class="world-axis-guide" aria-label="월드 좌표축 안내"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg><span>우클릭: X/Y<br /><small>Alt+우클릭: Z</small></span></div>
-              <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
-              <label class="world-projection-strength">원근 강도<input type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength /><input type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength-number aria-label="원근 투영 강도" /></label>
+              <div class="world-transform-summary">
+                <header><strong>월드 좌표 · 회전</strong></header>
+                <div class="world-axis-guide" aria-label="월드 좌표축과 회전 조작 안내"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg><span class="world-axis-guide-desktop">우클릭 드래그: X/Y<br /><small>Alt+우클릭: Z · Shift: 15°</small></span><span class="world-axis-guide-mobile">드래그: X/Y<br /><small>두 손가락: Z</small></span></div>
+                <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
+                <label class="world-projection-strength"><span>원근 강도</span><input type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength /><input type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength-number aria-label="원근 투영 강도" /></label>
+              </div>
               <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
             </section>
           </div>
@@ -234,6 +246,8 @@ export function createApp(container: HTMLDivElement): void {
             <dt>Shift + 좌클릭 / 우클릭</dt><dd>맨 앞으로 / 맨 뒤로 이동합니다.</dd>
           </dl></section>
           <section><h3>화면과 편집</h3><dl>
+            <dt>화면 도구 + 드래그</dt><dd>모델 전체를 화면 기준 X/Y축으로 3D 회전합니다.</dd>
+            <dt>두 손가락 이동 / 핀치 / 비틀기</dt><dd>모바일 화면 도구에서 화면 이동 / 확대·축소 / 모델 Z축 회전을 수행합니다.</dd>
             <dt>휠 / 확대 도구</dt><dd>화면을 확대·축소합니다. 확대 도구는 Shift 클릭으로 축소합니다.</dd>
             <dt>Space + 드래그 / 휠 버튼 드래그</dt><dd>화면을 이동합니다.</dd>
             <dt>Ctrl(⌘) + Z / Ctrl(⌘) + Shift + Z</dt><dd>실행 취소 / 다시 실행합니다.</dd>
@@ -353,9 +367,19 @@ export function createApp(container: HTMLDivElement): void {
   const worldPanel = requireElement<HTMLElement>(container, "[data-world-panel]");
   const worldPanelToggle = requireElement<HTMLButtonElement>(container, "[data-toggle-world-panel]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
-  const setWorldPanelVisible = (visible: boolean) => { worldPanel.hidden = !visible; worldPanelToggle.setAttribute("aria-expanded", String(visible)); };
-  worldPanelToggle.addEventListener("click", () => setWorldPanelVisible(worldPanel.hidden));
-  container.querySelector<HTMLButtonElement>("[data-hide-world-panel]")?.addEventListener("click", () => setWorldPanelVisible(false));
+  const setWorldPanelVisible = (visible: boolean) => {
+    worldPanel.hidden = !visible;
+    workspace.classList.toggle("is-world-panel-open", visible);
+    worldPanelToggle.setAttribute("aria-expanded", String(visible));
+    mobileWorldButton.setAttribute("aria-expanded", String(visible));
+  };
+  worldPanelToggle.addEventListener("click", () => {
+    const visible = worldPanel.hidden;
+    if (visible && window.matchMedia?.("(max-width: 820px), (max-height: 560px)").matches) {
+      closeMobileMenus("world");
+    }
+    setWorldPanelVisible(visible);
+  });
   avatarPresetSelect.value = DEFAULT_AVATAR_PRESET_ID;
   const applyAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-avatar-preset]");
   const addAvatarPresetButton = requireElement<HTMLButtonElement>(container, "[data-add-avatar-preset]");
@@ -368,6 +392,8 @@ export function createApp(container: HTMLDivElement): void {
   const posePresetStatus = requireElement<HTMLElement>(container, "[data-pose-preset-status]");
   const undoButton = requireElement<HTMLButtonElement>(container, "[data-undo]");
   const redoButton = requireElement<HTMLButtonElement>(container, "[data-redo]");
+  const mobileUndoButton = requireElement<HTMLButtonElement>(container, "[data-mobile-undo]");
+  const mobileRedoButton = requireElement<HTMLButtonElement>(container, "[data-mobile-redo]");
   const zoomOutButton = requireElement<HTMLButtonElement>(container, "[data-zoom-out]");
   const zoomResetButton = requireElement<HTMLButtonElement>(container, "[data-zoom-reset]");
   const zoomInButton = requireElement<HTMLButtonElement>(container, "[data-zoom-in]");
@@ -405,6 +431,10 @@ export function createApp(container: HTMLDivElement): void {
   const poseKeyList = requireElement<HTMLElement>(container, "[data-pose-key-list]");
   const collapseInspectorButton = requireElement<HTMLButtonElement>(container, "[data-collapse-inspector]");
   const collapseTimelineButton = requireElement<HTMLButtonElement>(container, "[data-collapse-timeline]");
+  const mobileToolboxButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-toolbox]");
+  const mobileSettingsButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-settings]");
+  const mobileInspectorButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-inspector]");
+  const mobileWorldButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-world]");
   let previewUrl: string | null = null;
   let exportTarget: "model" | "animation" = "model";
   let poseClip: PoseClip = restoredWorkspace?.poseClip ?? {
@@ -557,6 +587,8 @@ export function createApp(container: HTMLDivElement): void {
     projectionStrengthNumber.disabled = state.rig.perspectiveEnabled === false;
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
+    mobileUndoButton.disabled = !state.canUndo;
+    mobileRedoButton.disabled = !state.canRedo;
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
     polygonToolButton.classList.toggle("is-active", viewState.activeTool === "polygon");
     lineToolButton.classList.toggle("is-active", viewState.activeTool === "line");
@@ -805,6 +837,8 @@ export function createApp(container: HTMLDivElement): void {
   });
   undoButton.addEventListener("click", () => state.undo());
   redoButton.addEventListener("click", () => state.redo());
+  mobileUndoButton.addEventListener("click", () => state.undo());
+  mobileRedoButton.addEventListener("click", () => state.redo());
   zoomOutButton.addEventListener("click", () => viewport.zoomBy(1.25));
   zoomResetButton.addEventListener("click", () => viewport.resetView());
   zoomInButton.addEventListener("click", () => viewport.zoomBy(0.8));
@@ -1013,6 +1047,7 @@ export function createApp(container: HTMLDivElement): void {
     setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", collapsed, {
       open: "속성 패널 펼치기", close: "속성 패널 접기", openGlyph: "‹", closeGlyph: "›",
     });
+    mobileInspectorButton.setAttribute("aria-expanded", String(!collapsed));
   });
   collapseTimelineButton.addEventListener("click", () => {
     const collapsed = !workspace.classList.contains("is-timeline-collapsed");
@@ -1020,13 +1055,72 @@ export function createApp(container: HTMLDivElement): void {
       open: "보간 타임라인 펼치기", close: "보간 타임라인 접기", openGlyph: "⌃", closeGlyph: "⌄",
     });
   });
-  const setPanMode = (enabled: boolean) => {
+  const closeMobileMenus = (except?: "settings" | "inspector" | "world") => {
+    if (except !== "settings") workspace.classList.remove("is-mobile-settings-open");
+    if (except !== "inspector" && !workspace.classList.contains("is-inspector-collapsed")) {
+      setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", true, {
+        open: "속성 패널 펼치기", close: "속성 패널 접기", openGlyph: "‹", closeGlyph: "›",
+      });
+    }
+    if (except !== "world") setWorldPanelVisible(false);
+    mobileToolboxButton.setAttribute("aria-expanded", String(!workspace.classList.contains("is-toolbox-hidden")));
+    mobileSettingsButton.setAttribute("aria-expanded", String(workspace.classList.contains("is-mobile-settings-open")));
+    mobileInspectorButton.setAttribute("aria-expanded", String(!workspace.classList.contains("is-inspector-collapsed")));
+  };
+  mobileToolboxButton.addEventListener("click", () => {
+    const hidden = !workspace.classList.contains("is-toolbox-hidden");
+    workspace.classList.toggle("is-toolbox-hidden", hidden);
+    mobileToolboxButton.setAttribute("aria-expanded", String(!hidden));
+  });
+  mobileSettingsButton.addEventListener("click", () => {
+    const open = !workspace.classList.contains("is-mobile-settings-open");
+    closeMobileMenus("settings");
+    workspace.classList.toggle("is-mobile-settings-open", open);
+    mobileSettingsButton.setAttribute("aria-expanded", String(open));
+  });
+  mobileInspectorButton.addEventListener("click", () => {
+    const open = workspace.classList.contains("is-inspector-collapsed");
+    closeMobileMenus("inspector");
+    setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", !open, {
+      open: "속성 패널 펼치기", close: "속성 패널 접기", openGlyph: "‹", closeGlyph: "›",
+    });
+    mobileInspectorButton.setAttribute("aria-expanded", String(open));
+  });
+  mobileWorldButton.addEventListener("click", () => {
+    const visible = worldPanel.hidden;
+    closeMobileMenus("world");
+    setWorldPanelVisible(visible);
+  });
+  svg.addEventListener("pointerdown", () => {
+    workspace.classList.remove("is-mobile-settings-open");
+    mobileSettingsButton.setAttribute("aria-expanded", "false");
+  });
+  const compactLayoutQuery = window.matchMedia?.("(max-width: 820px), (max-height: 560px)");
+  const applyCompactLayoutDefaults = () => {
+    for (const section of container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")) section.open = false;
+    workspace.classList.remove("is-toolbox-hidden");
+    mobileToolboxButton.setAttribute("aria-expanded", "true");
+    setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", true, {
+      open: "속성 패널 펼치기", close: "속성 패널 접기", openGlyph: "‹", closeGlyph: "›",
+    });
+    setPanelCollapsed(collapseTimelineButton, "is-timeline-collapsed", true, {
+      open: "보간 타임라인 펼치기", close: "보간 타임라인 접기", openGlyph: "⌃", closeGlyph: "⌄",
+    });
+    setWorldPanelVisible(false);
+  };
+  if (compactLayoutQuery?.matches) applyCompactLayoutDefaults();
+  compactLayoutQuery?.addEventListener("change", (event) => {
+    if (event.matches) applyCompactLayoutDefaults();
+    else for (const section of container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")) section.open = true;
+    render();
+  });
+  const setScreenMode = (enabled: boolean) => {
     panToolButton.setAttribute("aria-pressed", String(enabled));
     panToolButton.classList.toggle("is-active", enabled);
-    viewport.setPanMode(enabled);
+    viewport.setScreenMode(enabled);
   };
   const activateTool = (activeTool: EditorViewState["activeTool"], inspectorTab: EditorViewState["inspectorTab"]) => {
-    setPanMode(false);
+    setScreenMode(false);
     setViewState({
       activeTool,
       inspectorTab,
@@ -1036,13 +1130,13 @@ export function createApp(container: HTMLDivElement): void {
   };
   selectToolButton.addEventListener("click", () => activateTool("select", "selection"));
   polygonToolButton.addEventListener("click", () => {
-    setPanMode(false);
+    setScreenMode(false);
     setViewState({ activeTool: "polygon", inspectorTab: "selection", polygonDraft: [], lineDraft: [] });
   });
   circleToolButton.addEventListener("click", () => activateTool("circle", "selection"));
   sphereToolButton.addEventListener("click", () => activateTool("sphere", "selection"));
   lineToolButton.addEventListener("click", () => {
-    setPanMode(false);
+    setScreenMode(false);
     setViewState({ activeTool: "line", inspectorTab: "selection", lineDraft: [], polygonDraft: [] });
   });
   vertexAddToolButton.addEventListener("click", () => activateTool("vertex-add", "selection"));
@@ -1054,18 +1148,18 @@ export function createApp(container: HTMLDivElement): void {
     const paletteId = button?.dataset.paletteId;
     const palette = state.rig.palette.find((entry) => entry.id === paletteId);
     if (!palette) return;
-    setPanMode(false);
+    setScreenMode(false);
     setViewState({ activeTool: "color", inspectorTab: "color", paintPaletteId: palette.id, paintColor: palette.color });
   });
   container.querySelector<HTMLButtonElement>("[data-new-palette-color]")?.addEventListener("click", () => {
-    setPanMode(false);
+    setScreenMode(false);
     setViewState({ activeTool: "color", inspectorTab: "color", paintPaletteId: null });
   });
   paintColorInput.addEventListener("change", () => {
     const mergedPaletteId = viewState.paintPaletteId
       ? state.setPaletteColor(viewState.paintPaletteId, paintColorInput.value)
       : null;
-    setPanMode(false);
+    setScreenMode(false);
     setViewState({
       activeTool: "color",
       inspectorTab: "color",
@@ -1076,7 +1170,7 @@ export function createApp(container: HTMLDivElement): void {
   zoomToolButton.addEventListener("click", (event) => viewport.zoomBy(event.shiftKey ? 1.25 : 0.8));
   panToolButton.addEventListener("click", () => {
     const enabled = panToolButton.getAttribute("aria-pressed") !== "true";
-    setPanMode(enabled);
+    setScreenMode(enabled);
   });
   applyAvatarPresetButton.addEventListener("click", () => {
     const builtIn = AVATAR_PROPORTION_PRESETS.find((candidate) => candidate.id === selectedBodyPresetId);

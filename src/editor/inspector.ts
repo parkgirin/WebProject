@@ -16,7 +16,17 @@ export function renderInspector(
   viewState: EditorViewState,
   setViewState: (next: Partial<EditorViewState>) => void,
 ): void {
-  const collapsedSections = new Set((element.dataset?.collapsedSections ?? "").split(",").filter(Boolean));
+  const compactInspector = typeof window !== "undefined"
+    && window.matchMedia?.("(max-width: 820px), (max-height: 560px)").matches === true;
+  const inspectorDataset = element.dataset;
+  if (compactInspector && inspectorDataset && inspectorDataset.mobileSectionsInitialized !== "true") {
+    inspectorDataset.mobileSectionsInitialized = "true";
+    inspectorDataset.collapsedSections = "selection,layers,color";
+  } else if (!compactInspector && inspectorDataset?.mobileSectionsInitialized === "true") {
+    delete inspectorDataset.mobileSectionsInitialized;
+    inspectorDataset.collapsedSections = "";
+  }
+  const collapsedSections = new Set((inspectorDataset?.collapsedSections ?? "").split(",").filter(Boolean));
   const sectionId = viewState.inspectorTab;
   const joint = selection.jointId ? state.getJoint(selection.jointId) : null;
   const selectedOptionJoints = selection.jointIds
@@ -459,19 +469,28 @@ export function renderInspector(
       </div>
     </div>`;
 
-  element.innerHTML = `
+  const sections = [
+    { id: "selection", label: "선택 상세", panel: selectionPanel },
+    { id: "layers", label: "레이어 상세", panel: layerPanel },
+    { id: "color", label: "색상 상세", panel: colorPanel },
+  ] as const;
+  const detailsMarkup = (id: typeof sections[number]["id"], label: string, panel: string) => `
+    <details class="inspector-details" data-inspector-details="${id}"${collapsedSections.has(id) ? "" : " open"}>
+      <summary>${label}</summary>
+      <div class="inspector-details-content">${panel}</div>
+    </details>`;
+  element.innerHTML = compactInspector ? `
+    <div class="inspector-panel is-all-sections">
+      ${sections.map((section) => detailsMarkup(section.id, section.label, section.panel)).join("")}
+    </div>` : `
     <div class="inspector-tabs" role="tablist" aria-label="속성 패널">
       <button type="button" data-inspector-tab="selection" class="${viewState.inspectorTab === "selection" ? "is-active" : ""}">선택</button>
       <button type="button" data-inspector-tab="layers" class="${viewState.inspectorTab === "layers" ? "is-active" : ""}">레이어</button>
       <button type="button" data-inspector-tab="color" class="${viewState.inspectorTab === "color" ? "is-active" : ""}">색상</button>
     </div>
     <div class="inspector-panel">
-      <details class="inspector-details" data-inspector-details="${sectionId}"${collapsedSections.has(sectionId) ? "" : " open"}>
-        <summary>${sectionId === "selection" ? "선택 상세" : sectionId === "layers" ? "레이어 상세" : "색상 상세"}</summary>
-        <div class="inspector-details-content">
-          ${viewState.inspectorTab === "selection" ? selectionPanel : viewState.inspectorTab === "layers" ? layerPanel : colorPanel}
-        </div>
-      </details>
+      ${detailsMarkup(sectionId, sectionId === "selection" ? "선택 상세" : sectionId === "layers" ? "레이어 상세" : "색상 상세",
+        viewState.inspectorTab === "selection" ? selectionPanel : viewState.inspectorTab === "layers" ? layerPanel : colorPanel)}
     </div>`;
 
   const bodyOption = element.querySelector<HTMLInputElement>("[data-selected-joint-body]");
