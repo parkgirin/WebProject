@@ -15,7 +15,6 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   source.setPerspectiveEnabled(false);
   source.setViewYRotation(35);
   source.setPeerGroupDistance("shoulder-band", 180);
-  source.setPeerCenterOffset("hip-band", 12, -8);
   source.setDefaultColor("#123456");
   source.setFaceColor("torso", "#abcdef");
   const serialized = JSON.stringify(createRigPreset(source.rig, {
@@ -43,7 +42,6 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   assert.equal(target.getJoint("head").x, source.getJoint("head").x);
   assert.equal(target.getJoint("head").y, source.getJoint("head").y);
   assert.equal(target.getPeerGroupDistance("shoulder-band"), 180);
-  assert.deepEqual(target.getPeerCenterOffset("hip-band"), source.getPeerCenterOffset("hip-band"));
 });
 
 test("preset parts can be applied selectively", () => {

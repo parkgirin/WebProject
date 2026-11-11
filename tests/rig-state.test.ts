@@ -373,7 +373,6 @@ test("hip peer group uses one virtual capsule and keeps only upper-leg axes", ()
   const state = new RigState(createDefaultRig());
   const group = state.rig.peerGroups.find((candidate) => candidate.id === "hip-band")!;
   assert.equal(group.virtualCapsule, true);
-  assert.equal(group.centerJointId, "pelvis-pivot");
   for (const id of group.jointIds) {
     const joint = state.getJoint(id);
     assert.deepEqual(joint.axes.map((axis) => axis.id), ["upper-leg"]);
@@ -414,4 +413,3 @@ test("legacy pelvis faces and helper axes migrate to the hip capsule", () => {
   assert.deepEqual(state.getJoint("waist").axes.map((axis) => axis.id), ["upper-torso"]);
   assert.deepEqual(state.getJoint("left-hip").axes.map((axis) => axis.id), ["upper-leg"]);
 });
-

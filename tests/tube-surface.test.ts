@@ -136,6 +136,93 @@ test("waist-to-hip surface lofts the waist capsule into the virtual hip capsule"
   assert.equal(host.innerHTML.match(/class="body-face is-selected" data-face-id="waist-hip"/g)?.length, 1);
 });
 
+test("profile capsules and torso exteriors render outlines", () => {
+  const rig = createDefaultRig();
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  assert.match(host.innerHTML, /data-joint-outline data-joint-id="waist"/);
+  assert.match(host.innerHTML, /data-joint-outline data-joint-id="left-shoulder"/);
+  assert.match(host.innerHTML, /data-face-outline data-face-id="torso"[^>]*mask="url\(#torso-connection-outline-mask-torso\)"/);
+  assert.match(host.innerHTML, /data-face-outline data-face-id="waist-hip"[^>]*mask="url\(#torso-connection-outline-mask-waist-hip\)"/);
+  assert.match(host.innerHTML, /data-face-outline data-peer-group-id="shoulder-band"[^>]*mask="url\(#torso-connection-outline-mask-shoulder-band\)"/);
+});
+
+test("torso outlines mask only sibling group surfaces", () => {
+  const rig = createDefaultRig();
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.match(host.innerHTML, /data-face-id="torso" data-torso-surface/);
+  assert.match(host.innerHTML, /id="torso-connection-outline-mask-torso"/);
+  assert.match(host.innerHTML, /id="torso-connection-outline-mask-waist-hip"/);
+});
+
+test("group order resolves per-item layer order at equal camera distance", () => {
+  const rig = createDefaultRig();
+  rig.groups.find((group) => group.id === "torso")!.order = -100;
+  rig.groups.find((group) => group.id === "left-arm")!.order = 100;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.ok(host.innerHTML.indexOf('data-face-id="torso"') < host.innerHTML.indexOf('data-face-id="left-upper-arm"'));
+});
+
+test("camera distance orders overlapping items inside one group before layer order", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  rig.joints.find((joint) => joint.id === "left-shoulder")!.z = -90;
+  rig.joints.find((joint) => joint.id === "left-elbow")!.z = -60;
+  rig.joints.find((joint) => joint.id === "left-wrist")!.z = 120;
+  rig.faces.find((face) => face.id === "left-upper-arm")!.layerOrder = 100;
+  rig.faces.find((face) => face.id === "left-lower-arm")!.layerOrder = 0;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.ok(host.innerHTML.indexOf('data-face-id="left-upper-arm"') < host.innerHTML.indexOf('data-face-id="left-lower-arm"'));
+});
+
+test("camera distance takes precedence over group order", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  rig.groups.find((group) => group.id === "left-arm")!.order = -100;
+  rig.groups.find((group) => group.id === "right-arm")!.order = 100;
+  rig.joints.find((joint) => joint.id === "left-shoulder")!.z = 120;
+  rig.joints.find((joint) => joint.id === "left-elbow")!.z = 120;
+  rig.joints.find((joint) => joint.id === "right-shoulder")!.z = -120;
+  rig.joints.find((joint) => joint.id === "right-elbow")!.z = -120;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.ok(host.innerHTML.indexOf('data-face-id="right-upper-arm"') < host.innerHTML.indexOf('data-face-id="left-upper-arm"'));
+});
+
 test("straight body connects equal waist and hip capsules without tapering", () => {
   const rig = createDefaultRig();
   rig.perspectiveEnabled = false;
@@ -150,6 +237,24 @@ test("straight body connects equal waist and hip capsules without tapering", () 
 
   assert.match(host.innerHTML,
     /data-face-id="waist-hip" data-waist-hip-surface points="360,320 240,320 240,380 360,380"/);
+});
+
+test("straight torso keeps equal section widths through a Y-axis turn", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  rig.worldRotation = { x: 0, y: 45, z: 0 };
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  const torsoPoints = host.innerHTML.match(/data-face-id="torso" data-torso-surface points="([^"]+)/)?.[1]
+    .split(" ").map((point) => Number(point.split(",")[0]));
+  assert.ok(torsoPoints);
+  assert.ok(Math.abs((torsoPoints[0] - torsoPoints[1]) - (torsoPoints[3] - torsoPoints[2])) < 1e-8);
 });
 
 test("shoulder capsules use inner spheres for a straight torso and outer spheres for arm pivots", () => {

@@ -13,14 +13,11 @@ export {
   type UserBodyPreset,
 } from "./body-presets.ts";
 export {
-  applyBackPose,
-  applySidePose,
+  applyLimbSpreadPose,
   applyTPose,
   applyUserPosePreset,
-  BUILTIN_BACK_POSE_ID,
-  BUILTIN_BACK_POSE_NAME,
-  BUILTIN_SIDE_POSE_ID,
-  BUILTIN_SIDE_POSE_NAME,
+  BUILTIN_LIMB_SPREAD_POSE_ID,
+  BUILTIN_LIMB_SPREAD_POSE_NAME,
   BUILTIN_T_POSE_ID,
   BUILTIN_T_POSE_NAME,
   createUserPosePreset,

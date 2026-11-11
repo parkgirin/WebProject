@@ -68,9 +68,9 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
   if (!preset) return;
   state.beginHistoryTransaction();
   try {
-    state.moveJoint("scene-root", 300, preset.rootY);
     setDistance(state, "pelvis-pivot", "scene-root", 60);
     setDistance(state, "waist", "pelvis-pivot", 60);
+    state.moveJoint("scene-root", 300, preset.rootY);
     setDistance(state, "chest", "waist", preset.chestDistance);
     setDistance(state, "head", "chest", preset.headDistance);
     state.setPeerGroupDistance("shoulder-band", preset.shoulderDistance);

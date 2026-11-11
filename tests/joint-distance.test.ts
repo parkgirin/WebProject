@@ -92,6 +92,17 @@ test("peer groups toggle their virtual capsule without changing joint transforms
   assert.equal(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.virtualCapsule, true);
 });
 
+test("virtual capsules store the emphasized editor guide", () => {
+  const state = new RigState(createDefaultRig());
+  assert.equal(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.editorGuideMode, "center");
+  assert.equal(state.rig.peerGroups.find((group) => group.id === "hip-band")!.editorGuideMode, "members");
+
+  state.setPeerGroupEditorGuideMode("shoulder-band", "members");
+  assert.equal(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.editorGuideMode, "members");
+  state.undo();
+  assert.equal(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.editorGuideMode, "center");
+});
+
 test("distance fields appear only for actual parent, child or peer relationships", () => {
   const rig = createDefaultRig();
   const isolated = structuredClone(rig.joints.find((joint) => joint.id === "head")!);
@@ -110,13 +121,15 @@ test("distance fields appear only for actual parent, child or peer relationships
   assert.match(element.innerHTML, /shoulder-band 가상 캡슐/);
   assert.match(element.innerHTML, /data-peer-distance="shoulder-band"/);
   assert.match(element.innerHTML, /data-peer-capsule="shoulder-band" checked/);
+  assert.match(element.innerHTML, /data-peer-guide-mode="shoulder-band" checked/);
   assert.match(element.innerHTML, /data-peer-distance-range="shoulder-band"/);
   assert.match(element.innerHTML, /캡슐 길이/);
   assert.match(element.innerHTML, /data-peer-distance-step="10" data-peer-group="shoulder-band"/);
   assert.match(element.innerHTML, /data-distance-moving="left-elbow" data-distance-anchor="left-shoulder"/);
   render("left-hip");
-  assert.match(element.innerHTML, /data-peer-center-offset-x="hip-band"/);
-  assert.match(element.innerHTML, /data-peer-center-offset-y="hip-band"/);
+  assert.doesNotMatch(element.innerHTML, /data-peer-center-offset-x="hip-band"/);
+  assert.doesNotMatch(element.innerHTML, /data-peer-center-offset-y="hip-band"/);
+  assert.doesNotMatch(element.innerHTML, /data-add-peer-center="hip-band"/);
   render("isolated");
   assert.doesNotMatch(element.innerHTML, /관절 간 거리/);
 });

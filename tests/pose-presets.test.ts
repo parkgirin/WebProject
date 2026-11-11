@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { RigState } from "../src/rig/rig-state.ts";
-import { applyBackPose, applySidePose, applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
+import { applyLimbSpreadPose, applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
 import { applyAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { getJointParentWorldTransform } from "../src/rig/geometry.ts";
 
@@ -93,17 +93,27 @@ test("the built-in T pose keeps current limb lengths and aligns the body to the 
   assert.equal(state.rig.viewYRotation, 35);
 });
 
-test("built-in side and back poses keep proportions while setting their camera views", () => {
+test("the limb spread pose rotates only shoulder and hip roots by 30 degrees", () => {
   const state = new RigState(createDefaultRig());
   state.setJointDistance("right-elbow", "right-shoulder", 128);
 
-  applySidePose(state);
-  assert.equal(state.rig.viewYRotation, 90);
-  assert.ok(Math.abs(Math.hypot(state.getJoint("right-elbow").x, state.getJoint("right-elbow").y) - 128) < 1e-6);
+  applyLimbSpreadPose(state);
 
-  applyBackPose(state);
-  assert.equal(state.rig.viewYRotation, 180);
-  assert.ok(Math.abs(Math.hypot(state.getJoint("right-elbow").x, state.getJoint("right-elbow").y) - 128) < 1e-6);
+  const elbow = state.getJoint("right-elbow");
+  const knee = state.getJoint("right-knee");
+  assert.ok(Math.abs(Math.hypot(elbow.x, elbow.y) - 128) < 1e-6);
+  assert.equal(elbow.x, 128);
+  assert.equal(elbow.y, 0);
+  assert.equal(knee.x, 0);
+  assert.ok(knee.y > 0);
+  assert.equal(state.getJoint("left-shoulder").localRotation, 330);
+  assert.equal(state.getJoint("right-shoulder").localRotation, 30);
+  assert.equal(state.getJoint("left-hip").localRotation, 30);
+  assert.equal(state.getJoint("right-hip").localRotation, 330);
+  for (const jointId of ["left-elbow", "right-elbow", "left-wrist", "right-wrist", "left-knee", "right-knee", "left-ankle", "right-ankle"]) {
+    assert.equal(state.getJoint(jointId).localRotation, 0);
+  }
+  assert.equal(state.rig.viewYRotation, 0);
 });
 
 test("the built-in T pose preserves the active body type's shoulder and hip widths", () => {

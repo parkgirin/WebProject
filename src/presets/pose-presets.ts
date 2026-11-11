@@ -12,10 +12,8 @@ export interface UserPosePreset {
 
 export const BUILTIN_T_POSE_ID = "builtin-t-pose";
 export const BUILTIN_T_POSE_NAME = "T 포즈";
-export const BUILTIN_SIDE_POSE_ID = "builtin-side-pose";
-export const BUILTIN_SIDE_POSE_NAME = "측면 T 포즈";
-export const BUILTIN_BACK_POSE_ID = "builtin-back-pose";
-export const BUILTIN_BACK_POSE_NAME = "후면 T 포즈";
+export const BUILTIN_LIMB_SPREAD_POSE_ID = "builtin-limb-spread-pose";
+export const BUILTIN_LIMB_SPREAD_POSE_NAME = "팔다리 30° 포즈";
 
 export function createUserPosePreset(id: string, name: string, rig: Rig): UserPosePreset {
   const normalizedName = name.trim();
@@ -55,17 +53,12 @@ export function applyTPose(state: RigState): void {
   applyNeutralTPose(state, 0);
 }
 
-/** Apply the neutral T pose while showing it from the subject's right side. */
-export function applySidePose(state: RigState): void {
-  applyNeutralTPose(state, 90);
+/** Spread both arm and leg chains 30° away from the neutral body axes. */
+export function applyLimbSpreadPose(state: RigState): void {
+  applyNeutralTPose(state, 0, 30);
 }
 
-/** Apply the neutral T pose while showing it from behind. */
-export function applyBackPose(state: RigState): void {
-  applyNeutralTPose(state, 180);
-}
-
-function applyNeutralTPose(state: RigState, viewYRotation: number): void {
+function applyNeutralTPose(state: RigState, viewYRotation: number, limbSpreadDegrees = 0): void {
   const target = structuredClone(state.rig);
   const defaults = createDefaultRig();
   // Shoulder and hip width are peer-group dimensions, not the parent-relative
@@ -102,6 +95,15 @@ function applyNeutralTPose(state: RigState, viewYRotation: number): void {
       const defaultAxis = defaultJoint?.axes.find((candidate) => candidate.id === axis.id);
       if (defaultAxis) axis.angle = defaultAxis.angle;
     }
+  }
+  if (limbSpreadDegrees) {
+    // The pose stores its spread at the four root limb joints only. Every
+    // elbow, wrist, knee, and ankle remains at local rotation 0 and inherits
+    // its orientation from the shoulder or hip above it.
+    target.joints.find((joint) => joint.id === "left-shoulder")!.localRotation = -limbSpreadDegrees;
+    target.joints.find((joint) => joint.id === "right-shoulder")!.localRotation = limbSpreadDegrees;
+    target.joints.find((joint) => joint.id === "left-hip")!.localRotation = limbSpreadDegrees;
+    target.joints.find((joint) => joint.id === "right-hip")!.localRotation = -limbSpreadDegrees;
   }
   applyRigPreset(state, createRigPreset(target, { pose: true, proportions: false, colors: false, shapes: false }),
     { pose: true, proportions: false, colors: false, shapes: false });

@@ -671,7 +671,6 @@ function getFaceDepth(rig: RigState["rig"], faceId: string): number {
 function getPeerDepth(rig: RigState["rig"], peerGroupId: string): number {
   const group = rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
   if (!group) return 0;
-  if (group.centerJointId) return rig.joints.find((joint) => joint.id === group.centerJointId)?.z ?? 0;
   return group.jointIds.reduce((total, id) => total + (rig.joints.find((joint) => joint.id === id)?.z ?? 0), 0) / group.jointIds.length;
 }
 

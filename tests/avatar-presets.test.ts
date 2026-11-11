@@ -59,11 +59,10 @@ test("all seven avatar presets apply their app dimensions to a valid rig", () =>
   }
 });
 
-test("avatar preset preserves pose, colors, and peer pivot offset and undoes as one operation", () => {
+test("avatar preset preserves pose and colors and undoes as one operation", () => {
   const state = new RigState(createDefaultRig());
   state.rotateChildAroundParent("left-elbow", 35);
   state.setFaceColor("torso", "#123456");
-  state.setPeerCenterOffset("hip-band", 9, -6);
   const before = structuredClone(state.rig);
   const beforeAngle = connectionAngle(state, "left-elbow");
 
@@ -72,8 +71,6 @@ test("avatar preset preserves pose, colors, and peer pivot offset and undoes as 
   close(connectionAngle(state, "left-elbow"), beforeAngle);
   close(Math.hypot(state.getJoint("left-elbow").x, state.getJoint("left-elbow").y), 69);
   assert.equal(state.getFace("torso").color, "#123456");
-  close(state.getPeerCenterOffset("hip-band")!.x, 9);
-  close(state.getPeerCenterOffset("hip-band")!.y, -6);
 
   state.undo();
   assert.deepEqual(state.rig, before);

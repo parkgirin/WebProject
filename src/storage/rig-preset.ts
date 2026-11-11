@@ -44,8 +44,8 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
     projectionStrength: rig.projectionStrength,
     viewYRotation: rig.viewYRotation,
     joints: rig.joints.map((joint, index): CompactJointPose => [index, joint.x, joint.y, joint.localRotation, joint.z,
-      axisIds[index].map((axisId) => joint.axes.find((axis) => axis.id === axisId)?.angle ?? 0),
-      joint.parentJointId && joint.baseDistance && joint.baseDistance > 0 ? Math.hypot(joint.x, joint.y) / joint.baseDistance * 100 : 100]),
+        axisIds[index].map((axisId) => joint.axes.find((axis) => axis.id === axisId)?.angle ?? 0),
+        joint.parentJointId && joint.baseDistance && joint.baseDistance > 0 ? Math.hypot(joint.x, joint.y) / joint.baseDistance * 100 : 100]),
   };
   if (parts.proportions) preset.proportions = {
     joints: rig.joints.map((joint, index): CompactJointProportions => joint.sideRadius === undefined

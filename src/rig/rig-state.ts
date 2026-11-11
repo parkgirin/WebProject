@@ -418,13 +418,13 @@ export function validateRig(
       if (members.has(jointId)) errors.push(`Duplicate peer joint: ${group.id}.${jointId}`);
       members.add(jointId);
     }
+    if (group.virtualCapsule !== undefined && typeof group.virtualCapsule !== "boolean") {
+      errors.push(`Peer virtual capsule must be boolean: ${group.id}`);
+    }
     if (group.centerJointId) {
       const center = rig.joints.find((joint) => joint.id === group.centerJointId);
       if (!center?.isVirtual) errors.push(`Peer center must be a virtual joint: ${group.id}.${group.centerJointId}`);
       if (members.has(group.centerJointId)) errors.push(`Peer center cannot be a member: ${group.id}`);
-    }
-    if (group.virtualCapsule !== undefined && typeof group.virtualCapsule !== "boolean") {
-      errors.push(`Peer virtual capsule must be boolean: ${group.id}`);
     }
     if (group.virtualCapsule && group.jointIds.length !== 2) {
       errors.push(`Peer virtual capsule needs exactly two joints: ${group.id}`);
@@ -1209,10 +1209,7 @@ export class RigState {
     const axisY = length > 1e-9 ? dy / length : 0;
     const offsetX = center.x - midpoint.x;
     const offsetY = center.y - midpoint.y;
-    return {
-      x: offsetX * axisX + offsetY * axisY,
-      y: -offsetX * axisY + offsetY * axisX,
-    };
+    return { x: offsetX * axisX + offsetY * axisY, y: -offsetX * axisY + offsetY * axisX };
   }
 
   /** Rebase a virtual peer pivot without changing the current pose of its direct children. */
@@ -1229,13 +1226,9 @@ export class RigState {
     const length = Math.hypot(dx, dy);
     const axisX = length > 1e-9 ? dx / length : 1;
     const axisY = length > 1e-9 ? dy / length : 0;
-    const children = this.rig.joints
-      .filter((joint) => joint.parentJointId === center.id)
+    const children = this.rig.joints.filter((joint) => joint.parentJointId === center.id)
       .map((joint) => ({ joint, world: getJointWorldTransform(this.rig, joint.id) }));
-    this.setJointWorldPosition(center,
-      midpoint.x + axisX * offsetX - axisY * offsetY,
-      midpoint.y + axisY * offsetX + axisX * offsetY,
-    );
+    this.setJointWorldPosition(center, midpoint.x + axisX * offsetX - axisY * offsetY, midpoint.y + axisY * offsetX + axisX * offsetY);
     const centerRotation = getJointWorldTransform(this.rig, center.id).rotation;
     for (const { joint, world } of children) {
       this.setJointWorldPosition(joint, world.x, world.y);
@@ -1343,20 +1336,13 @@ export class RigState {
     let id = baseId;
     let suffix = 2;
     while (this.rig.joints.some((joint) => joint.id === id)) id = `${baseId}-${suffix++}`;
-    const center: Rig["joints"][number] = {
-      id, parentJointId: parentId, groupId: members[0].groupId, x: 0, y: 0,
-      z: 0, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0,
-      guideVisible: true, bodyVisible: false,
-    };
+    const center: Rig["joints"][number] = { id, parentJointId: parentId, groupId: members[0].groupId, x: 0, y: 0, z: 0, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: true, bodyVisible: false };
     this.rig.joints.push(center);
     normalizeBodyViewProfiles(this.rig);
-    this.setJointWorldPosition(center, (snapshots[0].world.x + snapshots[1].world.x) / 2,
-      (snapshots[0].world.y + snapshots[1].world.y) / 2);
+    this.setJointWorldPosition(center, (snapshots[0].world.x + snapshots[1].world.x) / 2, (snapshots[0].world.y + snapshots[1].world.y) / 2);
     const rotation = getJointWorldTransform(this.rig, center.id).rotation;
     for (const { joint, world } of snapshots) {
-      if (parentId && !joint.axisReferenceJointId && joint.axes.some((axis) => axis.alignment)) {
-        joint.axisReferenceJointId = parentId;
-      }
+      if (parentId && !joint.axisReferenceJointId && joint.axes.some((axis) => axis.alignment)) joint.axisReferenceJointId = parentId;
       joint.parentJointId = id;
       this.setJointWorldPosition(joint, world.x, world.y);
       joint.localRotation = normalizeAngle(world.rotation - rotation);

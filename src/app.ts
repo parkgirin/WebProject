@@ -2,16 +2,13 @@ import { createDefaultRig } from "./rig/default-rig.ts";
 import { getArtShapeVertexPoint } from "./rig/geometry.ts";
 import {
   applyAvatarProportionPreset,
-  applyBackPose,
-  applySidePose,
+  applyLimbSpreadPose,
   applyTPose,
   applyUserBodyPreset,
   applyUserPosePreset,
   AVATAR_PROPORTION_PRESETS,
-  BUILTIN_BACK_POSE_ID,
-  BUILTIN_BACK_POSE_NAME,
-  BUILTIN_SIDE_POSE_ID,
-  BUILTIN_SIDE_POSE_NAME,
+  BUILTIN_LIMB_SPREAD_POSE_ID,
+  BUILTIN_LIMB_SPREAD_POSE_NAME,
   BUILTIN_T_POSE_ID,
   BUILTIN_T_POSE_NAME,
   createUserBodyPreset,
@@ -174,6 +171,7 @@ export function createApp(container: HTMLDivElement): void {
               <header><strong>월드 좌표 · 회전</strong><button type="button" data-hide-world-panel aria-label="월드 회전 패널 숨기기">×</button></header>
               <div class="world-axis-guide" aria-label="월드 좌표축 안내"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg><span>우클릭: X/Y<br /><small>Alt+우클릭: Z</small></span></div>
               <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
+              <label class="world-projection-strength">원근 강도<input type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength /><input type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength-number aria-label="원근 투영 강도" /></label>
               <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
             </section>
           </div>
@@ -227,7 +225,6 @@ export function createApp(container: HTMLDivElement): void {
             <dt>회전 핸들 드래그</dt><dd>선택 축 또는 여러 관절을 회전합니다. 여러 관절 회전 중 Shift는 15° 단위입니다.</dd>
             <dt>동등 관계 회전 핸들</dt><dd>중심에서 떨어진 보라색 핸들을 중심 주위로 드래그해 어깨 또는 골반을 함께 회전합니다.</dd>
             <dt>동등 관계 중심 간격</dt><dd>선택 패널에서 양쪽 관절을 중점 기준으로 대칭 이동해 어깨 또는 골반 폭을 조절합니다.</dd>
-            <dt>가상 중심 오프셋</dt><dd>동등축 방향 X와 직교 방향 Y로 가상 관절을 옮깁니다. 현재 포즈는 유지되고 이후 회전 중심에 적용됩니다.</dd>
             <dt>체형 프리셋</dt><dd>캔버스 상단에서 기본 체형을 적용하거나 현재 체형을 이름 붙여 추가합니다. 사용자 체형은 현재 포즈 방향을 유지한 채 관절 크기와 간격을 적용합니다.</dd>
             <dt>포즈 프리셋</dt><dd>현재 포즈를 이름 붙여 추가하고 목록에서 다시 적용합니다. 사용자 프리셋은 브라우저 자동 저장에 포함됩니다.</dd>
           </dl></section>
@@ -350,6 +347,8 @@ export function createApp(container: HTMLDivElement): void {
   const globalAxisInputs = [...container.querySelectorAll<HTMLInputElement>("[data-global-axis]")];
   const globalAxisNumbers = [...container.querySelectorAll<HTMLInputElement>("[data-global-axis-number]")];
   const perspectiveEnabledInput = requireElement<HTMLInputElement>(container, "[data-perspective-enabled]");
+  const projectionStrengthInput = requireElement<HTMLInputElement>(container, "[data-projection-strength]");
+  const projectionStrengthNumber = requireElement<HTMLInputElement>(container, "[data-projection-strength-number]");
   const worldPanel = requireElement<HTMLElement>(container, "[data-world-panel]");
   const worldPanelToggle = requireElement<HTMLButtonElement>(container, "[data-toggle-world-panel]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
@@ -550,6 +549,10 @@ export function createApp(container: HTMLDivElement): void {
     for (const input of globalAxisInputs) { const axis = input.dataset.globalAxis as "x" | "y" | "z"; input.value = String(toSignedAngle(state.getGlobalAxisRotation(axis))); }
     for (const input of globalAxisNumbers) { const axis = input.dataset.globalAxisNumber as "x" | "y" | "z"; input.value = state.getGlobalAxisRotation(axis).toFixed(0); }
     perspectiveEnabledInput.checked = state.rig.perspectiveEnabled !== false;
+    projectionStrengthInput.value = String(state.rig.projectionStrength);
+    projectionStrengthNumber.value = String(state.rig.projectionStrength);
+    projectionStrengthInput.disabled = state.rig.perspectiveEnabled === false;
+    projectionStrengthNumber.disabled = state.rig.perspectiveEnabled === false;
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
@@ -574,10 +577,10 @@ export function createApp(container: HTMLDivElement): void {
       .some((preset) => preset.id === selectedBodyPresetId)
       ? selectedBodyPresetId : DEFAULT_AVATAR_PRESET_ID;
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === avatarPresetSelect.value);
-    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option><option value="${BUILTIN_SIDE_POSE_ID}">${BUILTIN_SIDE_POSE_NAME}</option><option value="${BUILTIN_BACK_POSE_ID}">${BUILTIN_BACK_POSE_NAME}</option>${FILE_POSE_PRESETS
+    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option><option value="${BUILTIN_LIMB_SPREAD_POSE_ID}">${BUILTIN_LIMB_SPREAD_POSE_NAME}</option>${FILE_POSE_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${posePresets
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
-    posePresetSelect.value = [BUILTIN_T_POSE_ID, BUILTIN_SIDE_POSE_ID, BUILTIN_BACK_POSE_ID].includes(selectedPosePresetId)
+    posePresetSelect.value = [BUILTIN_T_POSE_ID, BUILTIN_LIMB_SPREAD_POSE_ID].includes(selectedPosePresetId)
       || FILE_POSE_PRESETS.some((preset) => preset.id === selectedPosePresetId)
       || posePresets.some((preset) => preset.id === selectedPosePresetId)
       ? selectedPosePresetId : BUILTIN_T_POSE_ID;
@@ -1134,12 +1137,9 @@ export function createApp(container: HTMLDivElement): void {
       if (selectedPosePresetId === BUILTIN_T_POSE_ID) {
         applyTPose(state);
         posePresetStatus.textContent = `${BUILTIN_T_POSE_NAME} 적용됨`;
-      } else if (selectedPosePresetId === BUILTIN_SIDE_POSE_ID) {
-        applySidePose(state);
-        posePresetStatus.textContent = `${BUILTIN_SIDE_POSE_NAME} 적용됨`;
-      } else if (selectedPosePresetId === BUILTIN_BACK_POSE_ID) {
-        applyBackPose(state);
-        posePresetStatus.textContent = `${BUILTIN_BACK_POSE_NAME} 적용됨`;
+      } else if (selectedPosePresetId === BUILTIN_LIMB_SPREAD_POSE_ID) {
+        applyLimbSpreadPose(state);
+        posePresetStatus.textContent = `${BUILTIN_LIMB_SPREAD_POSE_NAME} 적용됨`;
       } else if (preset) {
         applyUserPosePreset(state, preset);
         posePresetStatus.textContent = `${preset.name} 적용됨`;
@@ -1168,6 +1168,8 @@ export function createApp(container: HTMLDivElement): void {
   globalAxisInputs.forEach((input) => input.addEventListener("change", () => { delete input.dataset.historyActive; state.endHistoryTransaction(); }));
   globalAxisNumbers.forEach((input) => input.addEventListener("change", () => state.setGlobalAxisRotation(input.dataset.globalAxisNumber as "x" | "y" | "z", input.valueAsNumber)));
   perspectiveEnabledInput.addEventListener("change", () => state.setPerspectiveEnabled(perspectiveEnabledInput.checked));
+  projectionStrengthInput.addEventListener("input", () => state.setProjectionStrength(projectionStrengthInput.valueAsNumber));
+  projectionStrengthNumber.addEventListener("change", () => state.setProjectionStrength(projectionStrengthNumber.valueAsNumber));
   container.querySelectorAll<HTMLButtonElement>("[data-reset-global-axis]").forEach((button) => {
     button.addEventListener("click", () => {
       const axis = button.dataset.resetGlobalAxis as "x" | "y" | "z";
