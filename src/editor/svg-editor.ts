@@ -379,26 +379,33 @@ export function renderSvgEditor(
   const shapeRecords = (rig.artShapes ?? []).filter((shape) => showShapeLayer && isGroupVisible(rig, shape.groupId)).map((shape) => ({
     shape,
     points: shape.vertices.map((vertex) => project(getArtShapeVertexPoint(rig, vertex), vertexDepth(vertex))),
+    sphereRadius: shape.kind === "sphere" && shape.vertices[0]
+      ? (shape.radius ?? 1) * getProjectionScale(rig, getCameraZ(rig, getArtShapeVertexPoint(rig, shape.vertices[0]), vertexDepth(shape.vertices[0])))
+      : 0,
     compositeMode: shape.compositeMode ?? "paint",
     compositeGroupId: shape.compositeGroupId ?? `composite-${shape.id}`,
     stackOrder: (shape.groupId ? rig.groups.find((group) => group.id === shape.groupId)?.order ?? 0 : 0) + shape.layerOrder,
   }));
-  const compositeGeometry = (shape: ArtShape, points: Point[], color: string) => shape.kind === "circle"
-    ? `<ellipse cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${color}" />`
-    : shape.kind === "line"
-      ? `<line x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" fill="none" stroke="${color}" stroke-width="${shape.strokeWidth ?? 1}" stroke-linecap="round" />`
-      : `<polygon points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`;
+  const compositeGeometry = (record: (typeof shapeRecords)[number], color: string) => record.shape.kind === "circle"
+    ? `<ellipse cx="${record.points[0].x}" cy="${record.points[0].y}" rx="${record.shape.radiusX}" ry="${record.shape.radiusY}" fill="${color}" />`
+    : record.shape.kind === "sphere"
+      ? `<circle cx="${record.points[0].x}" cy="${record.points[0].y}" r="${record.sphereRadius}" fill="${color}" />`
+    : record.shape.kind === "line"
+      ? `<line x1="${record.points[0].x}" y1="${record.points[0].y}" x2="${record.points[1].x}" y2="${record.points[1].y}" fill="none" stroke="${color}" stroke-width="${record.shape.strokeWidth ?? 1}" stroke-linecap="round" />`
+      : `<polygon points="${record.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />`;
   const compositeMaskDefs: string[] = [];
   const maskBounds = `x="-2000" y="-2000" width="4600" height="4780"`;
   const selectedShapeIds = new Set(viewState.selectedShapeIds ?? [viewState.selectedShapeId].filter(Boolean) as string[]);
   const shapeActualMarkup = (record: (typeof shapeRecords)[number]) => {
-    const { shape, points } = record;
+    const { shape, points, sphereRadius } = record;
     const color = escapeXml(resolveColor(rig, shape.color, shape.paletteId));
     const selectedClass = selectedShapeIds.has(shape.id) ? " is-selected" : "";
     return shape.kind === "line"
       ? `<g class="body-art-shape-item"><line class="body-art-line-outline" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke-width="${(shape.strokeWidth ?? 1) + 3}" /><line class="body-art-line${selectedClass}" data-shape-id="${escapeXml(shape.id)}" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke="${color}" stroke-width="${shape.strokeWidth ?? 1}" /></g>`
       : shape.kind === "circle"
         ? `<g class="body-art-shape-item"><ellipse class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${color}" /><ellipse class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" /></g>`
+        : shape.kind === "sphere"
+          ? `<g class="body-art-shape-item"><circle class="body-art-shape body-art-sphere${selectedClass}" data-shape-id="${escapeXml(shape.id)}" data-art-sphere cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" fill="${color}" /><circle class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" /></g>`
         : `<g class="body-art-shape-item"><polygon class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" /><polygon class="body-art-shape-outline" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" /></g>`;
   };
   const shapeDepth = (record: (typeof shapeRecords)[number]) => record.shape.vertices
@@ -407,7 +414,7 @@ export function renderSvgEditor(
   for (const [index, record] of shapeRecords.entries()) {
     const maskId = `art-shape-mask-${index}`;
     shapeMaskIds.set(record.shape.id, maskId);
-    compositeMaskDefs.push(`<mask id="${maskId}" maskUnits="userSpaceOnUse" ${maskBounds} mask-type="luminance"><rect ${maskBounds} fill="#000" />${compositeGeometry(record.shape, record.points, "#fff")}</mask>`);
+    compositeMaskDefs.push(`<mask id="${maskId}" maskUnits="userSpaceOnUse" ${maskBounds} mask-type="luminance"><rect ${maskBounds} fill="#000" />${compositeGeometry(record, "#fff")}</mask>`);
   }
   const groupDefinitions = new Map((rig.artCompositeGroups ?? []).map((group) => [group.id, group]));
   const directGroupId = (record: (typeof shapeRecords)[number]) => record.compositeGroupId;
@@ -471,12 +478,14 @@ export function renderSvgEditor(
       depth: result.depth, markup: result.actual }] : [];
   });
   const shapeHitItems = shapeRecords.map((record) => {
-    const { shape, points } = record;
+    const { shape, points, sphereRadius } = record;
     const selected = selectedShapeIds.has(shape.id);
     const className = record.compositeMode === "cutout" ? `body-art-cutout-guide${selected ? " is-selected" : ""}`
       : selected ? "body-art-composite-guide is-selected" : "body-art-shape-hit";
     const geometry = shape.kind === "circle"
       ? `<ellipse class="${className}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" />`
+      : shape.kind === "sphere"
+        ? `<circle class="${className}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" />`
       : shape.kind === "line"
         ? `<line class="${className}" data-shape-id="${escapeXml(shape.id)}" x1="${points[0].x}" y1="${points[0].y}" x2="${points[1].x}" y2="${points[1].y}" stroke-width="${Math.max(8, shape.strokeWidth ?? 1)}" />`
         : `<polygon class="${className}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" />`;
@@ -640,9 +649,11 @@ export function renderSvgEditor(
     const axisStart = projectedAxisPoint(selectedJoint.id, selectedAxis.id, -1);
     const axisEnd = projectedAxisPoint(selectedJoint.id, selectedAxis.id, 1);
     const world = { x: (axisStart.x + axisEnd.x) / 2, y: (axisStart.y + axisEnd.y) / 2 };
-    const radians = (getAxisWorldAngle(rig, selectedJoint, selectedAxis) * Math.PI) / 180;
+    const directionX = axisEnd.x - axisStart.x;
+    const directionY = axisEnd.y - axisStart.y;
+    const directionLength = Math.hypot(directionX, directionY) || 1;
     const distance = (viewRadiusOf(selectedJoint.id) + 34) * scaleOf(selectedJoint.id);
-    const handle = { x: world.x + Math.cos(radians) * distance, y: world.y + Math.sin(radians) * distance };
+    const handle = { x: world.x + directionX / directionLength * distance, y: world.y + directionY / directionLength * distance };
     rotationHandle = `
       <line class="rotation-guide" x1="${world.x}" y1="${world.y}" x2="${handle.x}" y2="${handle.y}" />
       <circle class="rotation-handle" cx="${handle.x}" cy="${handle.y}" r="9"

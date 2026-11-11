@@ -1,5 +1,5 @@
 import { parsePoseAnimationFile, type PoseAnimationFile } from "./pose-animation.ts";
-import { normalizeRigZCoordinates, normalizeSurfaceProfiles, validateRig } from "../rig/rig-state.ts";
+import { normalizeArtShapeSpheres, normalizeRigZCoordinates, normalizeSurfaceProfiles, validateRig } from "../rig/rig-state.ts";
 import type { PoseClip } from "../rig/pose-interpolation.ts";
 import type { Rig } from "../rig/types.ts";
 import { normalizeBodyViewProfiles } from "../rig/types.ts";
@@ -85,6 +85,7 @@ export function parseWorkspaceCache(text: string): WorkspaceCache {
   normalizeRigZCoordinates(rig);
   normalizeBodyViewProfiles(rig);
   normalizeSurfaceProfiles(rig);
+  normalizeArtShapeSpheres(rig);
   rig.artShapes ??= [];
   if (validateRig(rig).length) throw new Error("자동 저장 리그 데이터가 올바르지 않습니다.");
   const animation: PoseAnimationFile = parsePoseAnimationFile(JSON.stringify({

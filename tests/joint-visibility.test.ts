@@ -8,7 +8,7 @@ import { RigState } from "../src/rig/rig-state.ts";
 
 const viewState: EditorViewState = {
   outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "torso",
-  selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+  selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
   activeTool: "select", paintColor: "#dca27b", paintPaletteId: null,
 };
 

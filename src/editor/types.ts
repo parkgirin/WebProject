@@ -19,10 +19,10 @@ export interface EditorViewState {
   lineDraft?: PolygonDraftPoint[];
   selectedTarget: "joint" | "face";
   inspectorTab: "selection" | "layers" | "color";
-  preserveProportions: boolean;
+  editBodyProportions: boolean;
   /** Move one selected joint while keeping its direct children in place. */
   moveSelectedIndividually: boolean;
-  activeTool: "select" | "color" | "layer-order" | "polygon" | "line" | "circle" | "vertex-add" | "vertex-bind";
+  activeTool: "select" | "color" | "layer-order" | "polygon" | "line" | "circle" | "sphere" | "vertex-add" | "vertex-bind";
   paintColor: string;
   paintPaletteId: string | null;
 }

@@ -10,7 +10,7 @@ import { RigState } from "../src/rig/rig-state.ts";
 
 const viewState: EditorViewState = {
   outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "torso", selectedTarget: "joint",
-  inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b", paintPaletteId: null,
+  inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b", paintPaletteId: null,
 };
 
 for (const groupId of ["shoulder-band", "hip-band"]) {
@@ -43,7 +43,7 @@ for (const groupId of ["shoulder-band", "hip-band"]) {
     try {
       const controller = enablePointerInput(host, {
         state, getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
-        getPreserveProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
+        getEditBodyProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
         setSelection: () => {}, setSelectedFace: () => {},
       });
       hostEvents.get("pointerdown")!({ button: 0, clientX: x, clientY: y,
@@ -82,7 +82,7 @@ test("clicking a virtual capsule selects both peer joints instead of its legacy 
   try {
     const controller = enablePointerInput(host, {
       state, getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
-      getPreserveProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
+      getEditBodyProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
       setSelection: (selection) => { selected = selection; }, setSelectedFace: (faceId) => { selectedFace = faceId; },
     });
 

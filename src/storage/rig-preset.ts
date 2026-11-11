@@ -1,5 +1,5 @@
 import { createDefaultRig } from "../rig/default-rig.ts";
-import { validateRig, type RigState } from "../rig/rig-state.ts";
+import { normalizeArtShapeSpheres, validateRig, type RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
 
 export const HUMAN_RIG_TEMPLATE_ID = "human-v1";
@@ -130,6 +130,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       }
       candidate.artShapes = structuredClone(preset.artShapes);
       candidate.artCompositeGroups = structuredClone(preset.artCompositeGroups ?? []);
+      normalizeArtShapeSpheres(candidate);
       const errors = validateRig(candidate);
       if (errors.length) throw new Error(`도형 데이터를 적용할 수 없습니다: ${errors[0]}`);
       for (const [jointId] of Object.entries(preset.artAxes ?? {})) {

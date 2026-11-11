@@ -353,6 +353,8 @@ button, input { font: inherit; }
 .line-draft circle { fill: #fff; stroke: #b65f3b; stroke-width: 2; }
 .rig-canvas.is-polygon-mode { cursor: crosshair; }
 .rig-canvas.is-polygon-mode .axis-point { pointer-events: auto; cursor: crosshair; }
+.rig-canvas.is-circle-mode,
+.rig-canvas.is-sphere-mode { cursor: crosshair; }
 .rig-canvas.is-line-mode { cursor: crosshair; }
 .rig-canvas.is-line-mode .axis-point { pointer-events: auto; cursor: crosshair; }
 .show-outlines .body-face-outline,

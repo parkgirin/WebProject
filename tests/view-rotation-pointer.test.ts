@@ -22,7 +22,7 @@ test("right-drag rotates the world Y axis and records one undoable change", () =
   try {
     const controller = enablePointerInput(host, {
       state, getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
-      getPreserveProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
+      getEditBodyProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
       setSelection: () => {}, setSelectedFace: () => {},
     });
     hostEvents.get("pointerdown")!({ button: 2, clientX: 100, clientY: 50,

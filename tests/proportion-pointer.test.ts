@@ -8,7 +8,7 @@ import { getJointParentWorldTransform, getJointWorldTransform } from "../src/rig
 import { RigState } from "../src/rig/rig-state.ts";
 
 function withPointerTest(run: (h: {
-  state: RigState; getSelection: () => EditorSelection; setSelection: (value: EditorSelection) => void; setPreserve: (value: boolean) => void;
+  state: RigState; getSelection: () => EditorSelection; setSelection: (value: EditorSelection) => void; setBodyEdit: (value: boolean) => void;
   down: (id: string, shift: boolean, alt?: boolean, axis?: boolean) => void; move: (x: number, y: number, alt: boolean) => void;
   up: () => void; point: (id: string) => { x: number; y: number }; length: (id: string) => number;
 }) => void) {
@@ -26,7 +26,7 @@ function withPointerTest(run: (h: {
     removeEventListener: (name: string) => windowEvents.delete(name),
   } });
   let selection: EditorSelection = { jointId: "left-elbow", axisId: "upper-arm", jointIds: ["left-elbow"] };
-  let preserve = false;
+  let editBody = false;
   const point = (id: string) => getJointWorldTransform(state.rig, id);
   const length = (id: string) => {
     const child = point(id);
@@ -35,11 +35,11 @@ function withPointerTest(run: (h: {
   };
   try {
     const controller = enablePointerInput(host, {
-      state, getSelection: () => selection, getPreserveProportions: () => preserve,
+      state, getSelection: () => selection, getEditBodyProportions: () => editBody,
       getPaintColor: () => null, getLayerToolActive: () => false,
       setSelection: (next) => { selection = next; }, setSelectedFace: () => {},
     });
-    run({ state, getSelection: () => selection, setSelection: (value) => { selection = value; }, setPreserve: (value) => { preserve = value; }, point, length,
+    run({ state, getSelection: () => selection, setSelection: (value) => { selection = value; }, setBodyEdit: (value) => { editBody = value; }, point, length,
       down: (id, shiftKey, altKey = false, axis = false) => {
         const current = point(id);
         hostEvents.get("pointerdown")!({ button: 0, shiftKey, altKey, clientX: current.x, clientY: current.y,
@@ -56,15 +56,20 @@ function withPointerTest(run: (h: {
   }
 }
 
-test("alt-drag preserves length without deselecting, while shift-click deselects", () => {
+test("joint drag preserves length by default while alt-drag edits body length", () => {
   withPointerTest(({ down, move, up, point, length, getSelection, state }) => {
     const before = point("left-elbow");
     const initialLength = length("left-elbow");
-    down("left-elbow", false, true);
-    move(before.x + 35, before.y + 20, true);
+    down("left-elbow", false);
+    move(before.x + 35, before.y + 20, false);
     up();
     assert.deepEqual(getSelection().jointIds, ["left-elbow"]);
     assert.ok(Math.abs(length("left-elbow") - initialLength) < 1e-8);
+    const rotated = point("left-elbow");
+    down("left-elbow", false, true);
+    move(rotated.x + 35, rotated.y + 20, true);
+    up();
+    assert.ok(Math.abs(length("left-elbow") - initialLength) > 1e-3);
     assert.equal(state.canUndo, true);
     down("left-elbow", true);
     up();
@@ -86,13 +91,13 @@ test("shift-clicking a peer joint axis adds and removes it without clearing the 
   });
 });
 
-test("alt-drag on a selected joint preserves the whole multi-selection", () => {
+test("default drag on a selected joint preserves the whole multi-selection", () => {
   withPointerTest(({ down, move, up, point, length, getSelection, setSelection }) => {
     setSelection({ jointId: "left-elbow", axisId: "upper-arm", jointIds: ["left-elbow", "left-wrist"] });
     const initialLengths = [length("left-elbow"), length("left-wrist")];
     const before = point("left-elbow");
-    down("left-elbow", false, true);
-    move(before.x + 35, before.y + 15, true);
+    down("left-elbow", false);
+    move(before.x + 35, before.y + 15, false);
     up();
     assert.deepEqual(getSelection().jointIds, ["left-elbow", "left-wrist"]);
     assert.ok(Math.abs(length("left-elbow") - initialLengths[0]) < 1e-8);
@@ -100,37 +105,38 @@ test("alt-drag on a selected joint preserves the whole multi-selection", () => {
   });
 });
 
-test("shift-drag selects joints and constrains their move to the dominant axis", () => {
+test("shift-drag adds joints while preserving their connection lengths", () => {
   withPointerTest(({ down, move, up, point, length, getSelection }) => {
     const start = point("right-elbow");
     const initial = length("right-elbow");
     down("right-elbow", true);
-    move(start.x + 35, start.y + 20, false);
+    move(start.x + 20, start.y + 35, false);
     up();
     assert.deepEqual(getSelection().jointIds, ["left-elbow", "right-elbow"]);
-    assert.ok(Math.abs(point("right-elbow").x - (start.x + 35)) < 1e-8);
-    assert.ok(Math.abs(point("right-elbow").y - start.y) < 1e-8);
-    assert.ok(Math.abs(length("right-elbow") - initial) > 1e-3);
+    assert.ok(Math.hypot(point("right-elbow").x - start.x, point("right-elbow").y - start.y) > 1);
+    assert.ok(Math.abs(length("right-elbow") - initial) < 1e-8);
   });
 });
 
-test("alt can be pressed or released during a drag and checkbox keeps the constraint active", () => {
-  withPointerTest(({ down, move, up, point, length, setPreserve }) => {
+test("alt can enter body editing during a drag and the checkbox keeps body editing active", () => {
+  withPointerTest(({ down, move, up, point, length, setBodyEdit }) => {
     const start = point("left-elbow");
+    const initialLength = length("left-elbow");
     down("left-elbow", false);
     move(start.x + 15, start.y + 10, false);
-    const unconstrainedLength = length("left-elbow");
+    assert.ok(Math.abs(length("left-elbow") - initialLength) < 1e-8);
     move(start.x + 30, start.y + 25, true);
-    assert.ok(Math.abs(length("left-elbow") - unconstrainedLength) < 1e-8);
+    const editedLength = length("left-elbow");
+    assert.ok(Math.abs(editedLength - initialLength) > 1e-3);
     move(start.x + 45, start.y + 40, false);
-    assert.ok(Math.abs(length("left-elbow") - unconstrainedLength) > 1e-3);
+    assert.ok(Math.abs(length("left-elbow") - editedLength) < 1e-8);
     up();
-    setPreserve(true);
+    setBodyEdit(true);
     const next = point("left-elbow");
-    const fixedLength = length("left-elbow");
+    const beforeBodyEdit = length("left-elbow");
     down("left-elbow", false);
     move(next.x + 30, next.y + 20, false);
     up();
-    assert.ok(Math.abs(length("left-elbow") - fixedLength) < 1e-8);
+    assert.ok(Math.abs(length("left-elbow") - beforeBodyEdit) > 1e-3);
   });
 });

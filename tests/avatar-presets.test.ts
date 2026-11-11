@@ -43,8 +43,8 @@ test("all seven avatar presets apply their app dimensions to a valid rig", () =>
     close(distance(state, "left-hip", "left-knee"), preset.upperLegLength);
     close(distance(state, "left-knee", "left-ankle"), preset.lowerLegLength);
     const headShape = state.rig.artShapes?.find((shape) => shape.id === "head-base");
-    assert.equal(headShape?.kind, "circle");
-    close(headShape?.radiusX ?? 0, 60);
+    assert.equal(headShape?.kind, "sphere");
+    close(headShape?.radius ?? 0, 60);
     const leftShoulder = getJointWorldTransform(state.rig, "left-shoulder");
     const leftElbow = getJointWorldTransform(state.rig, "left-elbow");
     const leftWrist = getJointWorldTransform(state.rig, "left-wrist");

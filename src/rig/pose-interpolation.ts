@@ -122,6 +122,9 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
       shape.radiusX = lerp(shape.radiusX ?? 1, endShape.radiusX ?? 1, t);
       shape.radiusY = lerp(shape.radiusY ?? 1, endShape.radiusY ?? 1, t);
     }
+    if (shape.kind === "sphere" && endShape.kind === "sphere") {
+      shape.radius = lerp(shape.radius ?? 1, endShape.radius ?? 1, t);
+    }
     delete shape.paletteId;
   }
   return result;

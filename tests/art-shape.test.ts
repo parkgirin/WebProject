@@ -36,14 +36,24 @@ test("polygon root vertices preserve clicked world positions and follow the mode
   assert.notDeepEqual(getArtShapeVertexPoint(state.rig, shape.vertices[0]), before);
 });
 
-test("circle shapes render from one centre, and the default head follows its head joint", () => {
+test("sphere shapes use one projected centre, and the default head follows its head joint", () => {
   const state = new RigState(createDefaultRig());
   const head = state.getArtShape("head-base");
-  assert.equal(head.kind, "circle");
+  assert.equal(head.kind, "sphere");
+  assert.equal(head.radius, 60);
   assert.equal(head.vertices[0].source, "joint-center");
   const before = getArtShapeVertexPoint(state.rig, head.vertices[0]);
   state.moveJoint("head", before.x + 24, before.y + 12);
   assert.deepEqual(getArtShapeVertexPoint(state.rig, head.vertices[0]), { x: before.x + 24, y: before.y + 12 });
+
+  const sphereId = state.addSphere(160, 220, 30);
+  const sphere = state.getArtShape(sphereId);
+  assert.equal(sphere.kind, "sphere");
+  assert.equal(sphere.vertices.length, 1);
+  state.setArtShapeSphereRadius(sphereId, 50);
+  assert.equal(sphere.radius, 50);
+  state.undo();
+  assert.equal(state.getArtShape(sphereId).radius, 30);
 
   const id = state.addCircle(180, 240, 32);
   const circle = state.getArtShape(id);
@@ -65,6 +75,38 @@ test("circle shapes render from one centre, and the default head follows its hea
   assert.equal(middle.radiusX, 48);
   assert.equal(middle.radiusY, 24);
   assert.deepEqual(validateRig(state.rig), []);
+});
+
+test("legacy default head circles migrate to sphere shapes", () => {
+  const rig = createDefaultRig();
+  const head = rig.artShapes!.find((shape) => shape.id === "head-base")!;
+  head.kind = "circle";
+  head.radiusX = 54;
+  head.radiusY = 60;
+  delete head.radius;
+
+  const state = new RigState(rig);
+  const migrated = state.getArtShape("head-base");
+  assert.equal(migrated.kind, "sphere");
+  assert.equal(migrated.radius, 60);
+  assert.equal(migrated.radiusX, undefined);
+  assert.equal(migrated.radiusY, undefined);
+});
+
+test("sphere art shapes render as camera-facing circles", () => {
+  const state = new RigState(createDefaultRig());
+  state.setJointZ("head", 40);
+  state.setViewYRotation(55);
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: false, selectedFaceId: "neck",
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
+    moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, state.rig, { jointId: "head", axisId: null, jointIds: ["head"] }, viewState);
+  assert.match(host.innerHTML, /<circle[^>]+data-shape-id="head-base"[^>]+data-art-sphere/);
+  assert.doesNotMatch(host.innerHTML, /<ellipse[^>]+data-shape-id="head-base"/);
 });
 
 test("axis-point polygon vertices follow an extended endpoint while retaining local offsets", () => {
@@ -281,7 +323,7 @@ test("overlay paints its own color inside the accumulated shape without shrinkin
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
-    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
     moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
   };
 
@@ -302,7 +344,7 @@ test("the SVG renderer masks only earlier paint shapes in the same composite gro
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
-    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
     moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
   };
 
@@ -323,7 +365,7 @@ test("paint shapes in one composite group render only their shared intersection"
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
     selectedShapeIds: [first, second], selectedTarget: "joint", inspectorTab: "selection",
-    preserveProportions: false, moveSelectedIndividually: false, activeTool: "select",
+    editBodyProportions: false, moveSelectedIndividually: false, activeTool: "select",
     paintColor: "#000000", paintPaletteId: null,
   };
 
@@ -358,7 +400,7 @@ test("nested composite groups preserve child groups and apply their results in o
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
-    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
     moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
   };
   renderSvgEditor(host, state.rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
@@ -380,7 +422,7 @@ test("a nested child group can overlay its composed result across group boundari
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
-    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
     moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
   };
 
@@ -411,7 +453,7 @@ test("composite operations follow layer order instead of refilling an earlier cu
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
-    selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
     moveSelectedIndividually: false, activeTool: "select", paintColor: "#000000", paintPaletteId: null,
   };
 
@@ -456,7 +498,7 @@ test("the inspector deletes every selected shape as one undoable operation", () 
   const viewState: EditorViewState = {
     outlinesVisible: false, hideSameJointEdges: false, selectedFaceId: "torso",
     selectedShapeId: second, selectedShapeIds: [first, second], selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, moveSelectedIndividually: false,
+    inspectorTab: "selection", editBodyProportions: false, moveSelectedIndividually: false,
     activeTool: "select", paintColor: "#000000", paintPaletteId: null,
   };
 

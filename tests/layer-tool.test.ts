@@ -77,7 +77,7 @@ test("layer pointer tool selects and moves clicked faces and joints without drag
   let faceId = "";
   try {
     const controller = enablePointerInput(element, {
-      state, getSelection: () => selection, getPreserveProportions: () => false,
+      state, getSelection: () => selection, getEditBodyProportions: () => false,
       getPaintColor: () => null, getLayerToolActive: () => true,
       setSelection: (next) => { selection = next; }, setSelectedFace: (id) => { faceId = id; },
     });

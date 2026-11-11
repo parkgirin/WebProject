@@ -50,7 +50,7 @@ function withShapePointerTest(run: (tools: {
     const controller = enablePointerInput(host, {
       state,
       getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
-      getPreserveProportions: () => false,
+      getEditBodyProportions: () => false,
       getPaintColor: () => null,
       getLayerToolActive: () => false,
       getSelectedShapeIds: () => selectedShapeIds,
@@ -157,7 +157,7 @@ test("blank-canvas drag replaces shape selection and shift-drag adds to it", () 
   try {
     const controller = enablePointerInput(host, {
       state, getSelection: () => ({ jointId: null, axisId: null, jointIds: [] }),
-      getPreserveProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
+      getEditBodyProportions: () => false, getPaintColor: () => null, getLayerToolActive: () => false,
       getSelectedShapeIds: () => selectedShapeIds, setSelection: () => {}, setSelectedFace: () => {},
       setSelectedShapes: (ids) => { selectedShapeIds = ids; },
     });

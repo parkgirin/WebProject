@@ -1,16 +1,17 @@
 import type { PolygonDraftPoint, RigState } from "../rig/rig-state.ts";
-import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getJointParentWorldTransform, getJointWorldTransform, getPeerGroupPivot, projectPoint, unprojectPoint } from "../rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisPoint, getCameraZ, getJointParentWorldTransform, getJointWorldTransform, getPeerGroupPivot, getProjectionScale, projectPoint, unprojectPoint } from "../rig/geometry.ts";
 import type { EditorSelection } from "./types.ts";
 
 interface PointerInputOptions {
   state: RigState;
   getSelection: () => EditorSelection;
-  getPreserveProportions: () => boolean;
+  getEditBodyProportions: () => boolean;
   getMoveSelectedIndividually?: () => boolean;
   getPaintColor: () => string | null;
   getLayerToolActive: () => boolean;
   getPolygonToolActive?: () => boolean;
   getCircleToolActive?: () => boolean;
+  getSphereToolActive?: () => boolean;
   getLineToolActive?: () => boolean;
   getVertexAddToolActive?: () => boolean;
   getVertexBindToolActive?: () => boolean;
@@ -20,6 +21,7 @@ interface PointerInputOptions {
   cancelPolygon?: () => void;
   removeLastPolygonPoint?: () => void;
   addCircle?: (point: { x: number; y: number }) => void;
+  addSphere?: (point: { x: number; y: number }) => void;
   cancelLine?: () => void;
   removeLastLinePoint?: () => void;
   insertShapeVertex?: (shapeId: string, afterVertexId: string, point: { x: number; y: number }) => void;
@@ -45,11 +47,11 @@ type ViewBox = { x: number; y: number; width: number; height: number };
 type Interaction =
   | { type: "pending-shift-joint"; jointId: string; jointIds: string[]; startX: number; startY: number; clientX: number; clientY: number }
   | { type: "move-selection"; jointIds: string[]; lastX: number; lastY: number }
-  | { type: "move-joint-constrained"; jointId: string; parentX: number; parentY: number; length: number; angleOffset: number }
+  | { type: "move-joint-constrained"; jointId: string; parentX: number; parentY: number; lastAngle: number }
   | { type: "move-selection-constrained"; jointIds: string[]; parentX: number; parentY: number; pointerOffsetX: number; pointerOffsetY: number; lastAngle: number; lastX: number; lastY: number }
-  | { type: "rotate-axis"; jointId: string; axisId: string; angleOffset: number }
-  | { type: "rotate-child"; jointId: string; angleOffset: number }
-  | { type: "rotate-peer"; peerGroupId: string; pivotX: number; pivotY: number; angleOffset: number }
+  | { type: "rotate-axis"; jointId: string; axisId: string; lastAngle: number }
+  | { type: "rotate-child"; jointId: string; lastAngle: number }
+  | { type: "rotate-peer"; peerGroupId: string; pivotX: number; pivotY: number; lastAngle: number }
   | { type: "rotate-selection"; jointIds: string[]; pivotX: number; pivotY: number; lastAngle: number }
   | { type: "pending-shift-shape"; shapeId: string; wasSelected: boolean; startX: number; startY: number; clientX: number; clientY: number }
   | { type: "move-shapes"; shapeIds: string[]; startX: number; startY: number; appliedX: number; appliedY: number; axis: "x" | "y" | null; constrained: boolean }
@@ -80,6 +82,7 @@ export function enablePointerInput(
   let spacePressed = false;
   let panMode = false;
   let interactionDepth = 0;
+  const shouldConstrainJointDistance = (altKey: boolean) => !(options.getEditBodyProportions() || altKey);
 
   const readViewBox = (): ViewBox => {
     const box = element.viewBox.baseVal;
@@ -125,8 +128,10 @@ export function enablePointerInput(
     };
     if (constrained && jointIds.length > 1 && jointIds.some((id) => options.state.getJoint(id).parentJointId)) {
       const reference = joint.parentJointId ? joint : options.state.getJoint(jointIds.find((id) => options.state.getJoint(id).parentJointId)!);
-      const parent = getJointParentWorldTransform(options.state.rig, reference.id)!;
-      const current = getJointWorldTransform(options.state.rig, reference.id);
+      const parentModel = getJointParentWorldTransform(options.state.rig, reference.id)!;
+      const parent = projectPoint(options.state.rig, parentModel, options.state.getJoint(reference.parentJointId!).z);
+      const currentModel = getJointWorldTransform(options.state.rig, reference.id);
+      const current = projectPoint(options.state.rig, currentModel, reference.z);
       const pointerOffsetX = reference.id === jointId ? 0 : current.x - point.x;
       const pointerOffsetY = reference.id === jointId ? 0 : current.y - point.y;
       interaction = {
@@ -136,12 +141,11 @@ export function enablePointerInput(
         lastX: point.x, lastY: point.y,
       };
     } else if (constrained && jointIds.length === 1 && joint.parentJointId) {
-      const parent = getJointParentWorldTransform(options.state.rig, joint.id)!;
-      const current = getJointWorldTransform(options.state.rig, jointId);
+      const parentModel = getJointParentWorldTransform(options.state.rig, joint.id)!;
+      const parent = projectPoint(options.state.rig, parentModel, options.state.getJoint(joint.parentJointId!).z);
       interaction = {
         type: "move-joint-constrained", jointId, parentX: parent.x, parentY: parent.y,
-        length: Math.hypot(current.x - parent.x, current.y - parent.y),
-        angleOffset: getAngle(parent.x, parent.y, current.x, current.y) - getAngle(parent.x, parent.y, point.x, point.y),
+        lastAngle: getAngle(parent.x, parent.y, point.x, point.y),
       };
     } else {
       interaction = { type: "move-selection", jointIds, lastX: point.x, lastY: point.y };
@@ -166,6 +170,7 @@ export function enablePointerInput(
         : faceId
           ? getFaceDepth(options.state.rig, faceId)
           : 0;
+    const screenPoint = toSvgPoint(element, event);
     const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
 
     if (event.button === 2 && !options.getLayerToolActive()) {
@@ -186,6 +191,10 @@ export function enablePointerInput(
       return;
     } else if (event.button === 0 && options.getCircleToolActive?.() && !spacePressed && !panMode) {
       options.addCircle?.(point);
+      event.preventDefault();
+      return;
+    } else if (event.button === 0 && options.getSphereToolActive?.() && !spacePressed && !panMode) {
+      options.addSphere?.(point);
       event.preventDefault();
       return;
     } else if (event.button === 0 && options.getLineToolActive?.() && !spacePressed && !panMode) {
@@ -283,7 +292,7 @@ export function enablePointerInput(
         jointIds: selected,
         pivotX,
         pivotY,
-        lastAngle: getAngle(pivotX, pivotY, point.x, point.y),
+        lastAngle: getAngle(pivotX, pivotY, screenPoint.x, screenPoint.y),
       };
       options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-rotation-handle") && jointId && axisId) {
@@ -292,26 +301,33 @@ export function enablePointerInput(
       if (!axis) return;
       const first = getAxisPoint(options.state.rig, joint, axis, -1);
       const second = getAxisPoint(options.state.rig, joint, axis, 1);
-      const world = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
-      const pointerAngle = getAngle(world.x, world.y, point.x, point.y);
+      const firstScreen = projectPoint(options.state.rig, first, joint.z);
+      const secondScreen = projectPoint(options.state.rig, second, joint.z);
+      const world = { x: (firstScreen.x + secondScreen.x) / 2, y: (firstScreen.y + secondScreen.y) / 2 };
       interaction = {
         type: "rotate-axis",
         jointId,
         axisId,
-        angleOffset: getAxisWorldAngle(options.state.rig, joint, axis) - pointerAngle,
+        lastAngle: getAngle(world.x, world.y, screenPoint.x, screenPoint.y),
       };
       options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-child-rotation") && jointId) {
-      interaction = { type: "rotate-child", jointId, angleOffset: 0 };
+      const joint = options.state.getJoint(jointId);
+      if (!joint.parentJointId) return;
+      const parentModel = getJointParentWorldTransform(options.state.rig, joint.id);
+      if (!parentModel) return;
+      const parent = projectPoint(options.state.rig, parentModel, options.state.getJoint(joint.parentJointId).z);
+      interaction = { type: "rotate-child", jointId, lastAngle: getAngle(parent.x, parent.y, screenPoint.x, screenPoint.y) };
       options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-peer-rotation") && peerGroupId) {
       const group = options.state.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
       if (!group?.jointIds.length) return;
-      const pivot = getPeerGroupPivot(options.state.rig, peerGroupId);
-      const reference = getJointWorldTransform(options.state.rig, group.jointIds[0]);
+      const pivotModel = getPeerGroupPivot(options.state.rig, peerGroupId);
+      const pivotDepth = group.jointIds.reduce((sum, id) => sum + options.state.getJoint(id).z, 0) / group.jointIds.length;
+      const pivot = projectPoint(options.state.rig, pivotModel, pivotDepth);
       interaction = {
         type: "rotate-peer", peerGroupId, pivotX: pivot.x, pivotY: pivot.y,
-        angleOffset: getAngle(pivot.x, pivot.y, reference.x, reference.y) - getAngle(pivot.x, pivot.y, point.x, point.y),
+        lastAngle: getAngle(pivot.x, pivot.y, screenPoint.x, screenPoint.y),
       };
       options.state.beginHistoryTransaction();
     } else if (target.hasAttribute("data-select-axis") && jointId && axisId && !event.shiftKey) {
@@ -321,7 +337,7 @@ export function enablePointerInput(
       const previous = options.getSelection();
       const selected = new Set(previous.jointIds);
       if (event.shiftKey && selected.has(jointId)) {
-        interaction = { type: "pending-shift-joint", jointId, jointIds: [...selected], startX: point.x, startY: point.y,
+        interaction = { type: "pending-shift-joint", jointId, jointIds: [...selected], startX: screenPoint.x, startY: screenPoint.y,
           clientX: event.clientX, clientY: event.clientY };
       } else {
         if (!event.shiftKey && !selected.has(jointId)) selected.clear();
@@ -332,7 +348,7 @@ export function enablePointerInput(
           axisId: axisId ?? (previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null),
           jointIds,
         });
-        startJointMove(jointId, jointIds, point, options.getPreserveProportions() || event.altKey, event.shiftKey);
+        startJointMove(jointId, jointIds, screenPoint, shouldConstrainJointDistance(event.altKey), event.shiftKey);
         options.state.beginHistoryTransaction();
       }
     } else if (target.hasAttribute("data-peer-capsule") && peerGroupId && !options.getPaintColor()) {
@@ -389,7 +405,7 @@ export function enablePointerInput(
       const previous = options.getSelection();
       const joint = options.state.getJoint(jointId);
       options.setSelection({ jointId, jointIds, axisId: previous.jointId === jointId ? previous.axisId : joint.axes[0]?.id ?? null });
-      startJointMove(jointId, jointIds, { x: startX, y: startY }, options.getPreserveProportions() || event.altKey, true);
+      startJointMove(jointId, jointIds, { x: startX, y: startY }, shouldConstrainJointDistance(event.altKey), true);
       options.state.beginHistoryTransaction();
     } else if (interaction.type === "pending-shift-shape") {
       if (Math.hypot(event.clientX - interaction.clientX, event.clientY - interaction.clientY) < 3) return;
@@ -420,39 +436,38 @@ export function enablePointerInput(
       return;
     }
 
+    const screenPoint = toSvgPoint(element, event);
     const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
     if (interaction.type === "move-joint-z") {
       // Moving upward brings the selected joint toward the viewer.
       options.state.setJointZ(interaction.jointId, interaction.startZ + (interaction.startClientY - event.clientY) * 0.5);
       return;
     }
-    if (jointDrag && jointDrag.constrained !== (options.getPreserveProportions() || event.altKey)) {
+    if (jointDrag && jointDrag.constrained !== shouldConstrainJointDistance(event.altKey)) {
       startJointMove(
         jointDrag.jointId,
         jointDrag.jointIds,
         { x: jointDrag.lastX, y: jointDrag.lastY },
-        options.getPreserveProportions() || event.altKey,
+        shouldConstrainJointDistance(event.altKey),
         jointDrag.axisLocked,
         jointDrag,
       );
     }
-    let jointPoint = point;
+    let jointPoint = screenPoint;
     if (jointDrag?.axisLocked) {
       if (!jointDrag.axis) {
-        jointDrag.axis = Math.abs(point.x - jointDrag.startX) >= Math.abs(point.y - jointDrag.startY) ? "x" : "y";
+        jointDrag.axis = Math.abs(screenPoint.x - jointDrag.startX) >= Math.abs(screenPoint.y - jointDrag.startY) ? "x" : "y";
       }
       jointPoint = {
-        x: jointDrag.axis === "y" ? jointDrag.startX : point.x,
-        y: jointDrag.axis === "x" ? jointDrag.startY : point.y,
+        x: jointDrag.axis === "y" ? jointDrag.startX : screenPoint.x,
+        y: jointDrag.axis === "x" ? jointDrag.startY : screenPoint.y,
       };
     }
     if (interaction.type === "move-selection") {
       if (interaction.jointIds.length === 1 && options.getMoveSelectedIndividually?.()) {
-        const joint = options.state.getJoint(interaction.jointIds[0]);
-        const world = getJointWorldTransform(options.state.rig, joint.id);
-        options.state.moveJointIndependently(joint.id, world.x + jointPoint.x - interaction.lastX, world.y + jointPoint.y - interaction.lastY);
+        options.state.moveJointIndependentlyInCameraPlane(interaction.jointIds[0], jointPoint.x - interaction.lastX, jointPoint.y - interaction.lastY);
       } else {
-        options.state.moveJointsBy(interaction.jointIds, jointPoint.x - interaction.lastX, jointPoint.y - interaction.lastY);
+        options.state.moveJointsInCameraPlane(interaction.jointIds, jointPoint.x - interaction.lastX, jointPoint.y - interaction.lastY);
       }
       interaction.lastX = jointPoint.x;
       interaction.lastY = jointPoint.y;
@@ -460,46 +475,50 @@ export function enablePointerInput(
       const angle = getAngle(interaction.parentX, interaction.parentY,
         jointPoint.x + interaction.pointerOffsetX, jointPoint.y + interaction.pointerOffsetY);
       const delta = ((angle - interaction.lastAngle + 540) % 360) - 180;
-      options.state.moveJointsConstrainedBy(interaction.jointIds, delta, jointPoint.x - interaction.lastX, jointPoint.y - interaction.lastY);
+      options.state.rotateJointsInCameraPlane(interaction.jointIds, delta);
       interaction.lastAngle = angle;
       interaction.lastX = jointPoint.x;
       interaction.lastY = jointPoint.y;
     } else if (interaction.type === "move-joint-constrained") {
-      const angle = (getAngle(interaction.parentX, interaction.parentY, jointPoint.x, jointPoint.y)
-        + interaction.angleOffset) * Math.PI / 180;
-      options.state.moveJoint(
-        interaction.jointId,
-        interaction.parentX + Math.cos(angle) * interaction.length,
-        interaction.parentY + Math.sin(angle) * interaction.length,
-      );
+      const angle = getAngle(interaction.parentX, interaction.parentY, jointPoint.x, jointPoint.y);
+      const delta = ((angle - interaction.lastAngle + 540) % 360) - 180;
+      options.state.rotateJointsInCameraPlane([interaction.jointId], delta);
+      interaction.lastAngle = angle;
     } else if (interaction.type === "rotate-axis") {
-      const { jointId, axisId, angleOffset } = interaction;
+      const { jointId, axisId } = interaction;
       const joint = options.state.getJoint(jointId);
       const axis = joint.axes.find((candidate) => candidate.id === axisId);
       if (!axis) return;
       const first = getAxisPoint(options.state.rig, joint, axis, -1);
       const second = getAxisPoint(options.state.rig, joint, axis, 1);
-      const world = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
-      const pointerAngle = getAngle(world.x, world.y, point.x, point.y);
-      options.state.setAxisAngle(jointId, axisId, pointerAngle + angleOffset);
+      const firstScreen = projectPoint(options.state.rig, first, joint.z);
+      const secondScreen = projectPoint(options.state.rig, second, joint.z);
+      const world = { x: (firstScreen.x + secondScreen.x) / 2, y: (firstScreen.y + secondScreen.y) / 2 };
+      const pointerAngle = getAngle(world.x, world.y, screenPoint.x, screenPoint.y);
+      const delta = ((pointerAngle - interaction.lastAngle + 540) % 360) - 180;
+      options.state.rotateAxisInCameraPlane(jointId, axisId, delta);
+      interaction.lastAngle = pointerAngle;
     } else if (interaction.type === "rotate-child") {
       const joint = options.state.getJoint(interaction.jointId);
       if (!joint.parentJointId) return;
-      const parent = getJointParentWorldTransform(options.state.rig, joint.id);
-      if (!parent) return;
-      options.state.rotateChildAroundParent(
-        interaction.jointId,
-        getAngle(parent.x, parent.y, point.x, point.y) + interaction.angleOffset,
-      );
+      const parentModel = getJointParentWorldTransform(options.state.rig, joint.id);
+      if (!parentModel) return;
+      const parent = projectPoint(options.state.rig, parentModel, options.state.getJoint(joint.parentJointId).z);
+      const pointerAngle = getAngle(parent.x, parent.y, screenPoint.x, screenPoint.y);
+      const delta = ((pointerAngle - interaction.lastAngle + 540) % 360) - 180;
+      options.state.rotateJointsInCameraPlane([interaction.jointId], delta);
+      interaction.lastAngle = pointerAngle;
     } else if (interaction.type === "rotate-peer") {
-      if (Math.hypot(point.x - interaction.pivotX, point.y - interaction.pivotY) < 12) return;
-      options.state.rotatePeerGroup(interaction.peerGroupId,
-        getAngle(interaction.pivotX, interaction.pivotY, point.x, point.y) + interaction.angleOffset);
+      if (Math.hypot(screenPoint.x - interaction.pivotX, screenPoint.y - interaction.pivotY) < 12) return;
+      const pointerAngle = getAngle(interaction.pivotX, interaction.pivotY, screenPoint.x, screenPoint.y);
+      const delta = ((pointerAngle - interaction.lastAngle + 540) % 360) - 180;
+      options.state.rotatePeerGroupInCameraPlane(interaction.peerGroupId, delta);
+      interaction.lastAngle = pointerAngle;
     } else if (interaction.type === "rotate-selection") {
-      const angle = getAngle(interaction.pivotX, interaction.pivotY, point.x, point.y);
+      const angle = getAngle(interaction.pivotX, interaction.pivotY, screenPoint.x, screenPoint.y);
       let delta = angle - interaction.lastAngle;
       if (event.shiftKey) delta = Math.round(delta / 15) * 15;
-      options.state.rotateJointsAround(interaction.jointIds, interaction.pivotX, interaction.pivotY, delta);
+      options.state.rotateSelectionInCameraPlane(interaction.jointIds, delta);
       interaction.lastAngle = angle;
     } else if (interaction.type === "move-shape-vertex") {
       options.state.moveArtShapeVertex(interaction.shapeId, interaction.vertexId, point.x, point.y);
@@ -699,8 +718,11 @@ export function getArtShapeIdsInMarquee(
       return projectPoint(rig, getArtShapeVertexPoint(rig, vertex), depth);
     });
     if (!points.length) return [];
-    const paddingX = shape.kind === "circle" ? shape.radiusX ?? 0 : shape.kind === "line" ? (shape.strokeWidth ?? 1) / 2 : 0;
-    const paddingY = shape.kind === "circle" ? shape.radiusY ?? 0 : shape.kind === "line" ? (shape.strokeWidth ?? 1) / 2 : 0;
+    const sphereScale = shape.kind === "sphere" && shape.vertices[0]
+      ? getProjectionScale(rig, getCameraZ(rig, getArtShapeVertexPoint(rig, shape.vertices[0]), getShapeDepth(rig, shape.id)))
+      : 1;
+    const paddingX = shape.kind === "circle" ? shape.radiusX ?? 0 : shape.kind === "sphere" ? (shape.radius ?? 0) * sphereScale : shape.kind === "line" ? (shape.strokeWidth ?? 1) / 2 : 0;
+    const paddingY = shape.kind === "circle" ? shape.radiusY ?? 0 : shape.kind === "sphere" ? (shape.radius ?? 0) * sphereScale : shape.kind === "line" ? (shape.strokeWidth ?? 1) / 2 : 0;
     const shapeLeft = Math.min(...points.map((point) => point.x)) - paddingX;
     const shapeRight = Math.max(...points.map((point) => point.x)) + paddingX;
     const shapeTop = Math.min(...points.map((point) => point.y)) - paddingY;

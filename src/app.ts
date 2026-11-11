@@ -73,7 +73,7 @@ export function createApp(container: HTMLDivElement): void {
     lineDraft: [],
     selectedTarget: "joint",
     inspectorTab: "selection",
-    preserveProportions: false,
+    editBodyProportions: false,
     moveSelectedIndividually: false,
     activeTool: "select",
     paintColor: state.rig.defaultColor,
@@ -114,6 +114,7 @@ export function createApp(container: HTMLDivElement): void {
               <summary>도형</summary>
               <button type="button" class="toolbox-button" data-tool-polygon aria-label="직선 다각형 펜툴" title="클릭으로 꼭짓점 추가 · 첫 점 또는 Enter로 닫기 · Esc 취소">다각형</button>
               <button type="button" class="toolbox-button" data-tool-circle aria-label="원 도형 추가" title="캔버스를 클릭해 원 도형 추가">원</button>
+              <button type="button" class="toolbox-button" data-tool-sphere aria-label="구형 도형 추가" title="캔버스를 클릭해 카메라 투영을 따르는 구형 도형 추가">구</button>
               <button type="button" class="toolbox-button" data-tool-line aria-label="두께가 있는 선분 추가" title="두 끝점을 차례로 클릭 · 축 끝점 연결 지원">선분</button>
               <button type="button" class="toolbox-button" data-tool-vertex-add aria-label="다각형 꼭짓점 추가" title="선택한 다각형의 변을 클릭해 꼭짓점 추가">점 추가</button>
               <button type="button" class="toolbox-button" data-tool-vertex-bind aria-label="꼭짓점 축 연결" title="꼭짓점을 선택한 뒤 축 끝점 클릭 · Alt+클릭은 끝점에 스냅">점 연결</button>
@@ -218,10 +219,10 @@ export function createApp(container: HTMLDivElement): void {
         </div>
         <div class="controls-dialog-content">
           <section><h3>선택과 관절</h3><dl>
-            <dt>클릭 / 드래그</dt><dd>관절이나 면을 선택 / 관절을 이동합니다.</dd>
+            <dt>클릭 / 관절 드래그</dt><dd>관절이나 면을 선택합니다. 관절 드래그는 부모와의 거리를 유지한 채 방향을 바꿉니다.</dd>
             <dt>Shift + 클릭</dt><dd>관절 선택을 추가하거나 해제합니다. 면을 클릭하면 면의 관절을 추가합니다.</dd>
             <dt>빈 공간 드래그</dt><dd>사각형 안의 관절을 선택합니다. Shift를 누르면 기존 선택에 추가합니다.</dd>
-            <dt>Alt(Option) + 관절 드래그</dt><dd>누르고 있는 동안 부모와의 거리를 유지합니다. 선택 패널의 비율 유지 체크박스로 항상 켤 수도 있습니다.</dd>
+            <dt>Alt(Option) + 관절 드래그</dt><dd>관절 사이 거리를 바꿔 체형 길이를 편집합니다. 선택 패널의 체형 길이 편집 옵션으로 지속해서 켤 수도 있습니다.</dd>
             <dt>회전 핸들 드래그</dt><dd>선택 축 또는 여러 관절을 회전합니다. 여러 관절 회전 중 Shift는 15° 단위입니다.</dd>
             <dt>동등 관계 회전 핸들</dt><dd>중심에서 떨어진 보라색 핸들을 중심 주위로 드래그해 어깨 또는 골반을 함께 회전합니다.</dd>
             <dt>동등 관계 중심 간격</dt><dd>선택 패널에서 양쪽 관절을 중점 기준으로 대칭 이동해 어깨 또는 골반 폭을 조절합니다.</dd>
@@ -243,7 +244,7 @@ export function createApp(container: HTMLDivElement): void {
             <dt>Delete / Backspace</dt><dd>선택한 꼭짓점 또는 선택한 도형들을 삭제합니다.</dd>
             <dt>Ctrl(⌘) + A / Esc</dt><dd>도형 편집 중 모든 도형 선택 / 도형 선택 해제입니다.</dd>
           </dl></section>
-          <p>운영체제나 브라우저가 Alt 드래그를 가로채는 경우 비율 유지 체크박스를 사용하세요.</p>
+          <p>운영체제나 브라우저가 Alt 드래그를 가로채는 경우 체형 길이 편집 옵션을 사용하세요.</p>
         </div>
       </dialog>
       <dialog class="export-preview-dialog" data-export-preview-dialog>
@@ -374,6 +375,7 @@ export function createApp(container: HTMLDivElement): void {
   const selectToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-select]");
   const polygonToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-polygon]");
   const circleToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-circle]");
+  const sphereToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-sphere]");
   const lineToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-line]");
   const vertexAddToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-vertex-add]");
   const vertexBindToolButton = requireElement<HTMLButtonElement>(container, "[data-tool-vertex-bind]");
@@ -558,6 +560,7 @@ export function createApp(container: HTMLDivElement): void {
     selectToolButton.classList.toggle("is-active", viewState.activeTool === "select");
     polygonToolButton.classList.toggle("is-active", viewState.activeTool === "polygon");
     lineToolButton.classList.toggle("is-active", viewState.activeTool === "line");
+    sphereToolButton.classList.toggle("is-active", viewState.activeTool === "sphere");
     vertexAddToolButton.classList.toggle("is-active", viewState.activeTool === "vertex-add");
     vertexBindToolButton.classList.toggle("is-active", viewState.activeTool === "vertex-bind");
     colorToolButton.classList.toggle("is-active", viewState.activeTool === "color");
@@ -590,6 +593,7 @@ export function createApp(container: HTMLDivElement): void {
     svg.classList.toggle("is-layer-mode", viewState.activeTool === "layer-order");
     svg.classList.toggle("is-polygon-mode", viewState.activeTool === "polygon");
     svg.classList.toggle("is-circle-mode", viewState.activeTool === "circle");
+    svg.classList.toggle("is-sphere-mode", viewState.activeTool === "sphere");
     svg.classList.toggle("is-line-mode", viewState.activeTool === "line");
     svg.classList.toggle("is-vertex-add-mode", viewState.activeTool === "vertex-add");
     svg.classList.toggle("is-vertex-bind-mode", viewState.activeTool === "vertex-bind");
@@ -690,12 +694,13 @@ export function createApp(container: HTMLDivElement): void {
   const viewport = enablePointerInput(svg, {
     state,
     getSelection: () => selection,
-    getPreserveProportions: () => viewState.preserveProportions,
+    getEditBodyProportions: () => viewState.editBodyProportions,
     getMoveSelectedIndividually: () => viewState.moveSelectedIndividually,
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
     getLayerToolActive: () => viewState.activeTool === "layer-order",
     getPolygonToolActive: () => viewState.activeTool === "polygon",
     getCircleToolActive: () => viewState.activeTool === "circle",
+    getSphereToolActive: () => viewState.activeTool === "sphere",
     getLineToolActive: () => viewState.activeTool === "line",
     getVertexAddToolActive: () => viewState.activeTool === "vertex-add",
     getVertexBindToolActive: () => viewState.activeTool === "vertex-bind",
@@ -732,6 +737,10 @@ export function createApp(container: HTMLDivElement): void {
     addCircle: (point) => {
       const shapeId = state.addCircle(point.x, point.y);
       setViewState({ activeTool: "select", selectedShapeId: shapeId, selectedShapeVertexId: "center", inspectorTab: "selection" });
+    },
+    addSphere: (point) => {
+      const shapeId = state.addSphere(point.x, point.y);
+      setViewState({ activeTool: "select", selectedShapeId: shapeId, selectedShapeIds: [shapeId], selectedShapeVertexId: "center", inspectorTab: "selection" });
     },
     addLinePoint: (point) => {
       const points = [...(viewState.lineDraft ?? []), point];
@@ -1031,6 +1040,7 @@ export function createApp(container: HTMLDivElement): void {
     setViewState({ activeTool: "polygon", inspectorTab: "selection", polygonDraft: [], lineDraft: [] });
   });
   circleToolButton.addEventListener("click", () => activateTool("circle", "selection"));
+  sphereToolButton.addEventListener("click", () => activateTool("sphere", "selection"));
   lineToolButton.addEventListener("click", () => {
     setPanMode(false);
     setViewState({ activeTool: "line", inspectorTab: "selection", lineDraft: [], polygonDraft: [] });

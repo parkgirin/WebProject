@@ -83,7 +83,7 @@ test("virtual peer capsule replaces the authored shoulder band with a camera-fac
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "shoulder-band", selectedTarget: "face",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -108,7 +108,7 @@ test("torso surface connects the actual shoulder band to the rotated waist secti
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "torso", selectedTarget: "face",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -126,7 +126,7 @@ test("waist-to-hip surface lofts the waist capsule into the virtual hip capsule"
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "waist-hip", selectedTarget: "face",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -141,7 +141,7 @@ test("profile capsules and torso exteriors render outlines", () => {
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -159,7 +159,7 @@ test("torso outlines mask only sibling group surfaces", () => {
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -176,7 +176,7 @@ test("group order resolves per-item layer order at equal camera distance", () =>
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -195,7 +195,7 @@ test("camera distance orders overlapping items inside one group before layer ord
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -215,7 +215,7 @@ test("camera distance takes precedence over group order", () => {
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -229,7 +229,7 @@ test("straight body connects equal waist and hip capsules without tapering", () 
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -246,7 +246,7 @@ test("straight torso keeps equal section widths through a Y-axis turn", () => {
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -263,7 +263,7 @@ test("shoulder capsules use inner spheres for a straight torso and outer spheres
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -283,7 +283,7 @@ test("side-view torso exposes shoulder depth instead of collapsing its top edge"
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 
@@ -299,7 +299,7 @@ test("shoulder hierarchy guides start at the rendered outer arm pivot", () => {
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
-    inspectorTab: "selection", preserveProportions: false, activeTool: "select", paintColor: "#dca27b",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
     paintPaletteId: null,
   };
 

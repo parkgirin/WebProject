@@ -292,6 +292,53 @@ test("constrained multi-selection moves a selected root once and preserves child
     Math.hypot(childBefore.x - rootBefore.x, childBefore.y - rootBefore.y));
 });
 
+test("camera-plane movement follows the visible axes in a side view", () => {
+  const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
+  state.setViewYRotation(90);
+  const elbowBefore = getJointWorldTransform(state.rig, "left-elbow");
+  const wristZ = state.getJoint("left-wrist").z;
+
+  state.moveJointsInCameraPlane(["left-elbow"], 25, 0);
+
+  const elbowAfter = getJointWorldTransform(state.rig, "left-elbow");
+  closeTo(elbowAfter.x, elbowBefore.x);
+  closeTo(elbowAfter.y, elbowBefore.y);
+  closeTo(state.getJoint("left-elbow").z, 25);
+  closeTo(state.getJoint("left-wrist").z, wristZ + 25);
+});
+
+test("camera-plane movement follows global world rotation", () => {
+  const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
+  state.setGlobalAxisRotation("z", 90);
+  const rootBefore = getJointWorldTransform(state.rig, "scene-root");
+
+  state.moveJointsInCameraPlane(["scene-root"], 20, 0);
+
+  const rootAfter = getJointWorldTransform(state.rig, "scene-root");
+  closeTo(rootAfter.x, rootBefore.x);
+  closeTo(rootAfter.y, rootBefore.y - 20);
+});
+
+test("camera-plane rotation preserves 3D distance around the visible normal", () => {
+  const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
+  state.setViewYRotation(90);
+  const hip = getJointWorldTransform(state.rig, "right-hip");
+  const kneeBefore = getJointWorldTransform(state.rig, "right-knee");
+  const originalLength = Math.hypot(kneeBefore.x - hip.x, kneeBefore.y - hip.y,
+    state.getJoint("right-knee").z - state.getJoint("right-hip").z);
+
+  state.rotateJointsInCameraPlane(["right-knee"], 45);
+
+  const kneeAfter = getJointWorldTransform(state.rig, "right-knee");
+  const rotatedLength = Math.hypot(kneeAfter.x - hip.x, kneeAfter.y - hip.y,
+    state.getJoint("right-knee").z - state.getJoint("right-hip").z);
+  closeTo(rotatedLength, originalLength);
+  assert.ok(Math.abs(state.getJoint("right-knee").z) > 1);
+});
+
 test("stock joints keep only axes that control their direct children", () => {
   const state = new RigState(createDefaultRig());
   const expected: Record<string, string[]> = {

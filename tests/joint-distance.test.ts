@@ -111,7 +111,7 @@ test("distance fields appear only for actual parent, child or peer relationships
   rig.joints.push(isolated);
   const state = new RigState(rig);
   const viewState: EditorViewState = { outlinesVisible: true, hideSameJointEdges: true,
-    selectedFaceId: "torso", selectedTarget: "joint", inspectorTab: "selection", preserveProportions: false,
+    selectedFaceId: "torso", selectedTarget: "joint", inspectorTab: "selection", editBodyProportions: false,
     activeTool: "select", paintColor: "#dca27b", paintPaletteId: null };
   const element = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] } as unknown as HTMLElement;
   const render = (id: string) => renderInspector(element, state, { jointId: id, jointIds: [id], axisId: null }, () => {}, viewState, () => {});

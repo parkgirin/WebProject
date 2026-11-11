@@ -111,8 +111,8 @@ x = cos(최종 각도) × 최종 거리
 y = sin(최종 각도) × 최종 거리
 ```
 
-- 일반 관절 드래그는 `angleOffset`과 `distanceScale`을 갱신하며 `restLength`를 변경하지 않는다.
-- `Alt(Option)` 또는 `비율 유지` 드래그는 `angleOffset`만 갱신하고 기존 `distanceScale`을 유지한다.
+- 일반 관절 드래그는 `angleOffset`만 갱신하고 기존 `distanceScale`을 유지한다. 3D 위치와 회전으로 깊이를 표현하므로 포즈 편집에서 관절 사이 거리를 바꾸지 않는 것이 기본이다.
+- `Alt(Option)` 또는 `체형 길이 편집` 드래그만 연결 길이와 `distanceScale`을 갱신한다. 체형의 기준 길이인 `restLength`로 확정하는 작업은 체형 프리셋 저장·적용 흐름에서 처리한다.
 - 체형 프리셋은 `restLength`, `restAngle`, 반지름과 동등 그룹 기준 간격만 바꾸고 포즈 파라미터는 유지한다.
 - 포즈 프리셋은 `angleOffset`, `distanceScale`, 회전·축·깊이 값만 바꾸고 체형 파라미터는 유지한다.
 - 최종 좌표는 부모부터 자식 순서로 다시 계산한다. `x/y`를 저장 원본으로 계속 병행하지 않고 파생 캐시 또는 렌더 입력으로 취급해 두 원본 데이터가 충돌하지 않게 한다.

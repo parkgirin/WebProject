@@ -13,12 +13,16 @@ import {
   getAxisPoint,
   getArtShapeVertexPoint,
   getCameraFacingLimbSurface,
+  getCameraBasis,
+  getCameraZ,
   getCircleTangentPoints,
   getJointWorldTransform,
   getJointParentWorldTransform,
   getPeerGroupCentroid,
   getPeerGroupPivot,
+  getProjectionScale,
   normalizeAngle,
+  rotateVectorAroundAxis,
 } from "./geometry.ts";
 
 const VALID_SIDES = new Set<AxisPointSide>([-1, 1]);
@@ -228,6 +232,18 @@ export function normalizeSurfaceProfiles(rig: Rig): void {
       joint.baseDistance = Math.hypot(joint.x, joint.y) / (percent / 100);
     }
   }
+}
+
+/** Migrates the stock 2D head circle to the joint-bound 3D sphere primitive. */
+export function normalizeArtShapeSpheres(rig: Rig): void {
+  const head = (rig.artShapes ?? []).find((shape) => shape.id === "head-base");
+  if (head?.kind !== "circle" || head.vertices.length !== 1) return;
+  const center = head.vertices[0];
+  if (center.source !== "joint-center" || center.jointId !== "head") return;
+  head.kind = "sphere";
+  head.radius = Math.max(head.radiusX ?? 0, head.radiusY ?? 0) || 60;
+  delete head.radiusX;
+  delete head.radiusY;
 }
 
 export interface PolygonDraftPoint {
@@ -508,7 +524,9 @@ export function validateRig(
     }
     if (shape.kind === "circle" && (shape.vertices.length !== 1 || !(shape.radiusX! > 0) || !(shape.radiusY! > 0)
       || !Number.isFinite(shape.radiusX) || !Number.isFinite(shape.radiusY))) errors.push(`Art circle needs one center and positive radii: ${shape.id}`);
-    if (shape.kind !== "polygon" && shape.kind !== "line" && shape.kind !== "circle") errors.push(`Unknown art shape kind: ${shape.id}`);
+    if (shape.kind === "sphere" && (shape.vertices.length !== 1 || !(shape.radius! > 0)
+      || !Number.isFinite(shape.radius))) errors.push(`Art sphere needs one center and a positive radius: ${shape.id}`);
+    if (shape.kind !== "polygon" && shape.kind !== "line" && shape.kind !== "circle" && shape.kind !== "sphere") errors.push(`Unknown art shape kind: ${shape.id}`);
     if (!Number.isFinite(shape.layerOrder)) errors.push(`Art shape layer order must be finite: ${shape.id}`);
     if (shape.color !== undefined && !isHexColor(shape.color)) errors.push(`Invalid art shape color: ${shape.id}.${shape.color}`);
     if (shape.paletteId && !paletteIds.has(shape.paletteId)) errors.push(`Unknown art shape palette: ${shape.id}.${shape.paletteId}`);
@@ -584,6 +602,7 @@ export class RigState {
     normalizePeerGroupCapsules(rig);
     normalizeConnectionControlAxes(rig);
     normalizeSurfaceProfiles(rig);
+    normalizeArtShapeSpheres(rig);
     rig.perspectiveEnabled ??= true;
     rig.artShapes ??= [];
     rig.artCompositeGroups ??= [];
@@ -706,6 +725,19 @@ export class RigState {
     return id;
   }
 
+  public addSphere(x: number, y: number, radius = 36, rootJointId = "scene-root"): string {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !(radius > 0)) throw new Error("구의 중심과 반지름이 올바르지 않습니다.");
+    const root = this.getJoint(rootJointId);
+    let index = (this.rig.artShapes?.filter((shape) => shape.kind === "sphere").length ?? 0) + 1;
+    let id = `sphere-${index}`;
+    while (this.rig.artShapes?.some((shape) => shape.id === id)) id = `sphere-${++index}`;
+    const maxOrder = Math.max(0, ...this.getBodyStackEntries().map((entry) => entry.order));
+    this.rig.artShapes ??= [];
+    this.rig.artShapes.push({ id, kind: "sphere", vertices: [{ id: "center", source: "root", rootJointId, ...this.worldToLocal(root.id, x, y) }], radius, layerOrder: clampLayerValue(maxOrder + 1), compositeMode: "paint", compositeGroupId: `composite-${id}` });
+    this.notify();
+    return id;
+  }
+
   public addArtShapeFromFace(faceId: string): string {
     const face = this.getFace(faceId);
     let index = 1;
@@ -764,7 +796,7 @@ export class RigState {
 
   public removeArtShapeVertex(shapeId: string, vertexId: string): string | null {
     const shape = this.getArtShape(shapeId);
-    const minimum = shape.kind === "line" ? 2 : shape.kind === "circle" ? 1 : 3;
+    const minimum = shape.kind === "line" ? 2 : shape.kind === "circle" || shape.kind === "sphere" ? 1 : 3;
     if (shape.vertices.length <= minimum) throw new Error(shape.kind === "line" ? "선분에는 두 개의 끝점이 필요합니다." : "다각형에는 최소 3개의 꼭짓점이 필요합니다.");
     const index = shape.vertices.findIndex((vertex) => vertex.id === vertexId);
     if (index < 0) return null;
@@ -934,6 +966,14 @@ export class RigState {
     if (shape.kind !== "circle") return;
     shape.radiusX = radiusX;
     shape.radiusY = radiusY;
+    this.notify();
+  }
+
+  public setArtShapeSphereRadius(shapeId: string, radius: number): void {
+    if (!(radius > 0) || !Number.isFinite(radius)) return;
+    const shape = this.getArtShape(shapeId);
+    if (shape.kind !== "sphere") return;
+    shape.radius = radius;
     this.notify();
   }
 
@@ -1247,6 +1287,117 @@ export class RigState {
     }));
     for (const { joint, world } of snapshots) {
       this.setJointWorldPosition(joint, world.x + deltaX, world.y + deltaY);
+      this.alignDirectConnectionAxes(joint.id);
+    }
+    this.notify();
+  }
+
+  /** Move selected roots along the current camera's screen plane. */
+  public moveJointsInCameraPlane(jointIds: string[], screenDeltaX: number, screenDeltaY: number): void {
+    if (![screenDeltaX, screenDeltaY].every(Number.isFinite)) return;
+    const basis = getCameraBasis(this.rig);
+    for (const jointId of this.getSelectionRoots(jointIds)) {
+      const joint = this.getJoint(jointId);
+      const world = getJointWorldTransform(this.rig, joint.id);
+      const scale = getProjectionScale(this.rig, getCameraZ(this.rig, world, joint.z));
+      const dx = (basis.right.x * screenDeltaX + basis.up.x * screenDeltaY) / scale;
+      const dy = (basis.right.y * screenDeltaX + basis.up.y * screenDeltaY) / scale;
+      const dz = (basis.right.z * screenDeltaX + basis.up.z * screenDeltaY) / scale;
+      this.translateJointRoot3D(joint, dx, dy, dz);
+      this.alignDirectConnectionAxes(joint.id);
+    }
+    this.notify();
+  }
+
+  public moveJointIndependentlyInCameraPlane(jointId: string, screenDeltaX: number, screenDeltaY: number): void {
+    const joint = this.getJoint(jointId);
+    const children = this.rig.joints.filter((candidate) => candidate.parentJointId === joint.id).map((child) => ({
+      child, world: getJointWorldTransform(this.rig, child.id), z: child.z,
+    }));
+    const basis = getCameraBasis(this.rig);
+    const world = getJointWorldTransform(this.rig, joint.id);
+    const scale = getProjectionScale(this.rig, getCameraZ(this.rig, world, joint.z));
+    this.translateJointRoot3D(joint,
+      (basis.right.x * screenDeltaX + basis.up.x * screenDeltaY) / scale,
+      (basis.right.y * screenDeltaX + basis.up.y * screenDeltaY) / scale,
+      (basis.right.z * screenDeltaX + basis.up.z * screenDeltaY) / scale,
+    );
+    for (const { child, world: childWorld, z } of children) {
+      this.setJointWorldPosition(child, childWorld.x, childWorld.y);
+      const deltaZ = z - child.z;
+      child.z = z;
+      this.translateDescendantDepths(child.id, deltaZ);
+      this.alignDirectConnectionAxes(child.id);
+    }
+    this.alignDirectConnectionAxes(joint.id);
+    this.notify();
+  }
+
+  /** Rotate selected connections around the camera-forward axis. */
+  public rotateJointsInCameraPlane(jointIds: string[], angleDelta: number): void {
+    if (!Number.isFinite(angleDelta) || Math.abs(angleDelta) < 1e-9) return;
+    const axis = getCameraBasis(this.rig).forward;
+    for (const jointId of [...new Set(jointIds)]) {
+      const joint = this.getJoint(jointId);
+      if (!joint.parentJointId) continue;
+      const parent = getJointParentWorldTransform(this.rig, joint.id);
+      if (!parent) continue;
+      const world = getJointWorldTransform(this.rig, joint.id);
+      const parentJoint = this.getJoint(joint.parentJointId);
+      const rotated = rotateVectorAroundAxis({ x: world.x - parent.x, y: world.y - parent.y, z: joint.z - parentJoint.z }, axis, angleDelta);
+      const previousZ = joint.z;
+      this.setJointWorldPosition(joint, parent.x + rotated.x, parent.y + rotated.y);
+      joint.z = Math.min(100, Math.max(-100, parentJoint.z + rotated.z));
+      this.translateDescendantDepths(joint.id, joint.z - previousZ);
+      this.alignDirectConnectionAxes(joint.id);
+    }
+    this.notify();
+  }
+
+  public rotateAxisInCameraPlane(jointId: string, axisId: string, angleDelta: number): void {
+    const child = this.findAxisConnectionChild(jointId, axisId);
+    if (!child) return;
+    this.rotateJointsInCameraPlane([child.id], angleDelta);
+  }
+
+  public rotatePeerGroupInCameraPlane(peerGroupId: string, angleDelta: number): void {
+    const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
+    if (!group || !Number.isFinite(angleDelta) || Math.abs(angleDelta) < 1e-9) return;
+    const pivot = getPeerGroupPivot(this.rig, peerGroupId);
+    const pivotZ = group.jointIds.reduce((sum, id) => sum + this.getJoint(id).z, 0) / group.jointIds.length;
+    const axis = getCameraBasis(this.rig).forward;
+    for (const id of group.jointIds) {
+      const joint = this.getJoint(id);
+      const world = getJointWorldTransform(this.rig, id);
+      const rotated = rotateVectorAroundAxis({ x: world.x - pivot.x, y: world.y - pivot.y, z: joint.z - pivotZ }, axis, angleDelta);
+      const previousZ = joint.z;
+      this.setJointWorldPosition(joint, pivot.x + rotated.x, pivot.y + rotated.y);
+      joint.z = Math.min(100, Math.max(-100, pivotZ + rotated.z));
+      this.translateDescendantDepths(joint.id, joint.z - previousZ);
+      this.alignDirectConnectionAxes(joint.id);
+    }
+    this.notify();
+  }
+
+  public rotateSelectionInCameraPlane(jointIds: string[], angleDelta: number): void {
+    const roots = this.getSelectionRoots(jointIds);
+    if (!roots.length || !Number.isFinite(angleDelta) || Math.abs(angleDelta) < 1e-9) return;
+    const snapshots = roots.map((id) => {
+      const joint = this.getJoint(id);
+      return { joint, world: getJointWorldTransform(this.rig, id), z: joint.z };
+    });
+    const pivot = {
+      x: snapshots.reduce((sum, entry) => sum + entry.world.x, 0) / snapshots.length,
+      y: snapshots.reduce((sum, entry) => sum + entry.world.y, 0) / snapshots.length,
+      z: snapshots.reduce((sum, entry) => sum + entry.z, 0) / snapshots.length,
+    };
+    const axis = getCameraBasis(this.rig).forward;
+    for (const { joint, world, z } of snapshots) {
+      const rotated = rotateVectorAroundAxis({ x: world.x - pivot.x, y: world.y - pivot.y, z: z - pivot.z }, axis, angleDelta);
+      this.setJointWorldPosition(joint, pivot.x + rotated.x, pivot.y + rotated.y);
+      const previousZ = joint.z;
+      joint.z = Math.min(100, Math.max(-100, pivot.z + rotated.z));
+      this.translateDescendantDepths(joint.id, joint.z - previousZ);
       this.alignDirectConnectionAxes(joint.id);
     }
     this.notify();
@@ -2191,6 +2342,22 @@ export class RigState {
     const relativeY = y - parent.y;
     joint.x = Math.cos(radians) * relativeX - Math.sin(radians) * relativeY;
     joint.y = Math.sin(radians) * relativeX + Math.cos(radians) * relativeY;
+  }
+
+  private translateJointRoot3D(joint: Rig["joints"][number], dx: number, dy: number, dz: number): void {
+    const world = getJointWorldTransform(this.rig, joint.id);
+    this.setJointWorldPosition(joint, world.x + dx, world.y + dy);
+    const previousZ = joint.z;
+    joint.z = Math.min(100, Math.max(-100, joint.z + dz));
+    this.translateDescendantDepths(joint.id, joint.z - previousZ);
+  }
+
+  private translateDescendantDepths(parentId: string, deltaZ: number): void {
+    if (Math.abs(deltaZ) < 1e-9) return;
+    for (const child of this.rig.joints.filter((candidate) => candidate.parentJointId === parentId)) {
+      child.z = Math.min(100, Math.max(-100, child.z + deltaZ));
+      this.translateDescendantDepths(child.id, deltaZ);
+    }
   }
 
   private isDescendant(candidateId: string, ancestorId: string): boolean {

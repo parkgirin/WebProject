@@ -257,7 +257,7 @@ export function renderInspector(
 
   const shapeMarkup = selectedShape ? `
     <section class="property-group art-shape-properties">
-      <span class="eyebrow">${selectedShape.kind === "line" ? "두께 선분" : selectedShape.kind === "circle" ? "원 도형" : "자유 다각형"}</span><strong class="selection-name">${escapeHtml(selectedShape.id)}</strong>
+      <span class="eyebrow">${selectedShape.kind === "line" ? "두께 선분" : selectedShape.kind === "circle" ? "원 도형" : selectedShape.kind === "sphere" ? "구형 도형" : "자유 다각형"}</span><strong class="selection-name">${escapeHtml(selectedShape.id)}</strong>
       ${selectedShapeIds.length > 1 ? `<span class="multi-selection-count">${selectedShapeIds.length}개 도형 선택됨</span>` : ""}
       <p class="hint">${selectedShape.vertices.length}개 ${selectedShape.kind === "line" ? "끝점" : "꼭짓점"} · 선택 점 ${escapeHtml(selectedShapeVertex?.id ?? "없음")} · ${selectedShapeVertex ? escapeHtml(selectedShapeVertex.source) : ""}</p>
       ${selectedShapeVertex ? `
@@ -293,6 +293,7 @@ export function renderInspector(
         <label><span>가로 반지름</span><input type="number" min="1" step="1" value="${selectedShape.radiusX ?? 1}" data-shape-radius-x /></label>
         <label><span>세로 반지름</span><input type="number" min="1" step="1" value="${selectedShape.radiusY ?? 1}" data-shape-radius-y /></label>
       </div>` : ""}
+      ${selectedShape.kind === "sphere" ? `<label class="field-label"><span>구 반지름</span><input type="number" min="1" step="1" value="${selectedShape.radius ?? 1}" data-shape-sphere-radius /></label>` : ""}
       <div class="joint-layer-actions"><span>겹침 순서</span><div><button type="button" data-shape-back>← 뒤로</button><button type="button" data-shape-forward>앞으로 →</button></div></div>
       <button type="button" data-delete-shape>선택 도형${selectedShapeIds.length > 1 ? ` ${selectedShapeIds.length}개` : ""} 삭제</button>
     </section>` : "";
@@ -303,8 +304,8 @@ export function renderInspector(
     ${renderPoseNavigator(state, selection, viewState.selectedFaceId, viewState.selectedTarget)}
     <label class="face-override-toggle"><input type="checkbox" data-move-selected-individually${viewState.moveSelectedIndividually ? " checked" : ""} />선택 관절만 이동</label>
     <p class="hint">목·허리처럼 부모 관절을 옮겨도 자식 관절은 현재 위치에 남깁니다. 한 관절만 선택했을 때 적용됩니다.</p>
-    <label class="face-override-toggle"><input type="checkbox" data-preserve-proportions${viewState.preserveProportions ? " checked" : ""} />비율 유지</label>
-    <p class="hint">선택 도구에서 Alt(Option)를 누른 채 관절을 드래그하면 일시적으로 비율을 유지합니다.</p>
+    <label class="face-override-toggle"><input type="checkbox" data-edit-body-proportions${viewState.editBodyProportions ? " checked" : ""} />체형 길이 편집</label>
+    <p class="hint">일반 관절 드래그는 연결 거리를 유지합니다. Alt(Option)를 누르거나 이 옵션을 켜면 관절 사이 길이를 변경합니다.</p>
     ${viewState.selectedTarget === "joint" ? jointMarkup : faceMarkup}`;
 
   const stackEntries = [
@@ -496,8 +497,8 @@ export function renderInspector(
       if (element.dataset) element.dataset.collapsedSections = [...next].join(",");
     });
   });
-  element.querySelector<HTMLInputElement>("[data-preserve-proportions]")?.addEventListener("change", (event) => {
-    setViewState({ preserveProportions: (event.target as HTMLInputElement).checked });
+  element.querySelector<HTMLInputElement>("[data-edit-body-proportions]")?.addEventListener("change", (event) => {
+    setViewState({ editBodyProportions: (event.target as HTMLInputElement).checked });
   });
   element.querySelector<HTMLInputElement>("[data-move-selected-individually]")?.addEventListener("change", (event) => {
     setViewState({ moveSelectedIndividually: (event.target as HTMLInputElement).checked });
@@ -562,6 +563,9 @@ export function renderInspector(
   };
   radiusXInput?.addEventListener("change", applyCircleRadii);
   radiusYInput?.addEventListener("change", applyCircleRadii);
+  element.querySelector<HTMLInputElement>("[data-shape-sphere-radius]")?.addEventListener("change", (event) => {
+    if (selectedShape) state.setArtShapeSphereRadius(selectedShape.id, (event.target as HTMLInputElement).valueAsNumber);
+  });
   element.querySelector<HTMLSelectElement>("[data-shape-composite-mode]")?.addEventListener("change", (event) => {
     if (!selectedShape) return;
     const mode = (event.target as HTMLSelectElement).value;

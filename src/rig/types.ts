@@ -167,13 +167,15 @@ export type ArtCompositeMode = "paint" | "cutout" | "overlay";
 
 export interface ArtShape {
   id: string;
-  kind: "polygon" | "line" | "circle";
+  kind: "polygon" | "line" | "circle" | "sphere";
   vertices: ArtShapeVertex[];
   /** Line thickness in model units. Used only when kind is line. */
   strokeWidth?: number;
   /** Horizontal and vertical radii for circle shapes. */
   radiusX?: number;
   radiusY?: number;
+  /** Model-space radius for a camera-facing 3D sphere. */
+  radius?: number;
   color?: string;
   paletteId?: string;
   groupId?: string;

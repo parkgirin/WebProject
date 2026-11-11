@@ -17,6 +17,12 @@ export interface Point3 extends Point {
   z: number;
 }
 
+export interface CameraBasis {
+  right: Point3;
+  up: Point3;
+  forward: Point3;
+}
+
 export interface TubeSurfaceQuad {
   points: [Point3, Point3, Point3, Point3];
   /** Average camera-space Z, for painter's-order rendering. */
@@ -117,6 +123,49 @@ function worldUnrotate(rig: Rig, point: Point3): Point3 {
   [x, depth] = [x * Math.cos(ry) + depth * Math.sin(ry), -x * Math.sin(ry) + depth * Math.cos(ry)];
   [y, depth] = [y * Math.cos(rx) - depth * Math.sin(rx), y * Math.sin(rx) + depth * Math.cos(rx)];
   return { x: PROJECTION_ORIGIN.x + x, y: PROJECTION_ORIGIN.y + y, z: depth };
+}
+
+/** Model-space axes of the current camera plane after every world/view rotation. */
+export function getCameraBasis(rig: Rig): CameraBasis {
+  const viewY = rig.viewYRotation * Math.PI / 180;
+  const world = rig.worldRotation ?? { x: 0, y: 0, z: 0 };
+  const inverseWorld = (vector: Point3): Point3 => {
+    let { x, y, z } = vector;
+    const rz = -world.z * Math.PI / 180;
+    [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
+    const ry = -world.y * Math.PI / 180;
+    [x, z] = [x * Math.cos(ry) + z * Math.sin(ry), -x * Math.sin(ry) + z * Math.cos(ry)];
+    const rx = -world.x * Math.PI / 180;
+    [y, z] = [y * Math.cos(rx) - z * Math.sin(rx), y * Math.sin(rx) + z * Math.cos(rx)];
+    return { x, y, z };
+  };
+  const inverseViewY = (vector: Point3): Point3 => ({
+    x: vector.x * Math.cos(viewY) - vector.z * Math.sin(viewY),
+    y: vector.y,
+    z: vector.x * Math.sin(viewY) + vector.z * Math.cos(viewY),
+  });
+  return {
+    right: inverseWorld(inverseViewY({ x: 1, y: 0, z: 0 })),
+    up: inverseWorld(inverseViewY({ x: 0, y: 1, z: 0 })),
+    forward: inverseWorld(inverseViewY({ x: 0, y: 0, z: 1 })),
+  };
+}
+
+export function rotateVectorAroundAxis(vector: Point3, axis: Point3, angle: number): Point3 {
+  const radians = angle * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const dot = vector.x * axis.x + vector.y * axis.y + vector.z * axis.z;
+  const cross = {
+    x: axis.y * vector.z - axis.z * vector.y,
+    y: axis.z * vector.x - axis.x * vector.z,
+    z: axis.x * vector.y - axis.y * vector.x,
+  };
+  return {
+    x: vector.x * cosine + cross.x * sine + axis.x * dot * (1 - cosine),
+    y: vector.y * cosine + cross.y * sine + axis.y * dot * (1 - cosine),
+    z: vector.z * cosine + cross.z * sine + axis.z * dot * (1 - cosine),
+  };
 }
 
 /**
