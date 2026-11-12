@@ -104,6 +104,8 @@ export function createApp(container: HTMLDivElement): void {
         </div>
       </header>
       <section class="workspace">
+        <button type="button" class="mobile-edge-index mobile-toolbox-index" data-toggle-mobile-toolbox aria-expanded="true" aria-label="도구함 접기" title="도구함 접기">›</button>
+        <button type="button" class="mobile-edge-index mobile-panel-index" data-toggle-mobile-panel aria-expanded="false" aria-label="작업 패널 펼치기" title="작업 패널 펼치기">‹</button>
         <nav class="toolbox app-surface" aria-label="편집 도구">
           <div class="toolbox-content">
             <span class="toolbox-title">TOOLS</span>
@@ -112,31 +114,37 @@ export function createApp(container: HTMLDivElement): void {
             </button>
             <details class="toolbox-section" open>
               <summary>도형</summary>
-              <button type="button" class="toolbox-button" data-tool-polygon aria-label="직선 다각형 펜툴" title="클릭으로 꼭짓점 추가 · 첫 점 또는 Enter로 닫기 · Esc 취소">다각형</button>
-              <button type="button" class="toolbox-button" data-tool-circle aria-label="원 도형 추가" title="캔버스를 클릭해 원 도형 추가">원</button>
-              <button type="button" class="toolbox-button" data-tool-sphere aria-label="구형 도형 추가" title="캔버스를 클릭해 카메라 투영을 따르는 구형 도형 추가">구</button>
-              <button type="button" class="toolbox-button" data-tool-line aria-label="두께가 있는 선분 추가" title="두 끝점을 차례로 클릭 · 축 끝점 연결 지원">선분</button>
-              <button type="button" class="toolbox-button" data-tool-vertex-add aria-label="다각형 꼭짓점 추가" title="선택한 다각형의 변을 클릭해 꼭짓점 추가">점 추가</button>
-              <button type="button" class="toolbox-button" data-tool-vertex-bind aria-label="꼭짓점 축 연결" title="꼭짓점을 선택한 뒤 축 끝점 클릭 · Alt+클릭은 끝점에 스냅">점 연결</button>
+              <div class="toolbox-section-content">
+                <button type="button" class="toolbox-button" data-tool-polygon aria-label="직선 다각형 펜툴" title="클릭으로 꼭짓점 추가 · 첫 점 또는 Enter로 닫기 · Esc 취소">다각형</button>
+                <button type="button" class="toolbox-button" data-tool-circle aria-label="원 도형 추가" title="캔버스를 클릭해 원 도형 추가">원</button>
+                <button type="button" class="toolbox-button" data-tool-sphere aria-label="구형 도형 추가" title="캔버스를 클릭해 카메라 투영을 따르는 구형 도형 추가">구</button>
+                <button type="button" class="toolbox-button" data-tool-line aria-label="두께가 있는 선분 추가" title="두 끝점을 차례로 클릭 · 축 끝점 연결 지원">선분</button>
+                <button type="button" class="toolbox-button" data-tool-vertex-add aria-label="다각형 꼭짓점 추가" title="선택한 다각형의 변을 클릭해 꼭짓점 추가">점 추가</button>
+                <button type="button" class="toolbox-button" data-tool-vertex-bind aria-label="꼭짓점 축 연결" title="꼭짓점을 선택한 뒤 축 끝점 클릭 · Alt+클릭은 끝점에 스냅">점 연결</button>
+              </div>
             </details>
             <details class="toolbox-section" open>
               <summary>색상</summary>
-              <div class="toolbox-color-control">
-                <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
-                  색상
-                </button>
-                <div class="palette-grid" aria-label="작업 색상 팔레트">
-                  ${state.rig.palette.map((entry) => `<button type="button" class="palette-swatch" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("")}
+              <div class="toolbox-section-content">
+                <div class="toolbox-color-control">
+                  <button type="button" class="toolbox-button" data-tool-color aria-label="면과 관절 색칠 도구" title="색상을 선택한 뒤 면이나 관절을 클릭하여 적용">
+                    색상
+                  </button>
+                  <div class="palette-grid" aria-label="작업 색상 팔레트">
+                    ${state.rig.palette.map((entry) => `<button type="button" class="palette-swatch" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("")}
+                  </div>
+                  <button type="button" class="new-color-button" data-new-palette-color>새 색</button>
+                  <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="선택한 팔레트 또는 새 색상" title="선택한 팔레트 또는 새 색상" />
                 </div>
-                <button type="button" class="new-color-button" data-new-palette-color>새 색</button>
-                <input type="color" value="${state.rig.defaultColor}" data-paint-color aria-label="선택한 팔레트 또는 새 색상" title="선택한 팔레트 또는 새 색상" />
               </div>
             </details>
             <details class="toolbox-section" open>
               <summary>보기</summary>
-              <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">확대</button>
-              <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 탐색 모드" title="드래그: 모델 3D 회전 · 두 손가락: 이동, 확대, Z 회전">화면</button>
-              <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
+              <div class="toolbox-section-content">
+                <button type="button" class="toolbox-button" data-tool-zoom aria-label="확대, Shift 클릭으로 축소" title="확대 · Shift 클릭으로 축소">확대</button>
+                <button type="button" class="toolbox-button" data-tool-pan aria-pressed="false" aria-label="화면 탐색 모드" title="드래그: 모델 3D 회전 · 두 손가락: 이동, 확대, Z 회전">화면</button>
+                <button type="button" class="toolbox-button" data-tool-layer-order aria-pressed="false" title="좌클릭: 앞으로 · 우클릭: 뒤로 · Shift: 맨 앞/뒤">순서</button>
+              </div>
             </details>
           </div>
         </nav>
@@ -144,10 +152,11 @@ export function createApp(container: HTMLDivElement): void {
           <div class="canvas-panel">
             <div class="canvas-toolbar">
               <div class="mobile-workspace-actions" aria-label="모바일 작업 패널">
-                <button type="button" data-toggle-mobile-toolbox aria-expanded="true">도구</button>
-                <button type="button" data-toggle-mobile-settings aria-expanded="false">설정</button>
-                <button type="button" data-toggle-mobile-inspector aria-expanded="false">속성</button>
-                <button type="button" data-toggle-mobile-world aria-expanded="false">월드 회전</button>
+                <button type="button" class="mobile-toolbox-open-button" data-open-mobile-toolbox aria-expanded="true">도구</button>
+                <button type="button" class="mobile-legacy-panel-button" data-toggle-mobile-settings aria-expanded="false">설정</button>
+                <button type="button" class="mobile-legacy-panel-button" data-toggle-mobile-inspector aria-expanded="false">속성</button>
+                <button type="button" class="mobile-legacy-panel-button" data-toggle-mobile-world aria-expanded="false">월드 회전</button>
+                <button type="button" class="mobile-legacy-panel-button" data-toggle-mobile-timeline aria-expanded="false">타임라인</button>
               </div>
               <div class="canvas-actions">
                 <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length} · 도형 <b data-shape-count>0</b></span>
@@ -188,6 +197,12 @@ export function createApp(container: HTMLDivElement): void {
               <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
             </section>
           </div>
+          <nav class="mobile-panel-tabs" data-mobile-panel-tabs aria-label="패널 내용 전환">
+            <button type="button" data-mobile-panel-tab="settings">설정</button>
+            <button type="button" data-mobile-panel-tab="inspector">속성</button>
+            <button type="button" data-mobile-panel-tab="world">월드</button>
+            <button type="button" data-mobile-panel-tab="timeline">타임라인</button>
+          </nav>
           <section class="interpolation-panel" aria-label="포즈 보간 타임라인">
             <header class="interpolation-header">
               <strong>보간 타임라인</strong>
@@ -432,9 +447,56 @@ export function createApp(container: HTMLDivElement): void {
   const collapseInspectorButton = requireElement<HTMLButtonElement>(container, "[data-collapse-inspector]");
   const collapseTimelineButton = requireElement<HTMLButtonElement>(container, "[data-collapse-timeline]");
   const mobileToolboxButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-toolbox]");
+  const mobileToolboxOpenButton = requireElement<HTMLButtonElement>(container, "[data-open-mobile-toolbox]");
   const mobileSettingsButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-settings]");
   const mobileInspectorButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-inspector]");
   const mobileWorldButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-world]");
+  const mobileTimelineButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-timeline]");
+  const mobilePanelToggleButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-panel]");
+  const mobilePanelTabButtons = [...container.querySelectorAll<HTMLButtonElement>("[data-mobile-panel-tab]")];
+  const toolbox = requireElement<HTMLElement>(container, ".toolbox");
+  const toolboxContent = requireElement<HTMLElement>(container, ".toolbox-content");
+  const toolboxSections = [...container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")];
+  const landscapeToolboxQuery = window.matchMedia?.("(orientation: landscape) and (max-height: 560px) and (max-width: 820px)");
+  const portraitToolboxQuery = window.matchMedia?.("(orientation: portrait) and (max-width: 820px)");
+  const getToolboxToggleGlyph = (hidden: boolean) => portraitToolboxQuery?.matches
+    ? (hidden ? "⌄" : "⌃")
+    : (hidden ? "›" : "‹");
+  const syncPortraitToolboxTab = () => {
+    if (!portraitToolboxQuery?.matches || workspace.classList.contains("is-toolbox-hidden")) {
+      workspace.style.removeProperty("--portrait-toolbox-tab-top");
+      return;
+    }
+    workspace.style.setProperty("--portrait-toolbox-tab-top", `${toolbox.offsetTop + toolbox.offsetHeight}px`);
+  };
+  const syncLandscapeToolboxHeight = () => {
+    if (!landscapeToolboxQuery?.matches) {
+      toolbox.style.removeProperty("--landscape-toolbox-height");
+      return;
+    }
+    const activeContent = toolboxSections.find((section) => section.open)?.querySelector<HTMLElement>(".toolbox-section-content");
+    if (!activeContent) {
+      toolbox.style.removeProperty("--landscape-toolbox-height");
+      return;
+    }
+    const height = Math.max(toolboxContent.scrollHeight, activeContent.scrollHeight) + 12;
+    toolbox.style.setProperty("--landscape-toolbox-height", `${height}px`);
+  };
+  for (const section of toolboxSections) {
+    section.addEventListener("toggle", () => {
+      if (landscapeToolboxQuery?.matches && section.open) {
+        for (const other of toolboxSections) if (other !== section) other.open = false;
+        window.requestAnimationFrame(syncLandscapeToolboxHeight);
+      }
+      window.requestAnimationFrame(syncPortraitToolboxTab);
+    });
+  }
+  landscapeToolboxQuery?.addEventListener("change", () => window.requestAnimationFrame(syncLandscapeToolboxHeight));
+  portraitToolboxQuery?.addEventListener("change", () => {
+    mobileToolboxButton.textContent = getToolboxToggleGlyph(workspace.classList.contains("is-toolbox-hidden"));
+    window.requestAnimationFrame(syncPortraitToolboxTab);
+  });
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncPortraitToolboxTab).observe(toolbox);
   let previewUrl: string | null = null;
   let exportTarget: "model" | "animation" = "model";
   let poseClip: PoseClip = restoredWorkspace?.poseClip ?? {
@@ -1050,6 +1112,7 @@ export function createApp(container: HTMLDivElement): void {
     mobileInspectorButton.setAttribute("aria-expanded", String(!collapsed));
   });
   collapseTimelineButton.addEventListener("click", () => {
+    if (setMobilePanel(null)) return;
     const collapsed = !workspace.classList.contains("is-timeline-collapsed");
     setPanelCollapsed(collapseTimelineButton, "is-timeline-collapsed", collapsed, {
       open: "보간 타임라인 펼치기", close: "보간 타임라인 접기", openGlyph: "⌃", closeGlyph: "⌄",
@@ -1067,18 +1130,70 @@ export function createApp(container: HTMLDivElement): void {
     mobileSettingsButton.setAttribute("aria-expanded", String(workspace.classList.contains("is-mobile-settings-open")));
     mobileInspectorButton.setAttribute("aria-expanded", String(!workspace.classList.contains("is-inspector-collapsed")));
   };
-  mobileToolboxButton.addEventListener("click", () => {
-    const hidden = !workspace.classList.contains("is-toolbox-hidden");
+  type MobilePanelId = "settings" | "inspector" | "world" | "timeline";
+  const mobilePanelQuery = window.matchMedia?.("(orientation: landscape) and (max-height: 560px) and (max-width: 820px)");
+  const mobilePanelButtons: Record<MobilePanelId, HTMLButtonElement> = {
+    settings: mobileSettingsButton, inspector: mobileInspectorButton,
+    world: mobileWorldButton, timeline: mobileTimelineButton,
+  };
+  let lastMobilePanel: MobilePanelId = "settings";
+  const setMobilePanel = (next: MobilePanelId | null): boolean => {
+    if (!mobilePanelQuery?.matches) return false;
+    const current = workspace.dataset.mobilePanel as MobilePanelId | undefined;
+    const panel = current === next ? null : next;
+    workspace.classList.remove("mobile-panel-settings", "mobile-panel-inspector", "mobile-panel-world", "mobile-panel-timeline");
+    workspace.classList.toggle("is-mobile-panel-open", panel !== null);
+    if (panel) {
+      workspace.dataset.mobilePanel = panel;
+      workspace.classList.add(`mobile-panel-${panel}`);
+    } else {
+      delete workspace.dataset.mobilePanel;
+    }
+    workspace.classList.toggle("is-mobile-settings-open", panel === "settings");
+    workspace.classList.toggle("is-inspector-collapsed", panel !== "inspector");
+    workspace.classList.toggle("is-timeline-collapsed", panel !== "timeline");
+    setWorldPanelVisible(panel === "world");
+    if (panel) lastMobilePanel = panel;
+    mobilePanelToggleButton.setAttribute("aria-expanded", String(panel !== null));
+    mobilePanelToggleButton.setAttribute("aria-label", panel ? "작업 패널 접기" : "작업 패널 펼치기");
+    mobilePanelToggleButton.title = panel ? "작업 패널 접기" : "작업 패널 펼치기";
+    mobilePanelToggleButton.textContent = panel ? "›" : "‹";
+    for (const [id, button] of Object.entries(mobilePanelButtons) as Array<[MobilePanelId, HTMLButtonElement]>) {
+      button.setAttribute("aria-expanded", String(panel === id));
+    }
+    for (const button of mobilePanelTabButtons) {
+      const active = button.dataset.mobilePanelTab === panel;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    return true;
+  };
+  const setToolboxHidden = (hidden: boolean) => {
     workspace.classList.toggle("is-toolbox-hidden", hidden);
     mobileToolboxButton.setAttribute("aria-expanded", String(!hidden));
+    mobileToolboxButton.setAttribute("aria-label", hidden ? "도구함 펼치기" : "도구함 접기");
+    mobileToolboxButton.title = hidden ? "도구함 펼치기" : "도구함 접기";
+    mobileToolboxButton.textContent = getToolboxToggleGlyph(hidden);
+    mobileToolboxOpenButton.setAttribute("aria-expanded", String(!hidden));
+    window.requestAnimationFrame(syncPortraitToolboxTab);
+  };
+  mobileToolboxButton.addEventListener("click", () => {
+    setToolboxHidden(!workspace.classList.contains("is-toolbox-hidden"));
+  });
+  mobileToolboxOpenButton.addEventListener("click", () => {
+    setToolboxHidden(!workspace.classList.contains("is-toolbox-hidden"));
   });
   mobileSettingsButton.addEventListener("click", () => {
+    if (setMobilePanel("settings")) return;
+    if (portraitToolboxQuery?.matches) setToolboxHidden(true);
     const open = !workspace.classList.contains("is-mobile-settings-open");
     closeMobileMenus("settings");
     workspace.classList.toggle("is-mobile-settings-open", open);
     mobileSettingsButton.setAttribute("aria-expanded", String(open));
   });
   mobileInspectorButton.addEventListener("click", () => {
+    if (setMobilePanel("inspector")) return;
     const open = workspace.classList.contains("is-inspector-collapsed");
     closeMobileMenus("inspector");
     setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", !open, {
@@ -1087,19 +1202,47 @@ export function createApp(container: HTMLDivElement): void {
     mobileInspectorButton.setAttribute("aria-expanded", String(open));
   });
   mobileWorldButton.addEventListener("click", () => {
+    if (setMobilePanel("world")) return;
     const visible = worldPanel.hidden;
     closeMobileMenus("world");
     setWorldPanelVisible(visible);
   });
+  mobileTimelineButton.addEventListener("click", () => {
+    setMobilePanel("timeline");
+  });
+  mobilePanelToggleButton.addEventListener("click", () => {
+    const current = workspace.dataset.mobilePanel as MobilePanelId | undefined;
+    setMobilePanel(current ?? lastMobilePanel);
+  });
+  mobilePanelTabButtons.forEach((button) => button.addEventListener("click", () => {
+    const panel = button.dataset.mobilePanelTab as MobilePanelId | undefined;
+    if (panel) setMobilePanel(panel);
+  }));
   svg.addEventListener("pointerdown", () => {
+    if (setMobilePanel(null)) return;
     workspace.classList.remove("is-mobile-settings-open");
     mobileSettingsButton.setAttribute("aria-expanded", "false");
   });
   const compactLayoutQuery = window.matchMedia?.("(max-width: 820px), (max-height: 560px)");
   const applyCompactLayoutDefaults = () => {
+    workspace.classList.remove(
+      "is-mobile-panel-open",
+      "mobile-panel-settings",
+      "mobile-panel-inspector",
+      "mobile-panel-world",
+      "mobile-panel-timeline",
+    );
+    delete workspace.dataset.mobilePanel;
+    mobilePanelToggleButton.setAttribute("aria-expanded", "false");
+    mobilePanelToggleButton.setAttribute("aria-label", "작업 패널 펼치기");
+    mobilePanelToggleButton.title = "작업 패널 펼치기";
+    mobilePanelToggleButton.textContent = "‹";
+    for (const button of mobilePanelTabButtons) {
+      button.classList.remove("is-active");
+      button.setAttribute("aria-pressed", "false");
+    }
     for (const section of container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")) section.open = false;
-    workspace.classList.remove("is-toolbox-hidden");
-    mobileToolboxButton.setAttribute("aria-expanded", "true");
+    setToolboxHidden(false);
     setPanelCollapsed(collapseInspectorButton, "is-inspector-collapsed", true, {
       open: "속성 패널 펼치기", close: "속성 패널 접기", openGlyph: "‹", closeGlyph: "›",
     });
@@ -1113,6 +1256,21 @@ export function createApp(container: HTMLDivElement): void {
     if (event.matches) applyCompactLayoutDefaults();
     else for (const section of container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")) section.open = true;
     render();
+  });
+  mobilePanelQuery?.addEventListener("change", (event) => {
+    if (event.matches) {
+      setMobilePanel(null);
+      return;
+    }
+    workspace.classList.remove("is-mobile-panel-open", "mobile-panel-settings", "mobile-panel-inspector", "mobile-panel-world", "mobile-panel-timeline");
+    delete workspace.dataset.mobilePanel;
+    setWorldPanelVisible(false);
+    mobilePanelToggleButton.setAttribute("aria-expanded", "false");
+    mobilePanelToggleButton.textContent = "‹";
+    for (const button of mobilePanelTabButtons) {
+      button.classList.remove("is-active");
+      button.setAttribute("aria-pressed", "false");
+    }
   });
   const setScreenMode = (enabled: boolean) => {
     panToolButton.setAttribute("aria-pressed", String(enabled));

@@ -1,107 +1,143 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080" role="img" aria-labelledby="title desc">
-  <title id="title">Responsive editor layout wireframes</title>
-  <desc id="desc">Rectangle-only layout proposals for desktop, landscape tablet, portrait tablet, and mobile screens.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Implemented responsive editor layouts</title>
+  <desc id="desc">Wireframes of the implemented desktop, compact desktop, portrait mobile, and landscape mobile layouts. The world rotation panel is shown in its relevant overlay form.</desc>
   <style>
-    text { font-family: Arial, sans-serif; fill: #37332e; }
-    .title { font-size: 24px; font-weight: 700; }
-    .screen-title { font-size: 16px; font-weight: 700; }
-    .label { font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
-    .note { font-size: 11px; fill: #756f67; }
-    .frame { fill: #ffffff; stroke: #37332e; stroke-width: 2; }
-    .header { fill: #ddd9d2; stroke: #8e877e; }
-    .tools { fill: #c9e4ea; stroke: #4e8996; }
-    .canvas { fill: #eeeae3; stroke: #9b9389; }
-    .toolbar { fill: #f7f4ef; stroke: #b8b0a6; }
-    .panel { fill: #e5dcf0; stroke: #81669f; }
-    .nav { fill: #d8e7d7; stroke: #628261; }
+    text { font-family: Inter, Arial, sans-serif; fill: #37332e; }
+    .title { font-size: 25px; font-weight: 700; }
+    .subtitle { font-size: 12px; fill: #756f67; }
+    .screen-title { font-size: 15px; font-weight: 700; }
+    .label { font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    .small { font-size: 9px; fill: #615b53; text-anchor: middle; dominant-baseline: middle; }
+    .note { font-size: 10px; fill: #756f67; }
+    .frame { fill: #fffdfa; stroke: #37332e; stroke-width: 2; }
+    .header { fill: #e7e2db; stroke: #948b81; }
+    .tool { fill: #c9e4ea; stroke: #4e8996; }
+    .canvas { fill: #f4f1eb; stroke: #9b9389; }
+    .toolbar { fill: #faf8f4; stroke: #b8b0a6; }
+    .inspector { fill: #e6ddf0; stroke: #81669f; }
+    .timeline { fill: #d9e7d8; stroke: #628261; }
+    .overlay { fill: #fffdf9; fill-opacity: .97; stroke: #b58a53; stroke-width: 1.5; }
+    .button { fill: #fff; stroke: #b8b0a6; }
+    .line { stroke: #a79f95; stroke-width: 1; stroke-dasharray: 3 3; }
   </style>
 
-  <text class="title" x="40" y="42">Responsive editor layout</text>
-  <text class="note" x="40" y="67">Relative placement and size only · dimensions shown at 50% scale</text>
+  <text class="title" x="40" y="42">Implemented responsive editor layout</text>
+  <text class="subtitle" x="40" y="66">Source: current workspace markup and CSS breakpoints · diagrams at reduced scale · overlay panels are intentionally shown open</text>
 
-  <!-- Desktop 1440 × 900 -->
-  <g transform="translate(40 110)">
-    <text class="screen-title" x="0" y="-18">Desktop · 1440 × 900</text>
-    <rect class="frame" width="720" height="450" rx="4" />
-    <rect class="header" x="0" y="0" width="720" height="38" />
-    <text class="label" x="360" y="19">Header 76</text>
-    <rect class="tools" x="0" y="38" width="42" height="412" />
-    <text class="label" transform="translate(21 244) rotate(-90)">Tool rail 84</text>
-    <rect class="canvas" x="42" y="38" width="508" height="412" />
-    <rect class="toolbar" x="42" y="38" width="508" height="32" />
-    <text class="label" x="296" y="54">Canvas toolbar</text>
-    <text class="label" x="296" y="260">Canvas</text>
-    <rect class="panel" x="550" y="38" width="170" height="412" />
-    <text class="label" x="635" y="244">Inspector 340</text>
+  <!-- Wide desktop: default three-column workspace -->
+  <g transform="translate(40 112)">
+    <text class="screen-title" x="0" y="-18">Wide desktop · over 1180px</text>
+    <rect class="frame" width="700" height="438" rx="5" />
+    <rect class="header" width="700" height="32" />
+    <text class="label" x="350" y="16">App header · 64px</text>
+    <rect class="tool" x="0" y="32" width="36" height="406" />
+    <text class="label" transform="translate(18 235) rotate(-90)">Toolbox · 72px</text>
+    <rect class="canvas" x="36" y="32" width="496" height="350" />
+    <rect class="toolbar" x="36" y="32" width="496" height="28" />
+    <text class="label" x="284" y="46">Canvas toolbar · presets / view / world panel toggle</text>
+    <text class="label" x="284" y="220">Canvas work area</text>
+    <line class="line" x1="284" y1="76" x2="284" y2="370" />
+    <rect class="timeline" x="36" y="382" width="496" height="56" />
+    <text class="label" x="284" y="410">Interpolation timeline · collapsible</text>
+    <rect class="inspector" x="532" y="32" width="168" height="406" />
+    <text class="label" transform="translate(616 235) rotate(-90)">Inspector · 336px · collapsible</text>
+    <!-- Narrow desktop popover: summary above X/Y/Z rows -->
+    <rect class="overlay" x="338" y="64" width="182" height="160" rx="5" />
+    <text class="small" x="429" y="77">World coordinates · rotation</text>
+    <rect class="button" x="348" y="86" width="66" height="30" rx="3" />
+    <text class="small" x="381" y="101">Axis guide</text>
+    <rect class="button" x="423" y="86" width="84" height="12" rx="2" />
+    <text class="small" x="465" y="92">Perspective</text>
+    <line class="line" x1="348" y1="123" x2="507" y2="123" />
+    <text class="small" x="360" y="136">X</text><rect class="button" x="370" y="130" width="94" height="12" rx="3" /><rect class="button" x="470" y="130" width="30" height="12" rx="2" />
+    <text class="small" x="360" y="157">Y</text><rect class="button" x="370" y="151" width="94" height="12" rx="3" /><rect class="button" x="470" y="151" width="30" height="12" rx="2" />
+    <text class="small" x="360" y="178">Z</text><rect class="button" x="370" y="172" width="94" height="12" rx="3" /><rect class="button" x="470" y="172" width="30" height="12" rx="2" />
+    <text class="small" x="429" y="205">Desktop popover · 280px actual width</text>
   </g>
 
-  <!-- Tablet landscape 1024 × 768 -->
-  <g transform="translate(810 110)">
-    <text class="screen-title" x="0" y="-18">Tablet landscape · 1024 × 768</text>
-    <rect class="frame" width="512" height="384" rx="4" />
-    <rect class="header" width="512" height="38" />
-    <text class="label" x="256" y="19">Compact header</text>
-    <rect class="tools" x="0" y="38" width="46" height="346" />
-    <text class="label" transform="translate(23 211) rotate(-90)">Tool rail</text>
-    <rect class="canvas" x="46" y="38" width="466" height="346" />
-    <rect class="toolbar" x="46" y="38" width="466" height="34" />
-    <text class="label" x="279" y="55">Wrapping canvas toolbar</text>
-    <text class="label" x="279" y="225">Canvas</text>
-    <rect class="panel" x="346" y="72" width="166" height="312" />
-    <text class="label" x="429" y="228">Inspector drawer</text>
+  <!-- Compact desktop: same workspace, compressed fixed columns -->
+  <g transform="translate(780 112)">
+    <text class="screen-title" x="0" y="-18">Compact desktop · 821–1180px</text>
+    <rect class="frame" width="512" height="384" rx="5" />
+    <rect class="header" width="512" height="32" />
+    <text class="label" x="256" y="16">Desktop header · compact actions</text>
+    <rect class="tool" x="0" y="32" width="32" height="352" />
+    <text class="label" transform="translate(16 208) rotate(-90)">Rail · 64px</text>
+    <rect class="canvas" x="32" y="32" width="330" height="298" />
+    <rect class="toolbar" x="32" y="32" width="330" height="28" />
+    <text class="small" x="197" y="46">Canvas toolbar</text>
+    <text class="label" x="197" y="195">Canvas</text>
+    <rect class="timeline" x="32" y="330" width="330" height="54" />
+    <text class="small" x="197" y="357">Timeline</text>
+    <rect class="inspector" x="362" y="32" width="150" height="352" />
+    <text class="label" transform="translate(437 208) rotate(-90)">Inspector · 300px</text>
+    <rect class="overlay" x="161" y="64" width="190" height="123" rx="5" />
+    <text class="small" x="256" y="78">World rotation popup</text>
+    <line class="line" x1="171" y1="88" x2="341" y2="88" />
+    <text class="small" x="180" y="101">X</text><rect class="button" x="190" y="95" width="110" height="12" rx="3" />
+    <text class="small" x="180" y="122">Y</text><rect class="button" x="190" y="116" width="110" height="12" rx="3" />
+    <text class="small" x="180" y="143">Z</text><rect class="button" x="190" y="137" width="110" height="12" rx="3" />
   </g>
 
-  <!-- Tablet portrait 768 × 1024 -->
-  <g transform="translate(40 630)">
-    <text class="screen-title" x="0" y="-18">Tablet portrait · 768 × 1024</text>
-    <rect class="frame" width="307" height="410" rx="4" />
-    <rect class="header" width="307" height="34" />
-    <text class="label" x="153.5" y="17">Compact header</text>
-    <rect class="tools" x="0" y="34" width="42" height="376" />
-    <text class="label" transform="translate(21 222) rotate(-90)">Tool rail</text>
-    <rect class="canvas" x="42" y="34" width="265" height="238" />
-    <rect class="toolbar" x="42" y="34" width="265" height="36" />
-    <text class="label" x="174.5" y="52">Canvas toolbar</text>
-    <text class="label" x="174.5" y="170">Canvas</text>
-    <rect class="panel" x="42" y="272" width="265" height="138" />
-    <text class="label" x="174.5" y="341">Docked inspector</text>
+  <!-- Portrait mobile: one editor column and an interchangeable bottom panel -->
+  <g transform="translate(40 640)">
+    <text class="screen-title" x="0" y="-18">Portrait mobile · up to 820px wide</text>
+    <rect class="frame" width="300" height="400" rx="7" />
+    <rect class="header" width="300" height="24" />
+    <text class="label" x="150" y="12">Compact header · 48px</text>
+    <rect class="canvas" x="0" y="24" width="300" height="322" />
+    <rect class="toolbar" x="0" y="24" width="300" height="25" />
+    <text class="small" x="150" y="36">Toolbar tabs · tool / settings / inspector / world / timeline</text>
+    <text class="label" x="150" y="195">Canvas-first editor</text>
+    <rect class="inspector" x="0" y="220" width="300" height="126" rx="7 7 0 0" />
+    <rect class="button" x="133" y="227" width="34" height="4" rx="2" />
+    <text class="label" x="150" y="280">Unified bottom panel · inspector content</text>
+    <text class="small" x="150" y="300">toolbox / settings / world / timeline replace this content</text>
+    <rect class="timeline" x="0" y="346" width="300" height="54" />
+    <text class="label" x="150" y="373">Timeline tab is shown here when selected</text>
   </g>
 
-  <!-- Mobile 390 × 844 -->
-  <g transform="translate(440 618)">
-    <text class="screen-title" x="0" y="-18">Mobile · 390 × 844</text>
-    <rect class="frame" width="195" height="422" rx="6" />
-    <rect class="header" width="195" height="32" />
-    <text class="label" x="97.5" y="16">Header</text>
-    <rect class="canvas" x="0" y="32" width="195" height="226" />
-    <rect class="toolbar" x="0" y="32" width="195" height="36" />
-    <text class="label" x="97.5" y="50">Actions</text>
-    <text class="label" x="97.5" y="162">Canvas</text>
-    <rect class="panel" x="0" y="258" width="195" height="124" />
-    <text class="label" x="97.5" y="320">Bottom sheet</text>
-    <rect class="nav" x="0" y="382" width="195" height="40" />
-    <text class="label" x="97.5" y="402">Bottom tools</text>
+  <!-- Landscape mobile: world panel is a side sheet -->
+  <g transform="translate(420 674)">
+    <text class="screen-title" x="0" y="-18">Landscape mobile · max 820px × max 560px</text>
+    <rect class="frame" width="500" height="280" rx="6" />
+    <rect class="header" width="500" height="22" />
+    <text class="label" x="250" y="11">Compact header · 44px</text>
+    <rect class="canvas" x="0" y="22" width="320" height="258" />
+    <rect class="toolbar" x="0" y="22" width="320" height="20" />
+    <text class="small" x="160" y="32">Canvas toolbar</text>
+    <rect class="tool" x="0" y="42" width="28" height="108" />
+    <text class="label" transform="translate(14 96) rotate(-90)">Rail</text>
+    <text class="label" x="160" y="150">Canvas keeps its vertical working area</text>
+    <rect class="timeline" x="320" y="22" width="180" height="258" />
+    <text class="label" x="410" y="40">Unified panel · timeline tab</text>
+    <rect class="button" x="330" y="54" width="74" height="16" rx="3" /><rect class="button" x="410" y="54" width="76" height="16" rx="3" />
+    <rect class="button" x="330" y="76" width="68" height="16" rx="3" /><rect class="button" x="404" y="76" width="82" height="16" rx="3" />
+    <line class="line" x1="330" y1="103" x2="486" y2="103" />
+    <rect class="button" x="330" y="114" width="156" height="30" rx="4" />
+    <rect class="button" x="330" y="150" width="156" height="30" rx="4" />
+    <text class="small" x="408" y="129">Controls wrap in the shared panel</text>
+    <text class="small" x="408" y="165">Pose cards stack vertically</text>
+    <text class="small" x="410" y="220">Toolbox · settings · inspector · world</text>
+    <text class="small" x="410" y="235">replace this content; same tab closes it</text>
   </g>
 
-  <g transform="translate(720 670)">
-    <text class="screen-title" x="0" y="0">Panel organization</text>
-    <rect class="panel" x="0" y="22" width="310" height="54" />
-    <text class="label" x="155" y="49">Sticky target summary + tabs</text>
-    <rect class="panel" x="0" y="88" width="310" height="72" />
-    <text class="label" x="155" y="124">Frequently used controls</text>
-    <rect class="panel" x="0" y="172" width="310" height="54" />
-    <text class="label" x="155" y="199">Relationships and visibility</text>
-    <rect class="panel" x="0" y="238" width="310" height="54" />
-    <text class="label" x="155" y="265">Advanced settings</text>
-  </g>
-
-  <g transform="translate(1080 670)">
+  <!-- Legend and implementation notes -->
+  <g transform="translate(980 650)">
     <text class="screen-title" x="0" y="0">Legend</text>
-    <rect class="header" x="0" y="22" width="34" height="24" /><text class="note" x="45" y="39">Header</text>
-    <rect class="tools" x="0" y="58" width="34" height="24" /><text class="note" x="45" y="75">Tools</text>
-    <rect class="canvas" x="0" y="94" width="34" height="24" /><text class="note" x="45" y="111">Canvas</text>
-    <rect class="toolbar" x="0" y="130" width="34" height="24" /><text class="note" x="45" y="147">Canvas actions</text>
-    <rect class="panel" x="0" y="166" width="34" height="24" /><text class="note" x="45" y="183">Inspector</text>
-    <rect class="nav" x="0" y="202" width="34" height="24" /><text class="note" x="45" y="219">Mobile tools</text>
+    <rect class="header" x="0" y="20" width="28" height="20" /><text class="note" x="39" y="34">Header</text>
+    <rect class="tool" x="0" y="50" width="28" height="20" /><text class="note" x="39" y="64">Toolbox / tool rail</text>
+    <rect class="canvas" x="0" y="80" width="28" height="20" /><text class="note" x="39" y="94">Canvas work area</text>
+    <rect class="toolbar" x="0" y="110" width="28" height="20" /><text class="note" x="39" y="124">Canvas toolbar</text>
+    <rect class="inspector" x="0" y="140" width="28" height="20" /><text class="note" x="39" y="154">Inspector panel / drawer</text>
+    <rect class="timeline" x="0" y="170" width="28" height="20" /><text class="note" x="39" y="184">Interpolation timeline</text>
+    <rect class="overlay" x="0" y="200" width="28" height="20" /><text class="note" x="39" y="214">Overlay / world panel</text>
+    <text class="screen-title" x="0" y="254">Behavior captured here</text>
+    <text class="note" x="0" y="276">• Desktop stays desktop at short viewport heights.</text>
+    <text class="note" x="0" y="294">• Mobile layout starts at width ≤ 820px.</text>
+    <text class="note" x="0" y="312">• World panel is a narrow desktop popover,</text>
+    <text class="note" x="0" y="328">  a compact mobile popup, or the landscape unified panel.</text>
+    <text class="note" x="0" y="350">• Mobile uses one height-limited panel; toolbar tabs replace its content.</text>
+    <text class="note" x="0" y="366">  Pressing the selected tab again collapses the panel.</text>
   </g>
 </svg>
