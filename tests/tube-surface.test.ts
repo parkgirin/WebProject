@@ -4,7 +4,7 @@ import test from "node:test";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { renderSvgEditor } from "../src/editor/svg-editor.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
-import { getCameraFacingLimbSurface, getJointTubeSurface, projectPoint } from "../src/rig/geometry.ts";
+import { getCameraFacingLimbSurface, getJointTubeSurface, getProjectedCircleConnectionSurface, projectPoint } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
 test("limb tube creates circular eight-sided surfaces from joint x/y/z coordinates", () => {
@@ -22,6 +22,79 @@ test("limb tube creates circular eight-sided surfaces from joint x/y/z coordinat
     }
   }
   assert.ok(surface.some((quad) => quad.points.some((point) => point.z !== 0)));
+});
+
+test("projected circle connections follow the two common external tangents", () => {
+  const start = { x: 80, y: 120 };
+  const end = { x: 230, y: 210 };
+  const startRadius = 24;
+  const endRadius = 38;
+  const points = getProjectedCircleConnectionSurface(start, end, startRadius, endRadius)!;
+
+  for (const [startPoint, endPoint] of [[points[0], points[1]], [points[3], points[2]]] as const) {
+    const edge = { x: endPoint.x - startPoint.x, y: endPoint.y - startPoint.y };
+    const startNormal = { x: startPoint.x - start.x, y: startPoint.y - start.y };
+    const endNormal = { x: endPoint.x - end.x, y: endPoint.y - end.y };
+    assert.ok(Math.abs(Math.hypot(startNormal.x, startNormal.y) - startRadius) < 1e-8);
+    assert.ok(Math.abs(Math.hypot(endNormal.x, endNormal.y) - endRadius) < 1e-8);
+    assert.ok(Math.abs(startNormal.x * edge.x + startNormal.y * edge.y) < 1e-8);
+    assert.ok(Math.abs(endNormal.x * edge.x + endNormal.y * edge.y) < 1e-8);
+  }
+});
+
+test("equal projected radii retain the perpendicular capsule rule", () => {
+  assert.deepEqual(
+    getProjectedCircleConnectionSurface({ x: 0, y: 0 }, { x: 0, y: 40 }, 10, 10),
+    [{ x: -10, y: 0 }, { x: -10, y: 40 }, { x: 10, y: 40 }, { x: 10, y: 0 }],
+  );
+});
+
+test("bent legs retain camera-exposed inner outlines on every limb segment", () => {
+  const rig = createDefaultRig();
+  const leftKnee = rig.joints.find((joint) => joint.id === "left-knee")!;
+  const rightKnee = rig.joints.find((joint) => joint.id === "right-knee")!;
+  const leftAnkle = rig.joints.find((joint) => joint.id === "left-ankle")!;
+  const rightAnkle = rig.joints.find((joint) => joint.id === "right-ankle")!;
+  leftKnee.x -= 34;
+  rightKnee.x += 26;
+  leftAnkle.x += 18;
+  rightAnkle.x -= 12;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  for (const faceId of ["left-upper-leg", "left-lower-leg", "right-upper-leg", "right-lower-leg"]) {
+    assert.match(host.innerHTML, new RegExp(`data-leg-gap-outline data-face-id="${faceId}"`));
+  }
+});
+
+test("leg gap outlines obey camera depth instead of always drawing on top", () => {
+  const rig = createDefaultRig();
+  for (const jointId of ["left-hip", "left-knee", "left-ankle"]) {
+    rig.joints.find((joint) => joint.id === jointId)!.z = -30;
+  }
+  for (const jointId of ["right-hip", "right-knee", "right-ankle"]) {
+    rig.joints.find((joint) => joint.id === jointId)!.z = 30;
+  }
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  const farGap = host.innerHTML.indexOf('data-leg-gap-outline data-face-id="left-upper-leg"');
+  const nearFace = host.innerHTML.indexOf('data-face-id="right-upper-leg" points=');
+  const nearGap = host.innerHTML.indexOf('data-leg-gap-outline data-face-id="right-upper-leg"');
+  assert.ok(farGap >= 0 && nearFace > farGap);
+  assert.ok(nearGap > nearFace);
 });
 
 test("camera-facing limb uses the apparent sphere circles instead of authored axis endpoints", () => {
@@ -122,7 +195,12 @@ test("torso surface connects the actual shoulder band to the rotated waist secti
 test("waist-to-hip surface lofts the waist capsule into the virtual hip capsule", () => {
   const rig = createDefaultRig();
   const waist = rig.joints.find((joint) => joint.id === "waist")!;
+  const leftHip = rig.joints.find((joint) => joint.id === "left-hip")!;
+  const rightHip = rig.joints.find((joint) => joint.id === "right-hip")!;
   waist.localRotation = 12;
+  waist.localRotationY = 28;
+  leftHip.z = -18;
+  rightHip.z = 18;
   const host = { innerHTML: "" } as SVGSVGElement;
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "waist-hip", selectedTarget: "face",
@@ -133,7 +211,12 @@ test("waist-to-hip surface lofts the waist capsule into the virtual hip capsule"
   renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
 
   assert.equal(host.innerHTML.match(/data-face-id="waist-hip" data-waist-hip-surface/g)?.length, 1);
-  assert.equal(host.innerHTML.match(/class="body-face is-selected" data-face-id="waist-hip"/g)?.length, 1);
+  assert.equal(host.innerHTML.match(/class="body-face is-selected" data-face-id="waist-hip"/g)?.length, 3);
+  assert.equal(host.innerHTML.match(/data-waist-hip-tube=/g)?.length, 2);
+  const waistHipOutline = host.innerHTML.match(/<path class="body-face-outline"[^>]*data-waist-hip-outline[^>]*>/)?.[0] ?? "";
+  assert.equal((waistHipOutline.match(/M /g) ?? []).length, 2);
+  assert.doesNotMatch(host.innerHTML, /data-face-outline data-peer-group-id="hip-band"/);
+  assert.doesNotMatch(host.innerHTML, /(?:NaN|Infinity)/);
 });
 
 test("profile capsules and torso exteriors render outlines", () => {
@@ -236,7 +319,11 @@ test("straight body connects equal waist and hip capsules without tapering", () 
   renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
 
   assert.match(host.innerHTML,
-    /data-face-id="waist-hip" data-waist-hip-surface points="360,320 240,320 240,380 360,380"/);
+    /data-waist-hip-center points="270,320 330,320 330,380 270,380"/);
+  assert.match(host.innerHTML,
+    /data-waist-hip-tube="0" points="240,320 240,380 300,380 300,320"/);
+  assert.match(host.innerHTML,
+    /data-waist-hip-tube="1" points="300,320 300,380 360,380 360,320"/);
 });
 
 test("straight torso keeps equal section widths through a Y-axis turn", () => {

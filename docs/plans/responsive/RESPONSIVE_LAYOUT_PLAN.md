@@ -93,6 +93,5 @@ Pose Mesh Editor를 PC, 태블릿, 모바일에서 같은 편집 상태와 조�
 ## 9. 화면 시안
 
 - [화면 크기별 배치 참고](responsive-layout-wireframes.svg)
-- [모바일 계획안과 현재 구현 비교](mobile-layout-plan-vs-implementation.svg)
 - [보간 패널을 포함한 현재 PC 레이아웃](pose-interpolation-desktop-layout.svg)
 

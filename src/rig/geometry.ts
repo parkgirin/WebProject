@@ -36,6 +36,78 @@ export interface CameraFacingLimbSurface {
 }
 
 /**
+ * Join two already-projected circles along their common external tangents.
+ * Equal radii reduce to points perpendicular to the centre line; unequal
+ * radii shift both contact normals so the connecting edges remain tangent.
+ */
+export function getProjectedCircleConnectionSurface(
+  start: Point,
+  end: Point,
+  startRadius: number,
+  endRadius: number,
+): [Point, Point, Point, Point] | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-9) return null;
+  const radiusRatio = (startRadius - endRadius) / length;
+  if (Math.abs(radiusRatio) >= 1) return null;
+  const direction = { x: dx / length, y: dy / length };
+  const perpendicular = { x: -direction.y, y: direction.x };
+  const perpendicularScale = Math.sqrt(1 - radiusRatio * radiusRatio);
+  const normalA = {
+    x: direction.x * radiusRatio + perpendicular.x * perpendicularScale,
+    y: direction.y * radiusRatio + perpendicular.y * perpendicularScale,
+  };
+  const normalB = {
+    x: direction.x * radiusRatio - perpendicular.x * perpendicularScale,
+    y: direction.y * radiusRatio - perpendicular.y * perpendicularScale,
+  };
+  return [
+    { x: start.x + normalA.x * startRadius, y: start.y + normalA.y * startRadius },
+    { x: end.x + normalA.x * endRadius, y: end.y + normalA.y * endRadius },
+    { x: end.x + normalB.x * endRadius, y: end.y + normalB.y * endRadius },
+    { x: start.x + normalB.x * startRadius, y: start.y + normalB.y * startRadius },
+  ];
+}
+
+/**
+ * Connect two sphere centres with circular end sections perpendicular to the
+ * connection axis. Only the two silhouette points needed by the 2D renderer
+ * are returned; they still come from the actual 3D section circles.
+ */
+export function getCameraFacingConnectionSurface(
+  rig: Rig,
+  startModel: Point3,
+  endModel: Point3,
+  startRadius: number,
+  endRadius: number,
+): CameraFacingLimbSurface | null {
+  const start = worldRotate(rig, startModel, startModel.z);
+  const end = worldRotate(rig, endModel, endModel.z);
+  const tangent = normalizeVector3({ x: end.x - start.x, y: end.y - start.y, z: end.z - start.z });
+  if (!tangent) return null;
+  const yaw = rig.viewYRotation * Math.PI / 180;
+  const cameraForward: Point3 = { x: -Math.sin(yaw), y: 0, z: Math.cos(yaw) };
+  const radial = normalizeVector3(crossVector3(cameraForward, tangent))
+    ?? normalizeVector3(crossVector3({ x: 0, y: 1, z: 0 }, tangent))
+    ?? { x: 1, y: 0, z: 0 };
+  const ringPoint = (center: Point3, radius: number, side: 1 | -1): Point3 => worldUnrotate(rig, {
+    x: center.x + radial.x * radius * side,
+    y: center.y + radial.y * radius * side,
+    z: center.z + radial.z * radius * side,
+  });
+  return {
+    points: [
+      ringPoint(start, startRadius, 1),
+      ringPoint(end, endRadius, 1),
+      ringPoint(end, endRadius, -1),
+      ringPoint(start, startRadius, -1),
+    ],
+  };
+}
+
+/**
  * Resolves a legacy axis endpoint as a fixed point on its joint sphere.
  * The point is part of the model, not a camera-facing billboard point: a
  * side view therefore collapses a zero-depth model exactly at 90 degrees.
@@ -226,30 +298,9 @@ export function getCameraFacingLimbSurface(
     : startWorld;
   const startModel: Point3 = { x: attachedStart.x, y: attachedStart.y, z: startJoint.z };
   const endModel: Point3 = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
-  const start = worldRotate(rig, startModel, startModel.z);
-  const end = worldRotate(rig, endModel, endModel.z);
-  const tangent = normalizeVector3({ x: end.x - start.x, y: end.y - start.y, z: end.z - start.z });
-  if (!tangent) return null;
-  const yaw = rig.viewYRotation * Math.PI / 180;
-  const cameraForward: Point3 = { x: -Math.sin(yaw), y: 0, z: Math.cos(yaw) };
-  const radial = normalizeVector3(crossVector3(cameraForward, tangent))
-    ?? normalizeVector3(crossVector3({ x: 0, y: 1, z: 0 }, tangent))
-    ?? { x: 1, y: 0, z: 0 };
-  const ringPoint = (center: Point3, radius: number, side: 1 | -1): Point3 => worldUnrotate(rig, {
-    x: center.x + radial.x * radius * side,
-    y: center.y + radial.y * radius * side,
-    z: center.z + radial.z * radius * side,
-  });
   const startRadius = getJointViewRadius(rig, startJoint);
   const endRadius = getJointViewRadius(rig, endJoint);
-  return {
-    points: [
-      ringPoint(start, startRadius, 1),
-      ringPoint(end, endRadius, 1),
-      ringPoint(end, endRadius, -1),
-      ringPoint(start, startRadius, -1),
-    ],
-  };
+  return getCameraFacingConnectionSurface(rig, startModel, endModel, startRadius, endRadius);
 }
 
 /** Project a world point away from the canvas centre as it comes forward. */
