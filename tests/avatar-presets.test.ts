@@ -36,6 +36,8 @@ test("all seven avatar presets apply their app dimensions to a valid rig", () =>
     assert.equal(leftShoulderJoint.capsuleFlatAlignment, "peer-outward");
     close(state.getJoint("left-hip").radius, preset.hipRadius);
     close(state.getJoint("left-knee").radius, preset.kneeRadius);
+    close(state.getJoint("left-wrist").radius, preset.wristRadius);
+    close(state.getJoint("left-ankle").radius, preset.ankleRadius);
     close(state.getJoint("chest").z, preset.depthProfile.chest);
     close(state.getJoint("waist").z, preset.depthProfile.waist);
     close(state.getJoint("pelvis-pivot").z, preset.depthProfile.pelvis);
@@ -105,6 +107,8 @@ test("straight neutral aligns shoulder centers with both waist edges", () => {
   assert.equal(preset.waistRadius, 60);
   assert.equal(preset.armRadius, preset.hipRadius);
   assert.equal(preset.hipRadius, preset.kneeRadius);
+  assert.equal(preset.wristRadius, preset.armRadius);
+  assert.equal(preset.ankleRadius, preset.kneeRadius);
   assert.equal(preset.shoulderFlatLength, preset.armRadius);
   assert.deepEqual(preset.depthProfile, { chest: 0, waist: 0, pelvis: 0, hip: 0, knee: 0, ankle: 0 });
 });
@@ -115,6 +119,9 @@ test("non-straight presets taper the leg and place its knee ahead of the hip", (
     assert.ok(preset.kneeRadius < preset.hipRadius, `${preset.id} should taper below the hip`);
     assert.ok(preset.depthProfile.knee > preset.depthProfile.hip, `${preset.id} knee should move forward from the hip`);
     assert.ok(preset.depthProfile.ankle >= preset.depthProfile.hip, `${preset.id} ankle should not remain behind the hip`);
+    assert.ok(preset.depthProfile.ankle > preset.depthProfile.knee, `${preset.id} ankle should return behind the knee`);
+    assert.ok(preset.wristRadius > preset.armRadius, `${preset.id} wrist should represent a hand`);
+    assert.ok(preset.ankleRadius > preset.kneeRadius, `${preset.id} ankle should represent a foot`);
   }
 });
 
