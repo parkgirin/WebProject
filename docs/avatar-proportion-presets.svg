@@ -1,194 +1,55 @@
-<svg width="1742" height="660" viewBox="0 0 1742 660" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1742" height="660" fill="#F5F3EE"/>
-  <text x="871" y="34" fill="#25231F" font-family="Arial, 'Noto Sans KR', sans-serif" font-size="22" font-weight="700" text-anchor="middle">아바타 신체 비율 프리셋 비교</text>
-  <text x="871" y="58" fill="#706A61" font-family="Arial, 'Noto Sans KR', sans-serif" font-size="12" text-anchor="middle">머리 지름 H = 100 · 성인 5H · 아동 4H · 어깨·고관절은 중심 간격, 나머지는 폭</text>
-
+<svg xmlns="http://www.w3.org/2000/svg" width="1712" height="650" viewBox="0 0 1712 650">
+  <title>아바타 체형 프리셋 정면 및 측면 통합 비교</title>
+  <desc>정면과 측면 모두 원형 관절과 직사각형 연결부만으로 표현한 체형 프리셋 비교 도면.</desc>
   <defs>
     <style>
-      .card { fill: #FFFFFF; stroke: #DDD8CF; stroke-width: 1; }
-      .guide { stroke: #DCD7CF; stroke-width: 1; stroke-dasharray: 4 4; }
-      .center { stroke: #C9C3B9; stroke-width: 1; stroke-dasharray: 2 4; }
-      .title { fill: #2D2A26; font-family: Arial, 'Noto Sans KR', sans-serif; font-size: 15px; font-weight: 700; text-anchor: middle; }
-      .subtitle { fill: #7C756B; font-family: Arial, 'Noto Sans KR', sans-serif; font-size: 10px; text-anchor: middle; }
-      .metric { fill: #514C45; font-family: Arial, 'Noto Sans KR', sans-serif; font-size: 10px; text-anchor: middle; }
-      .outline { stroke: #FFFFFF; stroke-width: 1.5; }
+      .bg{fill:#f5f3ee}.card{fill:#fff;stroke:#ddd8cf}.grid{stroke:#ddd8cf;stroke-dasharray:3 4}.axis{stroke:#c3bcb3;stroke-dasharray:2 3}.joint{fill:#e1a478;stroke:#9d6c4e;stroke-width:1.2}.link{fill:#d89568;stroke:#9d6c4e;stroke-width:1.2}.title{fill:#2d2a26;font:700 14px Arial,'Noto Sans KR',sans-serif;text-anchor:middle}.note{fill:#746d64;font:10px Arial,'Noto Sans KR',sans-serif;text-anchor:middle}.label{fill:#8a796b;font:9px Arial,'Noto Sans KR',sans-serif;text-anchor:middle}.tiny{fill:#746d64;font:9px Arial,'Noto Sans KR',sans-serif}
     </style>
   </defs>
+  <rect class="bg" width="1712" height="650"/>
+  <text class="title" x="856" y="34" style="font-size:22px">아바타 체형 프리셋 — 정면 폭·측면 깊이</text>
+  <text class="note" x="856" y="56" style="font-size:12px">원 = 구형 관절 단면 · 사각형 = 관절 사이 연결면 · 왼쪽은 정면, 오른쪽은 Z 깊이</text>
 
-  <!-- Large male: the current avatar -->
-  <g transform="translate(20 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">대형 남성체</text>
-    <text class="subtitle" x="113" y="47">굵은 관절 · 넓은 몸통</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="-5" y="100" width="40" height="200" rx="20" fill="#397EA8"/>
-      <rect class="outline" x="135" y="100" width="40" height="200" rx="20" fill="#397EA8"/>
-      <rect class="outline" x="35" y="225" width="50" height="275" rx="25" fill="#6CA6C8"/>
-      <rect class="outline" x="85" y="225" width="50" height="275" rx="25" fill="#397EA8"/>
-      <path class="outline" d="M15 100H155L125 200H45L15 100Z" fill="#5E9ABD"/>
-      <path class="outline" d="M45 200H125L135 250H35L45 200Z" fill="#4C8FB6"/>
-      <rect class="outline" x="35" y="0" width="100" height="100" rx="50" fill="#8DBBD4"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 140 · 허리 80 · 고관절 50</text>
-    <text class="metric" x="113" y="504">팔 40 · 다리 50</text>
-    <text class="subtitle" x="113" y="530">기존 현재 아바타</text>
+  <!-- Large -->
+  <g transform="translate(12 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">대형</text><text class="note" x="116" y="42">골반 30 → 무릎·발목 27</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="392"/><line class="grid" x1="0" y1="96" x2="90" y2="96"/><rect class="link" x="5" y="95" width="80" height="30"/><rect class="link" x="20" y="125" width="50" height="98"/><rect class="link" x="14" y="223" width="62" height="28"/><rect class="link" x="5" y="251" width="34" height="140"/><rect class="link" x="51" y="251" width="34" height="140"/><circle class="joint" cx="45" cy="44" r="28"/><circle class="joint" cx="45" cy="110" r="16"/><circle class="joint" cx="45" cy="237" r="20"/><circle class="joint" cx="22" cy="391" r="18"/><circle class="joint" cx="68" cy="391" r="18"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="392"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="30" y="105" width="32" height="59"/><rect class="link" x="28" y="164" width="42" height="61"/><rect class="link" x="31" y="225" width="42" height="166"/><circle class="joint" cx="46" cy="44" r="28"/><circle class="joint" cx="46" cy="105" r="16"/><circle class="joint" cx="51" cy="164" r="16"/><circle class="joint" cx="58" cy="225" r="20"/><circle class="joint" cx="49" cy="391" r="18"/></g>
   </g>
 
-  <!-- General male -->
-  <g transform="translate(266 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">일반 남성체</text>
-    <text class="subtitle" x="113" y="47">표준 균형형</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="5" y="100" width="35" height="200" rx="17.5" fill="#4C8B72"/>
-      <rect class="outline" x="130" y="100" width="35" height="200" rx="17.5" fill="#4C8B72"/>
-      <rect class="outline" x="37.5" y="226" width="47.5" height="274" rx="23.75" fill="#7DB49B"/>
-      <rect class="outline" x="90" y="226" width="47.5" height="274" rx="23.75" fill="#4C8B72"/>
-      <path class="outline" d="M22.5 100H147.5L120 200H50L22.5 100Z" fill="#70A990"/>
-      <path class="outline" d="M50 200H120L135 250H35L50 200Z" fill="#5B9A80"/>
-      <rect class="outline" x="35" y="0" width="100" height="100" rx="50" fill="#9BC7B3"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 125 · 허리 70 · 고관절 52.5</text>
-    <text class="metric" x="113" y="504">팔 35 · 다리 47.5</text>
-    <text class="subtitle" x="113" y="530">기본 남성 프리셋</text>
+  <!-- Standard male -->
+  <g transform="translate(252 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">일반 남성체</text><text class="note" x="116" y="42">골반 28.5 → 무릎·발목 25.5</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="392"/><line class="grid" x1="0" y1="96" x2="90" y2="96"/><rect class="link" x="9" y="95" width="72" height="28"/><rect class="link" x="22" y="123" width="46" height="100"/><rect class="link" x="16" y="223" width="58" height="28"/><rect class="link" x="7" y="251" width="32" height="140"/><rect class="link" x="51" y="251" width="32" height="140"/><circle class="joint" cx="45" cy="44" r="28"/><circle class="joint" cx="45" cy="109" r="14"/><circle class="joint" cx="45" cy="237" r="19"/><circle class="joint" cx="23" cy="391" r="17"/><circle class="joint" cx="67" cy="391" r="17"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="392"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="32" y="105" width="28" height="59"/><rect class="link" x="31" y="164" width="38" height="61"/><rect class="link" x="32" y="225" width="36" height="166"/><circle class="joint" cx="46" cy="44" r="28"/><circle class="joint" cx="46" cy="105" r="14"/><circle class="joint" cx="50" cy="164" r="14"/><circle class="joint" cx="56" cy="225" r="19"/><circle class="joint" cx="48" cy="391" r="17"/></g>
   </g>
 
-  <!-- V-shape male -->
-  <g transform="translate(512 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">슬림 V형 남성체</text>
-    <text class="subtitle" x="113" y="47">넓은 어깨 · 좁은 허리</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="6.25" y="100" width="32.5" height="200" rx="16.25" fill="#C06B37"/>
-      <rect class="outline" x="131.25" y="100" width="32.5" height="200" rx="16.25" fill="#C06B37"/>
-      <rect class="outline" x="33.75" y="227" width="47.5" height="273" rx="23.75" fill="#DD986C"/>
-      <rect class="outline" x="88.75" y="227" width="47.5" height="273" rx="23.75" fill="#C06B37"/>
-      <path class="outline" d="M22.5 100H147.5L117.5 200H52.5L22.5 100Z" fill="#D48959"/>
-      <path class="outline" d="M52.5 200H117.5L136.25 250H33.75L52.5 200Z" fill="#CA7744"/>
-      <rect class="outline" x="35" y="0" width="100" height="100" rx="50" fill="#E9B08C"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 125 · 허리 65 · 고관절 55</text>
-    <text class="metric" x="113" y="504">팔 32.5 · 다리 47.5</text>
-    <text class="subtitle" x="113" y="530">추가 남성체 B</text>
+  <!-- Slim male -->
+  <g transform="translate(492 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">슬림 남성체</text><text class="note" x="116" y="42">골반 28.5 → 무릎·발목 24.5</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="392"/><line class="grid" x1="0" y1="96" x2="90" y2="96"/><rect class="link" x="8" y="95" width="74" height="27"/><rect class="link" x="24" y="122" width="42" height="101"/><rect class="link" x="17" y="223" width="56" height="28"/><rect class="link" x="8" y="251" width="31" height="140"/><rect class="link" x="51" y="251" width="31" height="140"/><circle class="joint" cx="45" cy="44" r="28"/><circle class="joint" cx="45" cy="108" r="13"/><circle class="joint" cx="45" cy="237" r="19"/><circle class="joint" cx="23" cy="391" r="16"/><circle class="joint" cx="67" cy="391" r="16"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="392"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="33" y="105" width="26" height="59"/><rect class="link" x="30" y="164" width="38" height="61"/><rect class="link" x="32" y="225" width="34" height="166"/><circle class="joint" cx="46" cy="44" r="28"/><circle class="joint" cx="46" cy="105" r="13"/><circle class="joint" cx="51" cy="164" r="13"/><circle class="joint" cx="56" cy="225" r="19"/><circle class="joint" cx="48" cy="391" r="16"/></g>
   </g>
 
-  <!-- Female proposal with constant leg width -->
-  <g transform="translate(758 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">기존 여성체</text>
-    <text class="subtitle" x="113" y="47">좁은 허리 · 넓은 고관절</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="13.75" y="100" width="32.5" height="200" rx="16.25" fill="#B85E7B"/>
-      <rect class="outline" x="123.75" y="100" width="32.5" height="200" rx="16.25" fill="#B85E7B"/>
-      <rect class="outline" x="26.25" y="225" width="47.5" height="275" rx="23.75" fill="#D990A7"/>
-      <rect class="outline" x="96.25" y="225" width="47.5" height="275" rx="23.75" fill="#B85E7B"/>
-      <path class="outline" d="M30 100H140L115 200H55L30 100Z" fill="#D47F9B"/>
-      <path class="outline" d="M55 200H115L143.75 250H26.25L55 200Z" fill="#C96D8A"/>
-      <rect class="outline" x="35" y="0" width="100" height="100" rx="50" fill="#E7AFC1"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 110 · 허리 60 · 고관절 70</text>
-    <text class="metric" x="113" y="504">팔 32.5 · 다리 47.5</text>
-    <text class="subtitle" x="113" y="530">일정한 다리 폭</text>
+  <!-- Female -->
+  <g transform="translate(732 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">기본 여성체</text><text class="note" x="116" y="42">골반 28.5 → 무릎·발목 24</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="392"/><line class="grid" x1="0" y1="96" x2="90" y2="96"/><rect class="link" x="13" y="95" width="64" height="27"/><rect class="link" x="24" y="122" width="42" height="101"/><rect class="link" x="10" y="223" width="70" height="28"/><rect class="link" x="1" y="251" width="31" height="140"/><rect class="link" x="58" y="251" width="31" height="140"/><circle class="joint" cx="45" cy="44" r="28"/><circle class="joint" cx="45" cy="108" r="13"/><circle class="joint" cx="45" cy="237" r="19"/><circle class="joint" cx="16" cy="391" r="16"/><circle class="joint" cx="74" cy="391" r="16"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="392"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="33" y="105" width="26" height="59"/><rect class="link" x="27" y="164" width="44" height="61"/><rect class="link" x="31" y="225" width="36" height="166"/><circle class="joint" cx="46" cy="44" r="28"/><circle class="joint" cx="46" cy="105" r="13"/><circle class="joint" cx="52" cy="164" r="13"/><circle class="joint" cx="60" cy="225" r="19"/><circle class="joint" cx="48" cy="391" r="16"/></g>
   </g>
 
-  <!-- Female with trapezoid upper legs -->
-  <g transform="translate(1004 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">사다리꼴 여성체</text>
-    <text class="subtitle" x="113" y="47">고관절에서 무릎까지 점진 축소</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="12.5" y="100" width="35" height="200" rx="17.5" fill="#8D547F"/>
-      <rect class="outline" x="122.5" y="100" width="35" height="200" rx="17.5" fill="#8D547F"/>
-      <rect class="outline" x="27.5" y="327" width="45" height="173" rx="22.5" fill="#C18AB6"/>
-      <rect class="outline" x="97.5" y="327" width="45" height="173" rx="22.5" fill="#8D547F"/>
-      <path class="outline" d="M20 250H84L72.5 350H27.5L20 250Z" fill="#D29BC8"/>
-      <path class="outline" d="M86 250H150L142.5 350H97.5L86 250Z" fill="#A9699A"/>
-      <rect class="outline" x="20" y="218" width="64" height="64" rx="32" fill="#DDAED4"/>
-      <rect class="outline" x="86" y="218" width="64" height="64" rx="32" fill="#B979AA"/>
-      <rect class="outline" x="27.5" y="327" width="45" height="45" rx="22.5" fill="#C18AB6"/>
-      <rect class="outline" x="97.5" y="327" width="45" height="45" rx="22.5" fill="#8D547F"/>
-      <path class="outline" d="M30 100H140L115 200H55L30 100Z" fill="#C98EBE"/>
-      <path class="outline" d="M55 200H115L150 250H20L55 200Z" fill="#B979AA"/>
-      <rect class="outline" x="35" y="0" width="100" height="100" rx="50" fill="#E3BBDD"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 110 · 허리 60 · 고관절간 66</text>
-    <text class="metric" x="113" y="504">고관절 64 · 간격 2 → 무릎/다리 45</text>
-    <text class="subtitle" x="113" y="530">별도 여성체 프리셋</text>
+  <!-- Trapezoid female -->
+  <g transform="translate(972 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">사다리꼴 여성체</text><text class="note" x="116" y="42">골반 38.4 → 무릎·발목 27</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="392"/><line class="grid" x1="0" y1="96" x2="90" y2="96"/><rect class="link" x="13" y="95" width="64" height="28"/><rect class="link" x="24" y="123" width="42" height="100"/><rect class="link" x="6" y="223" width="78" height="28"/><rect class="link" x="2" y="251" width="33" height="140"/><rect class="link" x="55" y="251" width="33" height="140"/><circle class="joint" cx="45" cy="44" r="28"/><circle class="joint" cx="45" cy="109" r="14"/><circle class="joint" cx="45" cy="237" r="25"/><circle class="joint" cx="18" cy="391" r="18"/><circle class="joint" cx="72" cy="391" r="18"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="392"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="32" y="105" width="28" height="59"/><rect class="link" x="25" y="164" width="54" height="61"/><rect class="link" x="30" y="225" width="46" height="166"/><circle class="joint" cx="46" cy="44" r="28"/><circle class="joint" cx="46" cy="105" r="14"/><circle class="joint" cx="52" cy="164" r="14"/><circle class="joint" cx="64" cy="225" r="25"/><circle class="joint" cx="48" cy="391" r="18"/></g>
   </g>
 
-  <!-- Neutral straight proposal -->
-  <g transform="translate(1250 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">직선형 기본체</text>
-    <text class="subtitle" x="113" y="47">사다리꼴 어깨 · 직선형 몸통</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="35" y="225" width="50" height="275" rx="25" fill="#9499A1"/>
-      <rect class="outline" x="85" y="225" width="50" height="275" rx="25" fill="#666B73"/>
-      <path class="outline" d="M25 100H145L135 140H35L25 100Z" fill="#92969D"/>
-      <rect class="outline" x="35" y="140" width="100" height="60" fill="#858A92"/>
-      <rect class="outline" x="35" y="200" width="100" height="50" fill="#747982"/>
-      <rect class="outline" x="35" y="0" width="100" height="100" rx="50" fill="#B0B4BA"/>
-      <rect class="outline" x="0" y="100" width="35" height="200" rx="17.5" fill="#666B73"/>
-      <rect class="outline" x="135" y="100" width="35" height="200" rx="17.5" fill="#666B73"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 중심/가슴/골반 100</text>
-    <text class="metric" x="113" y="504">고관절 50 · 팔 35 · 다리 50</text>
-    <text class="subtitle" x="113" y="530">기본 픽토그램형 · 몸통 굴곡 없음</text>
+  <!-- Straight neutral -->
+  <g transform="translate(1212 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">직선형 기본체</text><text class="note" x="116" y="42">골반·무릎·발목 30 · Z 0</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="392"/><line class="grid" x1="0" y1="96" x2="90" y2="96"/><rect class="link" x="0" y="95" width="90" height="35"/><rect class="link" x="0" y="130" width="90" height="93"/><rect class="link" x="0" y="223" width="90" height="28"/><rect class="link" x="0" y="251" width="40" height="140"/><rect class="link" x="50" y="251" width="40" height="140"/><circle class="joint" cx="45" cy="44" r="28"/><circle class="joint" cx="45" cy="112" r="30"/><circle class="joint" cx="45" cy="237" r="30"/><circle class="joint" cx="20" cy="391" r="30"/><circle class="joint" cx="70" cy="391" r="30"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="392"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="16" y="105" width="60" height="59"/><rect class="link" x="16" y="164" width="60" height="61"/><rect class="link" x="16" y="225" width="60" height="166"/><circle class="joint" cx="46" cy="44" r="28"/><circle class="joint" cx="46" cy="105" r="30"/><circle class="joint" cx="46" cy="164" r="30"/><circle class="joint" cx="46" cy="225" r="30"/><circle class="joint" cx="46" cy="391" r="30"/></g>
   </g>
 
-  <!-- Gender-neutral child, four-head proportion -->
-  <g transform="translate(1496 78)">
-    <rect class="card" width="226" height="550" rx="16"/>
-    <text class="title" x="113" y="29">아동체</text>
-    <text class="subtitle" x="113" y="47">성별 구분 없음 · 4등신</text>
-    <line class="center" x1="113" y1="62" x2="113" y2="422"/>
-    <g transform="translate(45 65) scale(.8)">
-      <line class="guide" x1="0" y1="100" x2="170" y2="100"/>
-      <line class="guide" x1="0" y1="200" x2="170" y2="200"/>
-      <line class="guide" x1="0" y1="300" x2="170" y2="300"/>
-      <line class="guide" x1="0" y1="400" x2="170" y2="400"/>
-      <rect class="outline" x="25" y="200" width="30" height="145" rx="15" fill="#398A83"/>
-      <rect class="outline" x="115" y="200" width="30" height="145" rx="15" fill="#398A83"/>
-      <rect class="outline" x="45" y="315" width="40" height="185" rx="20" fill="#75B8B0"/>
-      <rect class="outline" x="85" y="315" width="40" height="185" rx="20" fill="#398A83"/>
-      <path class="outline" d="M40 200H130L120 285H50L40 200Z" fill="#69ACA4"/>
-      <path class="outline" d="M50 285H120L125 335H45L50 285Z" fill="#559D95"/>
-      <rect class="outline" x="35" y="100" width="100" height="100" rx="50" fill="#9ACDC7"/>
-    </g>
-    <text class="metric" x="113" y="486">어깨 90 · 허리 70 · 고관절 40</text>
-    <text class="metric" x="113" y="504">팔 30 · 다리 40 · 상체 115 : 하체 185</text>
-    <text class="subtitle" x="113" y="530">남녀 공용 아동 프리셋</text>
+  <!-- Child -->
+  <g transform="translate(1452 78)"><rect class="card" width="232" height="540" rx="14"/><text class="title" x="116" y="25">아동체</text><text class="note" x="116" y="42">골반 24 → 무릎·발목 21</text><text class="label" x="58" y="65">정면</text><text class="label" x="174" y="65">측면</text>
+    <g transform="translate(13 78)"><line class="axis" x1="45" y1="0" x2="45" y2="345"/><line class="grid" x1="0" y1="112" x2="90" y2="112"/><rect class="link" x="12" y="112" width="66" height="24"/><rect class="link" x="22" y="136" width="46" height="52"/><rect class="link" x="16" y="188" width="58" height="32"/><rect class="link" x="7" y="220" width="27" height="125"/><rect class="link" x="56" y="220" width="27" height="125"/><circle class="joint" cx="45" cy="52" r="36"/><circle class="joint" cx="45" cy="124" r="12"/><circle class="joint" cx="45" cy="204" r="16"/><circle class="joint" cx="20" cy="345" r="14"/><circle class="joint" cx="70" cy="345" r="14"/></g>
+    <g transform="translate(126 78)"><line class="axis" x1="46" y1="0" x2="46" y2="345"/><text class="tiny" x="5" y="12">앞</text><text class="tiny" x="70" y="12">뒤</text><rect class="link" x="34" y="120" width="24" height="60"/><rect class="link" x="32" y="180" width="33" height="40"/><rect class="link" x="33" y="220" width="28" height="125"/><circle class="joint" cx="46" cy="52" r="36"/><circle class="joint" cx="46" cy="120" r="12"/><circle class="joint" cx="48" cy="180" r="12"/><circle class="joint" cx="54" cy="220" r="16"/><circle class="joint" cx="47" cy="345" r="14"/></g>
   </g>
-
-  <text x="871" y="648" fill="#827B71" font-family="Arial, 'Noto Sans KR', sans-serif" font-size="10" text-anchor="middle">여성체·직선형 기본체·아동체는 제안값이며, 구현 전 세부 폭과 관절 간격을 최종 확정합니다.</text>
+  <text class="note" x="856" y="640">정면과 측면은 같은 관절 반지름을 축소하여 표시한다. 다리의 측면은 고관절(뒤) → 무릎(앞) → 발목(중립) 깊이 배치를 보여 준다.</text>
 </svg>

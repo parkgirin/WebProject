@@ -9,6 +9,7 @@ export function createDefaultRig(): Rig {
   if (!preset) throw new Error(`Missing default avatar preset: ${DEFAULT_AVATAR_PRESET_ID}`);
   const shoulderOffset = preset.shoulderDistance / 2;
   const hipOffset = preset.hipDistance / 2;
+  const depth = preset.depthProfile;
   const rig: Rig = {
     defaultColor: "#dca27b",
     elementLayers: { joints: true, axes: true, faces: true, shapes: true },
@@ -28,10 +29,10 @@ export function createDefaultRig(): Rig {
     ],
     joints: [
       { id: "scene-root", groupId: "torso", x: 300, y: preset.rootY, z: 0, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: false, bodyVisible: false },
-      { id: "pelvis-pivot", groupId: "torso", parentJointId: "scene-root", x: 0, y: 60, z: 0, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: true, bodyVisible: false },
-      { id: "waist", groupId: "torso", parentJointId: "pelvis-pivot", x: 0, y: -60, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: Math.max(0, (preset.waistRadius - preset.armRadius) * 2) }, axes: [{ id: "upper-torso", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: true },
-      { id: "chest", groupId: "torso", parentJointId: "waist", x: 0, y: -preset.chestDistance, z: 0, localRotation: 0, radius: 18, axes: [{ id: "neck", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: false },
-      { id: "head", groupId: "head", parentJointId: "chest", x: 0, y: -preset.headDistance, z: 0, localRotation: 0, radius: 18, axes: [], renderOrder: 30, guideVisible: true, bodyVisible: false },
+      { id: "pelvis-pivot", groupId: "torso", parentJointId: "scene-root", x: 0, y: 60, z: depth.pelvis, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: true, bodyVisible: false },
+      { id: "waist", groupId: "torso", parentJointId: "pelvis-pivot", x: 0, y: -60, z: depth.waist, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: Math.max(0, (preset.waistRadius - preset.armRadius) * 2) }, axes: [{ id: "upper-torso", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: true },
+      { id: "chest", groupId: "torso", parentJointId: "waist", x: 0, y: -preset.chestDistance, z: depth.chest, localRotation: 0, radius: 18, axes: [{ id: "neck", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: false },
+      { id: "head", groupId: "head", parentJointId: "chest", x: 0, y: -preset.headDistance, z: depth.chest, localRotation: 0, radius: 18, axes: [], renderOrder: 30, guideVisible: true, bodyVisible: false },
       { id: "left-shoulder", groupId: "left-arm", parentJointId: "chest", x: -shoulderOffset, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: preset.armRadius }, capsuleFlatAlignment: "peer-outward", axes: [{ id: "upper-arm", angle: 90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 18, guideVisible: true, bodyVisible: true },
       { id: "right-shoulder", groupId: "right-arm", parentJointId: "chest", x: shoulderOffset, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: preset.armRadius }, capsuleFlatAlignment: "peer-outward", axes: [{ id: "upper-arm", angle: -90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 22, guideVisible: true, bodyVisible: true },
       { id: "left-elbow", groupId: "left-arm", parentJointId: "left-shoulder", parentAnchor: { type: "capsule-end", role: "outer" }, x: -preset.armSegmentLength, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, axes: [{ id: "lower-arm", angle: 90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 18, guideVisible: true, bodyVisible: true },
