@@ -828,7 +828,11 @@ input[type="range"] { width: 100%; accent-color: #2d8ca2; }
 
   /* One mobile panel at a time: the toolbar tabs replace its content and the
      active tab can be pressed again to close the sheet. */
-  .workspace.is-mobile-panel-open .editor-column { position: relative; grid-template-rows: minmax(0, 1fr); }
+  .workspace.is-mobile-panel-open .editor-column {
+    position: relative;
+    grid-template-rows: minmax(0, 1fr);
+    padding-bottom: min(42dvh, 320px);
+  }
   .workspace.is-mobile-panel-open .canvas-actions,
   .workspace.is-mobile-panel-open .inspector-shell,
   .workspace.is-mobile-panel-open .world-transform-panel,
@@ -863,7 +867,7 @@ input[type="range"] { width: 100%; accent-color: #2d8ca2; }
   }
   .workspace.mobile-panel-settings .canvas-actions,
   .workspace.mobile-panel-world .world-transform-panel {
-    position: absolute;
+    position: fixed;
     z-index: 31;
     top: auto;
     right: 0;
@@ -908,6 +912,109 @@ input[type="range"] { width: 100%; accent-color: #2d8ca2; }
   .workspace.mobile-panel-timeline .interpolation-header { margin-top: 42px; }
 }
 
+@media (orientation: portrait) and (max-width: 820px) {
+  .canvas-panel { grid-template-rows: minmax(0, 1fr); }
+  .canvas-toolbar { display: contents; }
+  .mobile-workspace-actions { display: none; }
+  .mobile-panel-index { display: grid; }
+
+  .mobile-toolbox-index {
+    top: var(--portrait-toolbox-tab-top, 50%);
+    left: var(--portrait-toolbox-tab-left, 66px);
+    width: 24px;
+    height: 60px;
+    border-radius: 0 10px 10px 0;
+    transform: none;
+  }
+  .workspace:not(.is-toolbox-hidden) .mobile-toolbox-index {
+    left: var(--portrait-toolbox-tab-left, 66px);
+  }
+  .workspace.is-toolbox-hidden .mobile-toolbox-index {
+    top: var(--portrait-toolbox-tab-top, 50%);
+    left: 0;
+    display: grid;
+    transform: none;
+  }
+
+  .mobile-panel-index {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: 50%;
+    width: 60px;
+    height: 24px;
+    border-radius: 10px 10px 0 0;
+    transform: translateX(-50%);
+  }
+
+  .toolbox {
+    top: 0;
+    width: 66px;
+    max-height: 100%;
+    overflow: visible;
+  }
+  .toolbox:has(.toolbox-section[open]) { width: 126px; height: var(--compact-toolbox-height); }
+  .toolbox-content {
+    position: relative;
+    width: 54px;
+    max-height: calc(100dvh - var(--app-header-height) - 12px);
+    align-items: stretch;
+    overflow: visible;
+  }
+  .toolbox-content > .toolbox-button { align-self: start; }
+  .toolbox-section,
+  .toolbox-section[open] { width: 54px; display: block !important; }
+  .toolbox-section-content {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: 60px;
+    width: 54px;
+    padding-bottom: 4px;
+    display: none;
+    justify-items: center;
+    align-content: start;
+    gap: 3px;
+    overflow: visible;
+    border-left: 1px solid #e1ddd5;
+    background: rgba(255,253,249,.98);
+  }
+  .toolbox-section[open] .toolbox-section-content { display: grid; }
+  .toolbox-section .toolbox-button { width: 54px; min-width: 54px; }
+  .toolbox-section .toolbox-color-control { width: 54px; }
+
+  .workspace.is-timeline-collapsed .editor-column { grid-template-rows: minmax(0, 1fr); }
+  .workspace.is-timeline-collapsed .interpolation-panel { display: none; }
+  .workspace.mobile-panel-timeline .interpolation-panel { display: grid !important; }
+
+  .workspace.is-mobile-panel-open .editor-column {
+    padding-bottom: calc(min(42dvh, 320px) + 66px);
+  }
+  .workspace.is-mobile-panel-open .mobile-panel-tabs {
+    bottom: min(42dvh, 320px);
+    border-width: 1px 0 0;
+    border-radius: 14px 14px 0 0;
+  }
+  .workspace.is-mobile-panel-open .mobile-panel-index {
+    top: auto;
+    right: auto;
+    bottom: calc(min(42dvh, 320px) + 42px);
+    left: 50%;
+    display: grid;
+    transform: translateX(-50%);
+  }
+  .workspace .mobile-history-actions,
+  .workspace:not(.is-inspector-collapsed) .mobile-history-actions,
+  .workspace.is-world-panel-open .mobile-history-actions {
+    right: 12px;
+    left: auto;
+  }
+  .workspace.mobile-panel-inspector .inspector-shell,
+  .workspace.mobile-panel-settings .canvas-actions,
+  .workspace.mobile-panel-world .world-transform-panel { padding-top: 10px; }
+  .workspace.mobile-panel-timeline .interpolation-header { margin-top: 0; }
+}
+
 @media (max-width: 420px) {
   :root { --timeline-panel-height: 218px; }
   .workspace:not(.is-timeline-collapsed) .interpolation-header { height: 122px; }
@@ -947,7 +1054,7 @@ input[type="range"] { width: 100%; accent-color: #2d8ca2; }
   .workspace.is-toolbox-hidden .mobile-toolbox-index { display: grid; }
 
   .toolbox { top: 0; width: 66px; max-height: calc(100dvh - var(--app-header-height) - 76px); padding: 6px 5px; overflow: visible; }
-  .toolbox:has(.toolbox-section[open]) { width: 126px; height: var(--landscape-toolbox-height); }
+  .toolbox:has(.toolbox-section[open]) { width: 126px; height: var(--compact-toolbox-height); }
   .toolbox-content { position: relative; width: 54px; max-height: calc(100dvh - var(--app-header-height) - 92px); align-items: stretch; gap: 7px; overflow: visible; overscroll-behavior: contain; }
   .toolbox-title { padding-left: 3px; }
   .toolbox-content > .toolbox-button { align-self: start; }
@@ -1060,6 +1167,7 @@ input[type="range"] { width: 100%; accent-color: #2d8ca2; }
     position: relative;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+    padding-bottom: 0;
     padding-right: var(--landscape-side-panel-width);
   }
   .workspace.is-mobile-panel-open,

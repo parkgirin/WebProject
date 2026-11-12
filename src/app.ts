@@ -457,43 +457,52 @@ export function createApp(container: HTMLDivElement): void {
   const toolbox = requireElement<HTMLElement>(container, ".toolbox");
   const toolboxContent = requireElement<HTMLElement>(container, ".toolbox-content");
   const toolboxSections = [...container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")];
-  const landscapeToolboxQuery = window.matchMedia?.("(orientation: landscape) and (max-height: 560px) and (max-width: 820px)");
+  const compactToolboxQuery = window.matchMedia?.("(max-width: 820px)");
   const portraitToolboxQuery = window.matchMedia?.("(orientation: portrait) and (max-width: 820px)");
-  const getToolboxToggleGlyph = (hidden: boolean) => portraitToolboxQuery?.matches
-    ? (hidden ? "⌄" : "⌃")
-    : (hidden ? "›" : "‹");
+  const getToolboxToggleGlyph = (hidden: boolean) => hidden ? "›" : "‹";
+  const getMobilePanelToggleGlyph = (open: boolean) => portraitToolboxQuery?.matches
+    ? (open ? "⌄" : "⌃")
+    : (open ? "›" : "‹");
   const syncPortraitToolboxTab = () => {
-    if (!portraitToolboxQuery?.matches || workspace.classList.contains("is-toolbox-hidden")) {
+    if (!portraitToolboxQuery?.matches) {
       workspace.style.removeProperty("--portrait-toolbox-tab-top");
+      workspace.style.removeProperty("--portrait-toolbox-tab-left");
       return;
     }
-    workspace.style.setProperty("--portrait-toolbox-tab-top", `${toolbox.offsetTop + toolbox.offsetHeight}px`);
+    const tabTop = `${toolbox.offsetTop + Math.max(0, (toolbox.offsetHeight - 60) / 2)}px`;
+    workspace.style.setProperty("--portrait-toolbox-tab-top", tabTop);
+    if (workspace.classList.contains("is-toolbox-hidden")) {
+      workspace.style.removeProperty("--portrait-toolbox-tab-left");
+      return;
+    }
+    workspace.style.setProperty("--portrait-toolbox-tab-left", `${toolbox.offsetLeft + toolbox.offsetWidth}px`);
   };
-  const syncLandscapeToolboxHeight = () => {
-    if (!landscapeToolboxQuery?.matches) {
-      toolbox.style.removeProperty("--landscape-toolbox-height");
+  const syncCompactToolboxHeight = () => {
+    if (!compactToolboxQuery?.matches) {
+      toolbox.style.removeProperty("--compact-toolbox-height");
       return;
     }
     const activeContent = toolboxSections.find((section) => section.open)?.querySelector<HTMLElement>(".toolbox-section-content");
     if (!activeContent) {
-      toolbox.style.removeProperty("--landscape-toolbox-height");
+      toolbox.style.removeProperty("--compact-toolbox-height");
       return;
     }
     const height = Math.max(toolboxContent.scrollHeight, activeContent.scrollHeight) + 12;
-    toolbox.style.setProperty("--landscape-toolbox-height", `${height}px`);
+    toolbox.style.setProperty("--compact-toolbox-height", `${height}px`);
   };
   for (const section of toolboxSections) {
     section.addEventListener("toggle", () => {
-      if (landscapeToolboxQuery?.matches && section.open) {
+      if (compactToolboxQuery?.matches && section.open) {
         for (const other of toolboxSections) if (other !== section) other.open = false;
-        window.requestAnimationFrame(syncLandscapeToolboxHeight);
+        window.requestAnimationFrame(syncCompactToolboxHeight);
       }
       window.requestAnimationFrame(syncPortraitToolboxTab);
     });
   }
-  landscapeToolboxQuery?.addEventListener("change", () => window.requestAnimationFrame(syncLandscapeToolboxHeight));
+  compactToolboxQuery?.addEventListener("change", () => window.requestAnimationFrame(syncCompactToolboxHeight));
   portraitToolboxQuery?.addEventListener("change", () => {
     mobileToolboxButton.textContent = getToolboxToggleGlyph(workspace.classList.contains("is-toolbox-hidden"));
+    mobilePanelToggleButton.textContent = getMobilePanelToggleGlyph(workspace.classList.contains("is-mobile-panel-open"));
     window.requestAnimationFrame(syncPortraitToolboxTab);
   });
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncPortraitToolboxTab).observe(toolbox);
@@ -1131,7 +1140,9 @@ export function createApp(container: HTMLDivElement): void {
     mobileInspectorButton.setAttribute("aria-expanded", String(!workspace.classList.contains("is-inspector-collapsed")));
   };
   type MobilePanelId = "settings" | "inspector" | "world" | "timeline";
-  const mobilePanelQuery = window.matchMedia?.("(orientation: landscape) and (max-height: 560px) and (max-width: 820px)");
+  const mobilePanelQuery = window.matchMedia?.(
+    "(orientation: portrait) and (max-width: 820px), (orientation: landscape) and (max-height: 560px) and (max-width: 820px)",
+  );
   const mobilePanelButtons: Record<MobilePanelId, HTMLButtonElement> = {
     settings: mobileSettingsButton, inspector: mobileInspectorButton,
     world: mobileWorldButton, timeline: mobileTimelineButton,
@@ -1157,7 +1168,7 @@ export function createApp(container: HTMLDivElement): void {
     mobilePanelToggleButton.setAttribute("aria-expanded", String(panel !== null));
     mobilePanelToggleButton.setAttribute("aria-label", panel ? "작업 패널 접기" : "작업 패널 펼치기");
     mobilePanelToggleButton.title = panel ? "작업 패널 접기" : "작업 패널 펼치기";
-    mobilePanelToggleButton.textContent = panel ? "›" : "‹";
+    mobilePanelToggleButton.textContent = getMobilePanelToggleGlyph(panel !== null);
     for (const [id, button] of Object.entries(mobilePanelButtons) as Array<[MobilePanelId, HTMLButtonElement]>) {
       button.setAttribute("aria-expanded", String(panel === id));
     }
@@ -1219,7 +1230,7 @@ export function createApp(container: HTMLDivElement): void {
     if (panel) setMobilePanel(panel);
   }));
   svg.addEventListener("pointerdown", () => {
-    if (setMobilePanel(null)) return;
+    if (mobilePanelQuery?.matches) return;
     workspace.classList.remove("is-mobile-settings-open");
     mobileSettingsButton.setAttribute("aria-expanded", "false");
   });
@@ -1236,7 +1247,7 @@ export function createApp(container: HTMLDivElement): void {
     mobilePanelToggleButton.setAttribute("aria-expanded", "false");
     mobilePanelToggleButton.setAttribute("aria-label", "작업 패널 펼치기");
     mobilePanelToggleButton.title = "작업 패널 펼치기";
-    mobilePanelToggleButton.textContent = "‹";
+    mobilePanelToggleButton.textContent = getMobilePanelToggleGlyph(false);
     for (const button of mobilePanelTabButtons) {
       button.classList.remove("is-active");
       button.setAttribute("aria-pressed", "false");
@@ -1266,7 +1277,7 @@ export function createApp(container: HTMLDivElement): void {
     delete workspace.dataset.mobilePanel;
     setWorldPanelVisible(false);
     mobilePanelToggleButton.setAttribute("aria-expanded", "false");
-    mobilePanelToggleButton.textContent = "‹";
+    mobilePanelToggleButton.textContent = getMobilePanelToggleGlyph(false);
     for (const button of mobilePanelTabButtons) {
       button.classList.remove("is-active");
       button.setAttribute("aria-pressed", "false");

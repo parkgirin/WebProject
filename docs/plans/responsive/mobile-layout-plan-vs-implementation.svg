@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980" role="img" aria-labelledby="title desc">
+  <title id="title">모바일 레이아웃 계획과 현재 구현 비교</title>
+  <desc id="desc">기존 반응형 계획의 하단 도구 막대와 바텀 시트 구조를 현재 구현된 세로 툴박스, 오른쪽 속성 패널, 가로 화면 도킹 패널과 비교한다.</desc>
+  <style>
+    text { font-family: "Pretendard", "Noto Sans KR", Arial, sans-serif; fill: #34312d; }
+    .page-title { font-size: 27px; font-weight: 800; }
+    .subtitle { font-size: 12px; fill: #736d65; }
+    .panel-title { font-size: 17px; font-weight: 800; }
+    .panel-subtitle { font-size: 11px; fill: #756f67; }
+    .label { font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    .small { font-size: 9px; fill: #5f5952; text-anchor: middle; dominant-baseline: middle; }
+    .note { font-size: 11px; fill: #5f5952; }
+    .note-strong { font-size: 11px; font-weight: 800; }
+    .device { fill: #fffdf9; stroke: #34312d; stroke-width: 2; }
+    .header { fill: #e9e4dd; stroke: #9a9288; }
+    .canvas { fill: #f5f2ed; stroke: #9c958c; }
+    .toolbar { fill: #fffdfa; stroke: #b7afa5; }
+    .toolbox { fill: #cce7ec; stroke: #438696; }
+    .inspector { fill: #e9dff2; stroke: #81649e; }
+    .timeline { fill: #dce9d7; stroke: #658460; }
+    .world { fill: #f7e5cf; stroke: #af7543; }
+    .history { fill: #fff; stroke: #777067; }
+    .control { fill: #fff; stroke: #b7afa5; }
+    .divider { stroke: #c7c0b6; stroke-dasharray: 4 4; }
+    .arrow { fill: none; stroke: #be7b35; stroke-width: 2; marker-end: url(#arrowhead); }
+    .badge-old { fill: #ece8e2; stroke: #9a9288; }
+    .badge-new { fill: #e1f0e4; stroke: #608866; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 Z" fill="#be7b35" />
+    </marker>
+  </defs>
+
+  <text class="page-title" x="48" y="45">모바일 레이아웃 · 계획 문서와 현재 구현 비교</text>
+  <text class="subtitle" x="48" y="70">계획 기준: responsive/RESPONSIVE_LAYOUT_PLAN.md · 구현 기준: 현재 app.ts와 styles.css의 820px/560px 반응형 분기</text>
+
+  <!-- Planned portrait mobile -->
+  <g transform="translate(48 122)">
+    <rect class="badge-old" x="0" y="-30" width="88" height="22" rx="11" />
+    <text class="small" x="44" y="-19">문서 계획</text>
+    <text class="panel-title" x="0" y="0">세로 모바일 · 계획안</text>
+    <text class="panel-subtitle" x="0" y="20">390 × 844 기준 · 캔버스 우선</text>
+
+    <g transform="translate(15 42)">
+      <rect class="device" width="330" height="714" rx="12" />
+      <rect class="header" width="330" height="45" rx="10" />
+      <text class="label" x="165" y="22">축약 헤더 · 문서명 + 필수 명령</text>
+
+      <rect class="canvas" x="0" y="45" width="330" height="485" />
+      <text class="label" x="165" y="245">캔버스 작업 영역</text>
+      <text class="small" x="165" y="264">속성 시트가 열리면 높이가 줄어듦</text>
+
+      <rect class="inspector" x="0" y="390" width="330" height="140" rx="12" />
+      <rect class="control" x="142" y="399" width="46" height="5" rx="3" />
+      <text class="label" x="165" y="430">속성 바텀 시트</text>
+      <rect class="control" x="12" y="450" width="98" height="30" rx="5" />
+      <rect class="control" x="116" y="450" width="98" height="30" rx="5" />
+      <rect class="control" x="220" y="450" width="98" height="30" rx="5" />
+      <text class="small" x="165" y="496">선택 요약과 탭을 상단에 고정</text>
+
+      <rect class="timeline" x="0" y="530" width="330" height="74" />
+      <text class="label" x="165" y="567">보간 타임라인</text>
+
+      <rect class="toolbox" x="0" y="604" width="330" height="110" rx="10" />
+      <text class="label" x="165" y="620">하단 도구 막대</text>
+      <rect class="control" x="15" y="638" width="64" height="56" rx="8" />
+      <rect class="control" x="94" y="638" width="64" height="56" rx="8" />
+      <rect class="control" x="173" y="638" width="64" height="56" rx="8" />
+      <rect class="control" x="252" y="638" width="64" height="56" rx="8" />
+      <text class="small" x="47" y="666">선택</text>
+      <text class="small" x="126" y="666">도형</text>
+      <text class="small" x="205" y="666">색상</text>
+      <text class="small" x="284" y="666">더보기</text>
+    </g>
+  </g>
+
+  <!-- Implemented portrait mobile -->
+  <g transform="translate(438 122)">
+    <rect class="badge-new" x="0" y="-30" width="88" height="22" rx="11" />
+    <text class="small" x="44" y="-19">현재 구현</text>
+    <text class="panel-title" x="0" y="0">세로 모바일 · 구현</text>
+    <text class="panel-subtitle" x="0" y="20">폭 820px 이하 · 패널은 서로 전환</text>
+
+    <g transform="translate(15 42)">
+      <rect class="device" width="330" height="714" rx="12" />
+      <rect class="header" width="330" height="41" rx="10" />
+      <text class="label" x="165" y="20">48px 축약 헤더 · 저장/내보내기</text>
+
+      <rect class="canvas" x="0" y="41" width="330" height="360" />
+      <text class="small" x="165" y="60">상단 컨트롤 행 없음</text>
+
+      <text class="label" x="182" y="280">캔버스 작업 영역</text>
+      <text class="small" x="182" y="301">하단 패널 높이만큼 실제 작업 영역 축소</text>
+
+      <rect class="toolbox" x="0" y="41" width="126" height="270" rx="10" />
+      <line class="divider" x1="66" y1="50" x2="66" y2="301" />
+      <rect class="control" x="10" y="55" width="50" height="40" rx="7" />
+      <text class="small" x="35" y="75">선택</text>
+      <rect class="control" x="10" y="106" width="50" height="27" rx="5" />
+      <rect class="control" x="10" y="141" width="50" height="27" rx="5" />
+      <rect class="control" x="10" y="176" width="50" height="27" rx="5" />
+      <text class="small" x="35" y="119">도형 ›</text>
+      <text class="small" x="35" y="154">색상 ›</text>
+      <text class="small" x="35" y="189">보기 ›</text>
+      <rect class="control" x="72" y="106" width="46" height="27" rx="5" />
+      <rect class="control" x="72" y="141" width="46" height="27" rx="5" />
+      <rect class="control" x="72" y="176" width="46" height="27" rx="5" />
+      <text class="small" x="95" y="119">다각형</text>
+      <text class="small" x="95" y="154">원</text>
+      <text class="small" x="95" y="189">구</text>
+      <rect class="control" x="126" y="146" width="24" height="60" rx="7" />
+      <text class="label" x="138" y="176">‹</text>
+      <text class="small" x="138" y="218">숨김: 같은 높이의 왼쪽 ›</text>
+      <text class="small" x="265" y="389">닫힘: 하단 중앙 ⌃ 탭</text>
+
+      <rect class="history" x="220" y="329" width="98" height="48" rx="24" />
+      <text class="label" x="245" y="353">↶</text>
+      <text class="label" x="293" y="353">↷</text>
+
+      <!-- shared bottom panel: settings selected -->
+      <rect class="inspector" x="0" y="443" width="330" height="271" rx="12" />
+      <rect class="control" x="135" y="377" width="60" height="24" rx="8" />
+      <text class="label" x="165" y="389">⌄</text>
+      <rect class="control" x="8" y="401" width="75" height="42" rx="7" />
+      <rect class="control" x="88" y="401" width="75" height="42" rx="7" />
+      <rect class="control" x="168" y="401" width="75" height="42" rx="7" />
+      <rect class="control" x="248" y="401" width="74" height="42" rx="7" />
+      <text class="small" x="45" y="422">설정</text>
+      <text class="small" x="125" y="422">속성</text>
+      <text class="small" x="205" y="422">월드</text>
+      <text class="small" x="285" y="422">타임라인</text>
+      <text class="label" x="165" y="469">패널 위 공용 탭 · 설정 선택</text>
+      <rect class="control" x="14" y="486" width="302" height="38" rx="6" />
+      <rect class="control" x="14" y="534" width="302" height="38" rx="6" />
+      <rect class="control" x="14" y="582" width="302" height="38" rx="6" />
+      <rect class="control" x="14" y="630" width="146" height="30" rx="6" />
+      <rect class="control" x="170" y="630" width="146" height="30" rx="6" />
+      <text class="small" x="165" y="505">체형 프리셋</text>
+      <text class="small" x="165" y="553">포즈 프리셋</text>
+      <text class="small" x="165" y="601">표시 설정</text>
+      <text class="small" x="87" y="645">원근</text>
+      <text class="small" x="243" y="645">출력 옵션</text>
+    </g>
+  </g>
+
+  <!-- Change arrow -->
+  <path class="arrow" d="M405 454 C420 454 426 454 438 454" />
+  <text class="note-strong" x="421" y="438" text-anchor="middle">변경</text>
+
+  <!-- Implemented landscape mobile -->
+  <g transform="translate(828 122)">
+    <rect class="badge-new" x="0" y="-30" width="88" height="22" rx="11" />
+    <text class="small" x="44" y="-19">추가 구현</text>
+    <text class="panel-title" x="0" y="0">가로 모바일 · 구현</text>
+    <text class="panel-subtitle" x="0" y="20">높이 560px 이하 · 우측 도킹 패널</text>
+
+    <g transform="translate(0 42)">
+      <rect class="device" width="620" height="330" rx="10" />
+      <rect class="header" width="620" height="37" rx="9" />
+      <text class="label" x="310" y="18">44px 축약 헤더</text>
+
+      <rect class="canvas" x="0" y="37" width="344" height="253" />
+      <rect class="toolbar" x="0" y="37" width="344" height="40" />
+      <text class="small" x="172" y="57">도구 · 설정 · 속성 · 월드 회전</text>
+      <rect class="toolbox" x="0" y="77" width="58" height="145" rx="9" />
+      <text class="label" transform="translate(29 150) rotate(-90)">세로 도구</text>
+      <text class="label" x="190" y="168">축소된 캔버스</text>
+
+      <rect class="timeline" x="0" y="290" width="344" height="40" rx="9" />
+      <text class="small" x="172" y="310">접힘 40px · 펼침 118px</text>
+
+      <rect class="inspector" x="344" y="37" width="276" height="293" rx="9" />
+      <text class="label" x="482" y="58">속성 패널 · 우측 도킹</text>
+      <text class="small" x="482" y="77">min(52vw, 336px)</text>
+      <rect class="control" x="358" y="92" width="248" height="42" rx="6" />
+      <rect class="control" x="358" y="142" width="248" height="42" rx="6" />
+      <rect class="control" x="358" y="192" width="248" height="42" rx="6" />
+      <text class="small" x="482" y="113">선택 상세</text>
+      <text class="small" x="482" y="163">레이어 상세</text>
+      <text class="small" x="482" y="213">색상 상세</text>
+      <text class="small" x="482" y="260">캔버스를 덮지 않고 폭을 나눔</text>
+    </g>
+
+    <g transform="translate(0 390)">
+      <text class="panel-subtitle" x="0" y="0">속성 대신 월드 회전을 선택한 상태</text>
+      <rect class="device" y="17" width="620" height="260" rx="10" />
+      <rect class="header" y="17" width="620" height="37" rx="9" />
+      <rect class="canvas" x="0" y="54" width="344" height="223" rx="9" />
+      <text class="label" x="172" y="158">캔버스</text>
+      <rect class="world" x="344" y="54" width="276" height="223" rx="9" />
+      <text class="label" x="482" y="74">월드 회전 · 동일한 도킹 폭</text>
+      <rect class="control" x="358" y="88" width="248" height="38" rx="6" />
+      <text class="small" x="482" y="107">축 안내 · 원근 적용</text>
+      <text class="small" x="372" y="144">원근</text>
+      <rect class="control" x="400" y="137" width="155" height="14" rx="7" />
+      <rect class="control" x="562" y="133" width="44" height="22" rx="4" />
+      <text class="small" x="372" y="174">X</text><rect class="control" x="390" y="167" width="160" height="14" rx="7" /><rect class="control" x="562" y="163" width="44" height="22" rx="4" />
+      <text class="small" x="372" y="204">Y</text><rect class="control" x="390" y="197" width="160" height="14" rx="7" /><rect class="control" x="562" y="193" width="44" height="22" rx="4" />
+      <text class="small" x="372" y="234">Z</text><rect class="control" x="390" y="227" width="160" height="14" rx="7" /><rect class="control" x="562" y="223" width="44" height="22" rx="4" />
+      <text class="small" x="482" y="260">상단 빠른 메뉴로 열고 닫음</text>
+    </g>
+  </g>
+
+  <!-- Summary -->
+  <g transform="translate(48 900)">
+    <text class="note-strong" x="0" y="0">핵심 차이</text>
+    <text class="note" x="92" y="0">① 하단 도구 막대 → 왼쪽 세로 툴박스</text>
+    <text class="note" x="360" y="0">② 설정·속성·월드·타임라인 → 공용 하단 패널</text>
+    <text class="note" x="685" y="0">③ 가로 화면은 속성/월드 패널을 우측에 도킹</text>
+    <text class="note" x="1055" y="0">④ 타임라인은 독립 접이식 하단 영역 유지</text>
+    <text class="subtitle" x="0" y="30">의도: 기존 PC와 같은 세로 도구 흐름을 유지하면서 캔버스를 우선하고, 가로 화면의 여유 폭은 작업 중 속성 편집에 사용한다.</text>
+  </g>
+</svg>
