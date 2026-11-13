@@ -24,7 +24,7 @@ import { enablePointerInput } from "./editor/pointer-input.ts";
 import { createInspector, renderInspector } from "./editor/inspector.ts";
 import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image.ts";
 import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
-import { applyRigPreset, createRigPreset, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
+import { applyRigPreset, createRigPreset, isHumanRig, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
 import {
   createWorkspaceCache,
@@ -73,6 +73,8 @@ export function createApp(container: HTMLDivElement): void {
     lineDraft: [],
     selectedTarget: "joint",
     inspectorTab: "selection",
+    poseNavigatorMode: "current",
+    poseNavigatorYRotation: 0,
     editBodyProportions: false,
     moveSelectedIndividually: false,
     activeTool: "select",
@@ -534,6 +536,24 @@ export function createApp(container: HTMLDivElement): void {
     const match = /^user-body-(\d+)$/.exec(preset.id);
     return Math.max(max, match ? Number(match[1]) : 0);
   }, 0);
+  const prepareRigReplacement = (rig: Rig) => {
+    posePlaybackActive = false;
+    if (posePlaybackRequestId !== null) window.cancelAnimationFrame(posePlaybackRequestId);
+    posePlaybackRequestId = null;
+    posePlaybackTimestamp = null;
+    posePlaybackFrameRemainder = 0;
+    poseClip = { ...poseClip, keys: [] };
+    poseFrame = 0;
+    selectedPoseKeyId = null;
+    interpolationPreviewActive = false;
+    const firstJoint = rig.joints.find((joint) => !joint.isVirtual) ?? rig.joints[0];
+    selection = { jointId: firstJoint?.id ?? null, axisId: null, jointIds: firstJoint ? [firstJoint.id] : [] };
+    viewState.selectedTarget = "joint";
+    viewState.selectedFaceId = rig.faces[0]?.id ?? "";
+    viewState.selectedShapeId = null;
+    viewState.selectedShapeIds = [];
+    viewState.selectedShapeVertexId = null;
+  };
   let workspaceCacheTimer: number | null = null;
   const persistWorkspaceCache = () => {
     const cache = createWorkspaceCache(state.rig, poseClip, Math.round(poseFrame), selectedPoseKeyId,
@@ -669,13 +689,22 @@ export function createApp(container: HTMLDivElement): void {
       : undefined;
     paintColorInput.value = activePalette?.color ?? viewState.paintColor;
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
+    const bodyPresetOption = (preset: UserBodyPreset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(
+      preset.rig ? `⚠ ${preset.name} · 인체 비호환` : preset.name,
+    )}</option>`;
     avatarPresetSelect.innerHTML = `${AVATAR_PROPORTION_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${FILE_BODY_PRESETS
-      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${bodyPresets
-      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
+      .map(bodyPresetOption).join("")}${bodyPresets.map(bodyPresetOption).join("")}`;
     avatarPresetSelect.value = [...AVATAR_PROPORTION_PRESETS, ...FILE_BODY_PRESETS, ...bodyPresets]
       .some((preset) => preset.id === selectedBodyPresetId)
       ? selectedBodyPresetId : DEFAULT_AVATAR_PRESET_ID;
+    const selectedStructuralBody = [...FILE_BODY_PRESETS, ...bodyPresets]
+      .find((preset) => preset.id === avatarPresetSelect.value)?.rig !== undefined;
+    avatarPresetSelect.classList.toggle("is-warning", selectedStructuralBody);
+    avatarPresetSelect.title = selectedStructuralBody
+      ? "주의: 전체 관절 구조를 교체하며 인체 포즈와 호환되지 않습니다."
+      : "";
+    avatarPresetStatus.classList.toggle("is-warning", selectedStructuralBody);
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === avatarPresetSelect.value);
     posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option><option value="${BUILTIN_LIMB_SPREAD_POSE_ID}">${BUILTIN_LIMB_SPREAD_POSE_NAME}</option>${FILE_POSE_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${posePresets
@@ -1342,12 +1371,21 @@ export function createApp(container: HTMLDivElement): void {
     const userPreset = [...FILE_BODY_PRESETS, ...bodyPresets]
       .find((candidate) => candidate.id === selectedBodyPresetId);
     if (builtIn) {
-      applyAvatarProportionPreset(state, builtIn.id);
+      if (isHumanRig(state.rig)) applyAvatarProportionPreset(state, builtIn.id);
+      else {
+        const replacement = new RigState(createDefaultRig());
+        applyAvatarProportionPreset(replacement, builtIn.id);
+        prepareRigReplacement(replacement.rig);
+        state.replaceRig(replacement.rig);
+      }
       avatarPresetStatus.textContent = `${builtIn.name} 적용됨`;
     } else if (userPreset) {
       try {
+        if (userPreset.rig) prepareRigReplacement(userPreset.rig);
         applyUserBodyPreset(state, userPreset);
-        avatarPresetStatus.textContent = `${userPreset.name} 적용됨`;
+        avatarPresetStatus.textContent = userPreset.rig
+          ? `⚠ ${userPreset.name} 적용됨 · 인체 포즈와 호환되지 않음`
+          : `${userPreset.name} 적용됨`;
       } catch (error) {
         avatarPresetStatus.textContent = error instanceof Error ? error.message : "체형 프리셋을 적용하지 못했습니다.";
       }
@@ -1356,7 +1394,12 @@ export function createApp(container: HTMLDivElement): void {
   avatarPresetSelect.addEventListener("change", () => {
     selectedBodyPresetId = avatarPresetSelect.value;
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === selectedBodyPresetId);
-    avatarPresetStatus.textContent = "";
+    const selectedPreset = [...FILE_BODY_PRESETS, ...bodyPresets]
+      .find((preset) => preset.id === selectedBodyPresetId);
+    avatarPresetStatus.classList.toggle("is-warning", selectedPreset?.rig !== undefined);
+    avatarPresetStatus.textContent = selectedPreset?.rig
+      ? "⚠ 전체 관절 구조를 교체하며 기존 인체 포즈와 호환되지 않습니다."
+      : "";
   });
   addAvatarPresetButton.addEventListener("click", () => {
     const name = window.prompt("새 체형 프리셋 이름", `체형 ${bodyPresets.length + 1}`)?.trim();
@@ -1365,6 +1408,7 @@ export function createApp(container: HTMLDivElement): void {
     while ([...FILE_BODY_PRESETS, ...bodyPresets].some((preset) => preset.id === id)) {
       id = `user-body-${++bodyPresetSequence}`;
     }
+    state.rebaseCurrentPoseAsBodyRest();
     const preset = createUserBodyPreset(id, name, state.rig);
     bodyPresets = [...bodyPresets, preset];
     selectedBodyPresetId = preset.id;
@@ -1402,6 +1446,10 @@ export function createApp(container: HTMLDivElement): void {
     const preset = [...FILE_POSE_PRESETS, ...posePresets]
       .find((candidate) => candidate.id === selectedPosePresetId);
     try {
+      if (!isHumanRig(state.rig)) {
+        posePresetStatus.textContent = "현재 비인체 관절 구조와 호환되는 포즈 프리셋이 아닙니다.";
+        return;
+      }
       interpolationPreviewActive = false;
       if (selectedPosePresetId === BUILTIN_T_POSE_ID) {
         applyTPose(state);

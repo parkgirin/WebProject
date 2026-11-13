@@ -94,6 +94,11 @@ export function createDefaultRig(): Rig {
       ...createLegFaces("right", 1),
     ],
   };
+  for (const joint of rig.joints) {
+    joint.baseZ = joint.z;
+    const parent = joint.parentJointId ? rig.joints.find((candidate) => candidate.id === joint.parentJointId) : null;
+    joint.baseOffset = { x: joint.x, y: joint.y, z: joint.z - (parent?.z ?? 0) };
+  }
   rig.bodyViewProfiles = createNeutralBodyViewProfiles(rig.joints);
   return rig;
 }

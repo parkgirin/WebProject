@@ -339,6 +339,50 @@ test("camera-plane rotation preserves 3D distance around the visible normal", ()
   assert.ok(Math.abs(state.getJoint("right-knee").z) > 1);
 });
 
+test("camera-plane connection rotation is stored on the joint's incoming parent connection", () => {
+  const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
+  const ankle = state.getJoint("right-ankle");
+  const kneeRotation = state.getJoint("right-knee").localRotation;
+
+  state.rotateJointsInCameraPlane(["right-ankle"], 35);
+
+  closeTo(ankle.localRotation, 35);
+  closeTo(state.getJoint("right-knee").localRotation, kneeRotation);
+  const kneeWorld = getJointWorldTransform(state.rig, "right-knee");
+  const ankleWorld = getJointWorldTransform(state.rig, "right-ankle");
+  closeTo(Math.atan2(ankleWorld.y - kneeWorld.y, ankleWorld.x - kneeWorld.x) * 180 / Math.PI, 125);
+});
+
+test("camera-plane connection rotation uses the joint local X axis from a side view", () => {
+  const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
+  state.setViewYRotation(90);
+  const ankle = state.getJoint("right-ankle");
+
+  state.rotateJointsInCameraPlane(["right-ankle"], 30);
+
+  closeTo(ankle.localRotationX ?? 0, 330);
+  closeTo(ankle.localRotationY ?? 0, 0);
+  closeTo(ankle.localRotation, 0);
+  assert.ok(Math.abs(ankle.z - state.getJoint("right-knee").z) > 1);
+});
+
+test("editing a joint local Z rotation rotates that joint around its parent", () => {
+  const state = new RigState(createDefaultRig());
+  const kneeBefore = getJointWorldTransform(state.rig, "right-knee");
+  const ankleBefore = getJointWorldTransform(state.rig, "right-ankle");
+  const length = Math.hypot(ankleBefore.x - kneeBefore.x, ankleBefore.y - kneeBefore.y);
+
+  state.setJointAxisRotation("right-ankle", "z", 45);
+
+  const kneeAfter = getJointWorldTransform(state.rig, "right-knee");
+  const ankleAfter = getJointWorldTransform(state.rig, "right-ankle");
+  closeTo(Math.hypot(ankleAfter.x - kneeAfter.x, ankleAfter.y - kneeAfter.y), length);
+  closeTo(Math.atan2(ankleAfter.y - kneeAfter.y, ankleAfter.x - kneeAfter.x) * 180 / Math.PI, 135);
+  closeTo(state.getJoint("right-ankle").localRotation, 45);
+});
+
 test("stock joints keep only axes that control their direct children", () => {
   const state = new RigState(createDefaultRig());
   const expected: Record<string, string[]> = {

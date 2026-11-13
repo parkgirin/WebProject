@@ -49,17 +49,13 @@ test("folder preset errors identify invalid files and duplicate ids", () => {
 });
 
 test("repository sample files are valid selectable presets", () => {
-  const bodyPath = new URL("../src/presets/data/body/sample-broad-upper-body.json", import.meta.url);
-  const posePath = new URL("../src/presets/data/pose/sample-relaxed-arms.json", import.meta.url);
+  const quadrupedPath = new URL("../src/presets/data/body/사족동물-기본체.json", import.meta.url);
   const verticalArmsPath = new URL("../src/presets/data/pose/팔-수직-내리기.json", import.meta.url);
-  const body = JSON.parse(readFileSync(bodyPath, "utf8"));
-  const pose = JSON.parse(readFileSync(posePath, "utf8"));
+  const quadruped = JSON.parse(readFileSync(quadrupedPath, "utf8"));
   const verticalArms = JSON.parse(readFileSync(verticalArmsPath, "utf8"));
 
-  assert.equal(parseBodyPresetModules({ "./data/body/sample-broad-upper-body.json": body })[0].name,
-    "sample broad upper body");
-  assert.equal(parsePosePresetModules({ "./data/pose/sample-relaxed-arms.json": pose })[0].name,
-    "sample relaxed arms");
+  assert.equal(parseBodyPresetModules({ "./data/body/사족동물-기본체.json": quadruped })[0].name,
+    "사족동물 기본체");
   assert.equal(parsePosePresetModules({ "./data/pose/팔-수직-내리기.json": verticalArms })[0].name,
     "팔 수직 내리기");
 });

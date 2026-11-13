@@ -19,6 +19,10 @@ export interface EditorViewState {
   lineDraft?: PolygonDraftPoint[];
   selectedTarget: "joint" | "face";
   inspectorTab: "selection" | "layers" | "color";
+  /** Joint-map coordinates use either the stored rest offsets or the current pose. */
+  poseNavigatorMode?: "rest" | "current";
+  /** Independent joint-map Y camera rotation, restricted by the UI to 30 degree steps. */
+  poseNavigatorYRotation?: number;
   editBodyProportions: boolean;
   /** Move one selected joint while keeping its direct children in place. */
   moveSelectedIndividually: boolean;

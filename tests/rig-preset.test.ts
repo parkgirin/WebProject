@@ -9,6 +9,8 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   const source = new RigState(createDefaultRig());
   source.moveJoint("head", 312, 132);
   source.setJointRadius("head", 31);
+  source.setJointAxisRotation("head", "x", 25);
+  source.setJointAxisRotation("head", "y", -35);
   source.setJointZ("head", 45);
   source.setJointSideRadius("head", 22);
   source.setProjectionStrength(70);
@@ -33,6 +35,8 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   assert.deepEqual(applied, ["비율", "포즈", "색상"]);
   assert.equal(target.getJoint("head").radius, 31);
   assert.equal(target.getJoint("head").z, 45);
+  assert.equal(target.getJoint("head").localRotationX, 25);
+  assert.equal(target.getJoint("head").localRotationY, 325);
   assert.equal(target.getJoint("head").sideRadius, 22);
   assert.equal(target.rig.projectionStrength, 70);
   assert.equal(target.rig.perspectiveEnabled, false);

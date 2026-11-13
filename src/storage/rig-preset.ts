@@ -8,8 +8,13 @@ const humanTemplate = createDefaultRig();
 const jointIds = humanTemplate.joints.map((joint) => joint.id);
 const axisIds = humanTemplate.joints.map((joint) => joint.axes.map((axis) => axis.id));
 
-export type CompactJointPose = [jointIndex: number, x: number, y: number, localRotation: number, z: number, axes: number[], distancePercent?: number];
-export type CompactJointProportions = [jointIndex: number, x: number, y: number, radius: number, sideRadius?: number];
+export type CompactJointPose = [
+  jointIndex: number, x: number, y: number, localRotation: number, z: number,
+  axes: number[], distancePercent?: number, localRotationX?: number, localRotationY?: number,
+];
+export type CompactJointProportions = [
+  jointIndex: number, x: number, y: number, radius: number, sideRadius?: number | null, restZ?: number,
+];
 
 export interface PresetParts {
   pose: boolean;
@@ -45,11 +50,15 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
     viewYRotation: rig.viewYRotation,
     joints: rig.joints.map((joint, index): CompactJointPose => [index, joint.x, joint.y, joint.localRotation, joint.z,
         axisIds[index].map((axisId) => joint.axes.find((axis) => axis.id === axisId)?.angle ?? 0),
-        joint.parentJointId && joint.baseDistance && joint.baseDistance > 0 ? Math.hypot(joint.x, joint.y) / joint.baseDistance * 100 : 100]),
+        joint.parentJointId && joint.baseDistance && joint.baseDistance > 0 ? Math.hypot(joint.x, joint.y) / joint.baseDistance * 100 : 100,
+        joint.localRotationX ?? 0, joint.localRotationY ?? 0]),
   };
   if (parts.proportions) preset.proportions = {
-    joints: rig.joints.map((joint, index): CompactJointProportions => joint.sideRadius === undefined
-      ? [index, joint.x, joint.y, joint.radius] : [index, joint.x, joint.y, joint.radius, joint.sideRadius]),
+    joints: rig.joints.map((joint, index): CompactJointProportions => {
+      const parent = joint.parentJointId ? rig.joints.find((candidate) => candidate.id === joint.parentJointId) : null;
+      const rest = joint.baseOffset ?? { x: joint.x, y: joint.y, z: joint.z - (parent?.z ?? 0) };
+      return [index, rest.x, rest.y, joint.radius, joint.sideRadius, rest.z];
+    }),
   };
   if (parts.colors) preset.colors = {
     defaultColor: rig.defaultColor,
@@ -103,7 +112,8 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
   try {
     if (parts.proportions && preset.proportions) {
       for (const [jointId, value] of proportionEntries(preset)) if (jointId) {
-        state.applyJointProportions(jointId, { x: value[1], y: value[2], radius: value[3], ...(value[4] === undefined ? {} : { sideRadius: value[4] }) });
+        state.applyJointProportions(jointId, { x: value[1], y: value[2], radius: value[3],
+          ...(typeof value[4] === "number" ? { sideRadius: value[4] } : {}) });
       }
       applied.push("비율");
     }
@@ -113,6 +123,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       if (isFiniteNumber(preset.pose.viewYRotation)) state.setViewYRotation(preset.pose.viewYRotation);
       for (const [jointId, value] of poseEntries(preset)) if (jointId) {
         state.applyJointPose(jointId, { x: value[1], y: value[2], localRotation: value[3], z: value[4], distancePercent: value[6],
+          localRotationX: value[7], localRotationY: value[8],
           axes: Object.fromEntries(axisIds[value[0]].map((axisId, index) => [axisId, value[5][index] ?? 0])) });
       }
       applied.push("포즈");
@@ -147,10 +158,14 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
 }
 
 function assertHumanRig(rig: Rig): void {
-  if (rig.joints.length !== jointIds.length || rig.joints.some((joint, index) => joint.id !== jointIds[index]
-    || (joint.parentJointId ?? null) !== (humanTemplate.joints[index].parentJointId ?? null))) {
+  if (!isHumanRig(rig)) {
     throw new Error("human-v1 인체 리그에서만 프리셋을 저장하거나 적용할 수 있습니다.");
   }
+}
+
+export function isHumanRig(rig: Rig): boolean {
+  return rig.joints.length === jointIds.length && !rig.joints.some((joint, index) => joint.id !== jointIds[index]
+    || (joint.parentJointId ?? null) !== (humanTemplate.joints[index].parentJointId ?? null));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -160,9 +175,14 @@ function isPose(value: unknown): boolean {
     && (value.projectionStrength === undefined || isFiniteNumber(value.projectionStrength))
     && (value.viewYRotation === undefined || isFiniteNumber(value.viewYRotation))
     && isCompactEntries(value.joints, 6, (entry) => entry.slice(0, 5).every(isFiniteNumber) && Array.isArray(entry[5])
-      && entry[5].every(isFiniteNumber) && (entry[6] === undefined || isFiniteNumber(entry[6])));
+      && entry[5].every(isFiniteNumber) && (entry[6] === undefined || isFiniteNumber(entry[6]))
+      && (entry[7] === undefined || isFiniteNumber(entry[7])) && (entry[8] === undefined || isFiniteNumber(entry[8])));
 }
-function isProportions(value: unknown): boolean { return isRecord(value) && isCompactEntries(value.joints, 4, (entry) => entry.every(isFiniteNumber)); }
+function isProportions(value: unknown): boolean {
+  return isRecord(value) && isCompactEntries(value.joints, 4, (entry) => entry.slice(0, 4).every(isFiniteNumber)
+    && (entry[4] === undefined || entry[4] === null || isFiniteNumber(entry[4]))
+    && (entry[5] === undefined || isFiniteNumber(entry[5])));
+}
 function isCompactEntries(value: unknown, minimumLength: number, valid: (entry: unknown[]) => boolean): boolean {
   if (!Array.isArray(value)) return false;
   const seen = new Set<number>();

@@ -84,11 +84,14 @@ export function getAvatarProportionPreset(id: string): AvatarProportionPreset | 
 export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPresetId): void {
   const preset = getAvatarProportionPreset(presetId);
   if (!preset) return;
+  const previousDepthProfile = inferCurrentAvatarPreset(state).depthProfile;
   state.beginHistoryTransaction();
   try {
+    state.rig.artShapes = (state.rig.artShapes ?? []).filter((shape) => !shape.id.startsWith("body-preset-"));
     setDistance(state, "pelvis-pivot", "scene-root", 60);
     setDistance(state, "waist", "pelvis-pivot", 60);
-    state.moveJoint("scene-root", 300, preset.rootY);
+    // rootY is an initial document placement, not a body dimension. Applying a
+    // body type to an authored pose must not move the character in the scene.
     setDistance(state, "chest", "waist", preset.chestDistance);
     setDistance(state, "head", "chest", preset.headDistance);
     state.setPeerGroupDistance("shoulder-band", preset.shoulderDistance);
@@ -120,7 +123,7 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
       state.setJointRadius(`${side}-knee`, preset.kneeRadius);
       state.setJointRadius(`${side}-ankle`, preset.ankleRadius);
     }
-    applyDepthProfile(state, preset);
+    applyDepthProfile(state, preset, previousDepthProfile);
     const head = state.getJoint("head");
     state.applyJointProportions("head", { x: head.x, y: head.y, radius: 18 });
   } finally {
@@ -128,7 +131,11 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
   }
 }
 
-function applyDepthProfile(state: RigState, preset: AvatarProportionPreset): void {
+function applyDepthProfile(
+  state: RigState,
+  preset: AvatarProportionPreset,
+  previous: AvatarProportionPreset["depthProfile"],
+): void {
   const depth = preset.depthProfile;
   const assignments: Array<[string, number]> = [
     ["scene-root", 0],
@@ -143,7 +150,38 @@ function applyDepthProfile(state: RigState, preset: AvatarProportionPreset): voi
     ["left-knee", depth.knee], ["right-knee", depth.knee],
     ["left-ankle", depth.ankle], ["right-ankle", depth.ankle],
   ];
-  for (const [jointId, z] of assignments) state.setJointZ(jointId, z);
+  for (const [jointId, z] of assignments) {
+    state.setJointBaseZ(jointId, z, depthForJoint(previous, jointId));
+  }
+}
+
+function depthForJoint(depth: AvatarProportionPreset["depthProfile"], jointId: string): number {
+  if (jointId === "scene-root") return 0;
+  if (jointId === "pelvis-pivot") return depth.pelvis;
+  if (jointId === "waist") return depth.waist;
+  if (jointId === "left-hip" || jointId === "right-hip") return depth.hip;
+  if (jointId === "left-knee" || jointId === "right-knee") return depth.knee;
+  if (jointId === "left-ankle" || jointId === "right-ankle") return depth.ankle;
+  return depth.chest;
+}
+
+/** Identify the legacy body baseline before baseZ became part of saved rigs. */
+function inferCurrentAvatarPreset(state: RigState): AvatarProportionPreset {
+  const value = (jointId: string) => state.getJoint(jointId).baseDistance
+    ?? Math.hypot(state.getJoint(jointId).x, state.getJoint(jointId).y);
+  const measurements = {
+    chest: value("chest"), head: value("head"), arm: value("left-elbow"),
+    upperLeg: value("left-knee"), lowerLeg: value("left-ankle"),
+    armRadius: state.getJoint("left-elbow").radius,
+    hipRadius: state.getJoint("left-hip").radius,
+  };
+  const score = (candidate: AvatarProportionPreset) => [
+    [measurements.chest, candidate.chestDistance], [measurements.head, candidate.headDistance],
+    [measurements.arm, candidate.armSegmentLength], [measurements.upperLeg, candidate.upperLegLength],
+    [measurements.lowerLeg, candidate.lowerLegLength], [measurements.armRadius, candidate.armRadius],
+    [measurements.hipRadius, candidate.hipRadius],
+  ].reduce((sum, [actual, expected]) => sum + Math.abs(actual - expected) / Math.max(1, expected), 0);
+  return AVATAR_PROPORTION_PRESETS.reduce((best, candidate) => score(candidate) < score(best) ? candidate : best);
 }
 
 function setDistance(state: RigState, movingId: string, anchorId: string, distance: number): void {

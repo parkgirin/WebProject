@@ -8,6 +8,7 @@ import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const close = (actual: number, expected: number) =>
   assert.ok(Math.abs(actual - expected) < 1e-7, `${actual} != ${expected}`);
+const DEFAULT_ROOT_Y = 320;
 const distance = (state: RigState, firstId: string, secondId: string) => {
   const first = getJointWorldTransform(state.rig, firstId);
   const second = getJointWorldTransform(state.rig, secondId);
@@ -44,7 +45,7 @@ test("all seven avatar presets apply their app dimensions to a valid rig", () =>
     close(state.getJoint("left-hip").z, preset.depthProfile.hip);
     close(state.getJoint("left-knee").z, preset.depthProfile.knee);
     close(state.getJoint("left-ankle").z, preset.depthProfile.ankle);
-    close(getJointWorldTransform(state.rig, "scene-root").y, preset.rootY);
+    close(getJointWorldTransform(state.rig, "scene-root").y, DEFAULT_ROOT_Y);
     close(distance(state, "waist", "chest"), preset.chestDistance);
     close(distance(state, "chest", "head"), preset.headDistance);
     close(Math.hypot(state.getJoint("left-elbow").x, state.getJoint("left-elbow").y), preset.armSegmentLength);
@@ -82,6 +83,37 @@ test("avatar preset preserves pose and colors and undoes as one operation", () =
 
   state.undo();
   assert.deepEqual(state.rig, before);
+});
+
+test("avatar preset replaces base depth while preserving authored 3D pose offsets and root placement", () => {
+  const state = new RigState(createDefaultRig());
+  state.moveJoint("scene-root", 340, 280);
+  state.setJointAxisRotation("left-knee", "x", 25);
+  state.setJointZ("left-knee", 24);
+  const rotation = state.getJoint("left-knee").localRotationX;
+
+  applyAvatarProportionPreset(state, "female");
+
+  close(state.getJoint("left-knee").baseZ!, 3);
+  close(state.getJoint("left-knee").z, 27);
+  close(state.getJoint("left-knee").localRotationX!, rotation!);
+  close(getJointWorldTransform(state.rig, "scene-root").x, 340);
+  close(getJointWorldTransform(state.rig, "scene-root").y, 280);
+
+  applyAvatarProportionPreset(state, "child-neutral");
+  close(state.getJoint("left-knee").baseZ!, 1);
+  close(state.getJoint("left-knee").z, 25);
+});
+
+test("legacy rigs infer their previous body depth before preserving a pose offset", () => {
+  const state = new RigState(createDefaultRig());
+  for (const joint of state.rig.joints) delete joint.baseZ;
+  state.setJointZ("right-knee", 18);
+
+  applyAvatarProportionPreset(state, "female");
+
+  close(state.getJoint("right-knee").baseZ!, 3);
+  close(state.getJoint("right-knee").z, 21);
 });
 
 test("trapezoid female keeps a larger hip joint than its knee", () => {
@@ -150,4 +182,22 @@ test("new rigs are constructed directly with the straight neutral preset", () =>
   close(distance(state, "waist", "chest"), preset.chestDistance);
   close(distance(state, "chest", "head"), preset.headDistance);
   assert.equal(state.canUndo, false);
+});
+
+test("applying a built-in avatar removes body-preset-only art shapes", () => {
+  const state = new RigState(createDefaultRig());
+  state.rig.artShapes!.push({
+    id: "body-preset-test-foot",
+    kind: "sphere",
+    vertices: [{ id: "center", source: "joint-center", jointId: "left-ankle", offsetX: 0, offsetY: 0 }],
+    radius: 32,
+    groupId: "left-leg",
+    layerOrder: 15,
+    compositeMode: "paint",
+  });
+
+  applyAvatarProportionPreset(state, "neutral-straight");
+
+  assert.equal(state.rig.artShapes?.some((shape) => shape.id.startsWith("body-preset-")), false);
+  assert.ok(state.rig.artShapes?.some((shape) => shape.id === "head-base"));
 });

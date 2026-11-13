@@ -50,8 +50,12 @@ export interface Joint {
   sideRadius?: number;
   /** Local Z coordinate. Positive values are closer to the viewer. */
   z: number;
+  /** Structural depth supplied by the active body type. The difference from z is pose-only. */
+  baseZ?: number;
   /** Structural parent-relative distance supplied by the active body type. */
   baseDistance?: number;
+  /** Parent-relative neutral vector captured when the body type is authored. */
+  baseOffset?: { x: number; y: number; z: number };
   /** Pose-only multiplier of baseDistance. 100 keeps the body type's length. */
   distancePercent?: number;
   /** Temporary preview output size; migrate to a joint-bound ArtShape. */

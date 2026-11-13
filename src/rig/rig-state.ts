@@ -315,6 +315,12 @@ export function validateRig(
     if (!Number.isFinite(joint.localRotation)) {
       errors.push(`Joint local rotation must be finite: ${joint.id}`);
     }
+    if (joint.localRotationX !== undefined && !Number.isFinite(joint.localRotationX)) {
+      errors.push(`Joint local X rotation must be finite: ${joint.id}`);
+    }
+    if (joint.localRotationY !== undefined && !Number.isFinite(joint.localRotationY)) {
+      errors.push(`Joint local Y rotation must be finite: ${joint.id}`);
+    }
     if (!Number.isFinite(joint.renderOrder)) {
       errors.push(`Joint render order must be finite: ${joint.id}`);
     }
@@ -611,6 +617,8 @@ export class RigState {
       if (!joint.parentJointId) continue;
       joint.baseDistance ??= Math.hypot(joint.x, joint.y);
       joint.distancePercent ??= 100;
+      const parent = rig.joints.find((candidate) => candidate.id === joint.parentJointId);
+      joint.baseOffset ??= { x: joint.x, y: joint.y, z: joint.z - (parent?.z ?? 0) };
     }
     const errors = validateRig(rig, limits);
     if (errors.length > 0) {
@@ -623,6 +631,19 @@ export class RigState {
 
   public get canUndo(): boolean { return this.undoStack.length > 0; }
   public get canRedo(): boolean { return this.redoStack.length > 0; }
+
+  /** Replace the complete joint hierarchy while retaining this observable state object. */
+  public replaceRig(nextRig: Rig): void {
+    const candidate = cloneRig(nextRig);
+    // Construction runs every migration and validates references before the
+    // active document is touched.
+    new RigState(candidate, this.limits);
+    this.beginHistoryTransaction();
+    const target = this.rig as unknown as Record<string, unknown>;
+    for (const key of Object.keys(target)) delete target[key];
+    Object.assign(target, cloneRig(candidate));
+    this.endHistoryTransaction();
+  }
 
   public beginHistoryTransaction(): void {
     if (!this.transactionStart) this.transactionStart = cloneRig(this.rig);
@@ -1340,16 +1361,11 @@ export class RigState {
     for (const jointId of [...new Set(jointIds)]) {
       const joint = this.getJoint(jointId);
       if (!joint.parentJointId) continue;
-      const parent = getJointParentWorldTransform(this.rig, joint.id);
-      if (!parent) continue;
-      const world = getJointWorldTransform(this.rig, joint.id);
-      const parentJoint = this.getJoint(joint.parentJointId);
-      const rotated = rotateVectorAroundAxis({ x: world.x - parent.x, y: world.y - parent.y, z: joint.z - parentJoint.z }, axis, angleDelta);
-      const previousZ = joint.z;
-      this.setJointWorldPosition(joint, parent.x + rotated.x, parent.y + rotated.y);
-      joint.z = Math.min(100, Math.max(-100, parentJoint.z + rotated.z));
-      this.translateDescendantDepths(joint.id, joint.z - previousZ);
-      this.alignDirectConnectionAxes(joint.id);
+      this.rotateJointSubtree3D(jointId, axis, angleDelta, {
+        x: (joint.localRotationX ?? 0) + axis.x * angleDelta,
+        y: (joint.localRotationY ?? 0) + axis.y * angleDelta,
+        z: joint.localRotation + axis.z * angleDelta,
+      });
     }
     this.notify();
   }
@@ -1649,41 +1665,97 @@ export class RigState {
     this.notify();
   }
 
+  /** Replace body-type depth while retaining the pose offset from the previous body type. */
+  public setJointBaseZ(jointId: string, z: number, legacyBaseZ = this.getJoint(jointId).z): void {
+    if (!Number.isFinite(z) || !Number.isFinite(legacyBaseZ)) return;
+    const joint = this.getJoint(jointId);
+    const poseOffset = joint.z - (joint.baseZ ?? legacyBaseZ);
+    joint.baseZ = z;
+    joint.z = Math.min(100, Math.max(-100, z + poseOffset));
+    this.notify();
+  }
+
+  /** Make the current visible shape the body's neutral pose without moving any joint. */
+  public rebaseCurrentPoseAsBodyRest(): void {
+    const snapshots = this.rig.joints.map((joint) => {
+      const world = getJointWorldTransform(this.rig, joint.id);
+      return { joint, x: world.x, y: world.y, z: joint.z };
+    });
+    for (const { joint } of snapshots) {
+      joint.localRotation = 0;
+      joint.localRotationX = 0;
+      joint.localRotationY = 0;
+    }
+    for (const entry of snapshots) {
+      this.setJointWorldPosition(entry.joint, entry.x, entry.y);
+      entry.joint.z = entry.z;
+      const parent = entry.joint.parentJointId ? this.getJoint(entry.joint.parentJointId) : null;
+      entry.joint.baseOffset = { x: entry.joint.x, y: entry.joint.y, z: entry.joint.z - (parent?.z ?? 0) };
+      entry.joint.baseDistance = Math.hypot(entry.joint.x, entry.joint.y);
+      entry.joint.distancePercent = 100;
+      entry.joint.baseZ = entry.joint.z;
+    }
+    for (const { joint } of snapshots) this.alignDirectConnectionAxes(joint.id);
+    this.notify();
+  }
+
   public setJointAxisRotation(jointId: string, axis: "x" | "y" | "z", angle: number): void {
     if (!Number.isFinite(angle)) return;
     const joint = this.getJoint(jointId);
     const normalized = normalizeAngle(angle);
-    if (axis === "z") {
-      joint.localRotation = normalized;
-      this.notify();
-      return;
-    }
-    const previous = axis === "x" ? joint.localRotationX ?? 0 : joint.localRotationY ?? 0;
+    const previous = axis === "x" ? joint.localRotationX ?? 0
+      : axis === "y" ? joint.localRotationY ?? 0 : joint.localRotation;
     const delta = ((normalized - previous + 540) % 360) - 180;
     if (Math.abs(delta) < 1e-9) return;
-    const pivot = getJointWorldTransform(this.rig, jointId);
-    const descendants: Array<{ joint: Rig["joints"][number]; world: { x: number; y: number; z: number } }> = [];
-    const visit = (parentId: string) => {
-      for (const child of this.rig.joints.filter((candidate) => candidate.parentJointId === parentId)) {
-        const world = getJointWorldTransform(this.rig, child.id);
-        descendants.push({ joint: child, world: { x: world.x, y: world.y, z: child.z } });
-        visit(child.id);
-      }
-    };
-    visit(jointId);
-    const radians = delta * Math.PI / 180;
-    const cosine = Math.cos(radians), sine = Math.sin(radians);
-    for (const entry of descendants) {
-      const dx = entry.world.x - pivot.x, dy = entry.world.y - pivot.y, dz = entry.world.z - joint.z;
-      const next = axis === "x"
-        ? { x: pivot.x + dx, y: pivot.y + dy * cosine - dz * sine, z: joint.z + dy * sine + dz * cosine }
-        : { x: pivot.x + dx * cosine + dz * sine, y: pivot.y + dy, z: joint.z - dx * sine + dz * cosine };
-      this.setJointWorldPosition(entry.joint, next.x, next.y);
-      entry.joint.z = Math.min(100, Math.max(-100, next.z));
-    }
-    if (axis === "x") joint.localRotationX = normalized;
-    else joint.localRotationY = normalized;
+    const parent = joint.parentJointId ? getJointParentWorldTransform(this.rig, joint.id) : null;
+    const parentAngle = parent?.rotation ?? 0;
+    const radians = parentAngle * Math.PI / 180;
+    const modelAxis = axis === "x" ? { x: Math.cos(radians), y: Math.sin(radians), z: 0 }
+      : axis === "y" ? { x: -Math.sin(radians), y: Math.cos(radians), z: 0 }
+        : { x: 0, y: 0, z: 1 };
+    this.rotateJointSubtree3D(jointId, modelAxis, delta, {
+      x: axis === "x" ? normalized : joint.localRotationX ?? 0,
+      y: axis === "y" ? normalized : joint.localRotationY ?? 0,
+      z: axis === "z" ? normalized : joint.localRotation,
+    });
     this.notify();
+  }
+
+  /** Rotate a joint's incoming parent connection and carry its entire child subtree with it. */
+  private rotateJointSubtree3D(
+    jointId: string,
+    axis: { x: number; y: number; z: number },
+    angleDelta: number,
+    rotations: { x: number; y: number; z: number },
+  ): void {
+    const joint = this.getJoint(jointId);
+    const parent = joint.parentJointId ? getJointParentWorldTransform(this.rig, joint.id) : null;
+    const jointWorld = getJointWorldTransform(this.rig, joint.id);
+    const parentJoint = joint.parentJointId ? this.getJoint(joint.parentJointId) : null;
+    const pivot = parent
+      ? { x: parent.x, y: parent.y, z: parentJoint?.z ?? joint.z }
+      : { x: jointWorld.x, y: jointWorld.y, z: joint.z };
+    const moving: Rig["joints"] = [];
+    const visit = (id: string, includeSelf: boolean) => {
+      if (includeSelf) moving.push(this.getJoint(id));
+      for (const child of this.rig.joints.filter((candidate) => candidate.parentJointId === id)) visit(child.id, true);
+    };
+    visit(joint.id, Boolean(parent));
+    const snapshots = moving.map((entry) => {
+      const world = getJointWorldTransform(this.rig, entry.id);
+      const relative = { x: world.x - pivot.x, y: world.y - pivot.y, z: entry.z - pivot.z };
+      const rotated = rotateVectorAroundAxis(relative, axis, angleDelta);
+      return { joint: entry, x: pivot.x + rotated.x, y: pivot.y + rotated.y, z: pivot.z + rotated.z };
+    });
+
+    joint.localRotationX = normalizeAngle(rotations.x);
+    joint.localRotationY = normalizeAngle(rotations.y);
+    joint.localRotation = normalizeAngle(rotations.z);
+    for (const entry of snapshots) {
+      this.setJointWorldPosition(entry.joint, entry.x, entry.y);
+      entry.joint.z = Math.min(100, Math.max(-100, entry.z));
+    }
+    for (const entry of snapshots) this.alignDirectConnectionAxes(entry.joint.id);
   }
 
   public setProjectionStrength(strength: number): void {
@@ -1705,12 +1777,15 @@ export class RigState {
 
   public applyJointPose(
     jointId: string,
-    pose: { x: number; y: number; localRotation: number; axes: Record<string, number>; z?: number; distancePercent?: number },
+    pose: { x: number; y: number; localRotation: number; axes: Record<string, number>; z?: number;
+      distancePercent?: number; localRotationX?: number; localRotationY?: number },
   ): void {
     const joint = this.getJoint(jointId);
     joint.x = pose.x;
     joint.y = pose.y;
     joint.localRotation = normalizeAngle(pose.localRotation);
+    joint.localRotationX = normalizeAngle(pose.localRotationX ?? 0);
+    joint.localRotationY = normalizeAngle(pose.localRotationY ?? 0);
     if (Number.isFinite(pose.z)) joint.z = Math.min(100, Math.max(-100, pose.z!));
     if (Number.isFinite(pose.distancePercent) && joint.parentJointId) joint.distancePercent = Math.min(300, Math.max(0, pose.distancePercent!));
     for (const axis of joint.axes) {

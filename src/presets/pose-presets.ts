@@ -82,6 +82,8 @@ function applyNeutralTPose(state: RigState, viewYRotation: number, limbSpreadDeg
   target.viewYRotation = viewYRotation;
   for (const joint of target.joints) {
     joint.localRotation = 0;
+    joint.localRotationX = 0;
+    joint.localRotationY = 0;
     joint.z = 0;
     const direction = directions[joint.id];
     if (direction) {

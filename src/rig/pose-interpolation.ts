@@ -60,6 +60,8 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
       joint.y = lerp(startJoint.y, endJoint.y, t);
     }
     joint.localRotation = interpolateAngle(startJoint.localRotation, endJoint.localRotation, t);
+    joint.localRotationX = interpolateAngle(startJoint.localRotationX ?? 0, endJoint.localRotationX ?? 0, t);
+    joint.localRotationY = interpolateAngle(startJoint.localRotationY ?? 0, endJoint.localRotationY ?? 0, t);
     joint.radius = lerp(startJoint.radius, endJoint.radius, t);
     if (startJoint.bodyRadius !== undefined && endJoint.bodyRadius !== undefined) {
       joint.bodyRadius = lerp(startJoint.bodyRadius, endJoint.bodyRadius, t);

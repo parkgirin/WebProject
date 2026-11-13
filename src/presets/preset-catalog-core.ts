@@ -45,6 +45,8 @@ function parseCatalog<T extends { id: string }>(
   return entries;
 }
 
+function createFileEntry(path: string, kind: "body", preset: RigPreset): UserBodyPreset;
+function createFileEntry(path: string, kind: "pose", preset: RigPreset): UserPosePreset;
 function createFileEntry(path: string, kind: "body" | "pose", preset: RigPreset): UserBodyPreset | UserPosePreset {
   const fileName = path.split("/").at(-1)?.replace(/\.json$/i, "") ?? `${kind}-preset`;
   return {

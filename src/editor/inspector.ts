@@ -311,7 +311,7 @@ export function renderInspector(
   const selectionPanel = `
     ${targetSummary}
     ${shapeMarkup}
-    ${renderPoseNavigator(state, selection, viewState.selectedFaceId, viewState.selectedTarget)}
+    ${renderPoseNavigator(state, selection, viewState)}
     <label class="face-override-toggle"><input type="checkbox" data-move-selected-individually${viewState.moveSelectedIndividually ? " checked" : ""} />선택 관절만 이동</label>
     <p class="hint">목·허리처럼 부모 관절을 옮겨도 자식 관절은 현재 위치에 남깁니다. 한 관절만 선택했을 때 적용됩니다.</p>
     <label class="face-override-toggle"><input type="checkbox" data-edit-body-proportions${viewState.editBodyProportions ? " checked" : ""} />체형 길이 편집</label>
@@ -522,6 +522,16 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("[data-move-selected-individually]")?.addEventListener("change", (event) => {
     setViewState({ moveSelectedIndividually: (event.target as HTMLInputElement).checked });
   });
+  element.querySelector<HTMLSelectElement>("[data-pose-navigator-mode]")?.addEventListener("change", (event) => {
+    setViewState({ poseNavigatorMode: (event.target as HTMLSelectElement).value as "rest" | "current" });
+  });
+  element.querySelectorAll<HTMLButtonElement>("[data-pose-navigator-rotate]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const step = Number(button.dataset.poseNavigatorRotate);
+      if (!Number.isFinite(step)) return;
+      setViewState({ poseNavigatorYRotation: toSignedAngle((viewState.poseNavigatorYRotation ?? 0) + step) });
+    });
+  });
   element.querySelectorAll<HTMLButtonElement>("[data-joint-shortcut]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const jointId = button.dataset.jointShortcut;
@@ -722,10 +732,6 @@ export function renderInspector(
   });
   bindLiveRange(element, state, "#axis-angle", "#axis-angle-number", (value) => {
     if (joint && selection.axisId) state.setAxisAngle(joint.id, selection.axisId, value);
-  });
-  element.querySelector<HTMLInputElement>("#joint-radius-number")?.addEventListener("change", (event) => {
-    if (!joint) return;
-    state.setJointRadius(joint.id, (event.target as HTMLInputElement).valueAsNumber);
   });
   element.querySelectorAll<HTMLInputElement>("[data-surface-scale-axis]").forEach((input) => {
     input.addEventListener("change", () => {
@@ -994,38 +1000,120 @@ function renderGroupOptions(state: RigState, selectedGroupId: string | undefined
 function renderPoseNavigator(
   state: RigState,
   selection: EditorSelection,
-  selectedFaceId: string,
-  selectedTarget: EditorViewState["selectedTarget"],
+  viewState: EditorViewState,
 ): string {
-  const points = [
-    ["head", 46, 9], ["chest", 46, 25], ["waist", 46, 43],
-    ["left-shoulder", 28, 25], ["right-shoulder", 64, 25],
-    ["left-elbow", 24, 39], ["right-elbow", 68, 39],
-    ["left-wrist", 21, 53], ["right-wrist", 71, 53],
-    ["left-hip", 38, 53], ["right-hip", 54, 53],
-    ["left-knee", 38, 70], ["right-knee", 54, 70],
-    ["left-ankle", 38, 87], ["right-ankle", 54, 87],
-  ] as const;
+  const selectedJointIds = new Set(selection.jointIds);
+  const connectedFaces = state.rig.faces.filter((face) => {
+    const connectedJointIds = new Set<string>();
+    for (const vertex of face.vertices) connectedJointIds.add(vertex.jointId);
+    if (face.cameraFacingLimb) {
+      connectedJointIds.add(face.cameraFacingLimb.startJointId);
+      connectedJointIds.add(face.cameraFacingLimb.endJointId);
+    }
+    const rotationTarget = face.rotationTarget;
+    if (rotationTarget.type === "child") {
+      const child = state.rig.joints.find((joint) => joint.id === rotationTarget.childJointId);
+      connectedJointIds.add(rotationTarget.childJointId);
+      if (child?.parentJointId) connectedJointIds.add(child.parentJointId);
+    } else {
+      const group = state.rig.peerGroups.find((candidate) => candidate.id === rotationTarget.peerGroupId);
+      for (const jointId of group?.jointIds ?? []) connectedJointIds.add(jointId);
+      if (group?.centerJointId) connectedJointIds.add(group.centerJointId);
+    }
+    if (face.proceduralSurface === "torso") {
+      for (const jointId of ["waist", "left-shoulder", "right-shoulder"]) {
+        if (state.rig.joints.some((joint) => joint.id === jointId)) connectedJointIds.add(jointId);
+      }
+    } else if (face.proceduralSurface === "waist-hip") {
+      for (const jointId of ["waist", "left-hip", "right-hip"]) {
+        if (state.rig.joints.some((joint) => joint.id === jointId)) connectedJointIds.add(jointId);
+      }
+    }
+    return [...connectedJointIds].some((jointId) => selectedJointIds.has(jointId));
+  });
+  const shortcutFaceId = connectedFaces.some((face) => face.id === viewState.selectedFaceId)
+    ? viewState.selectedFaceId
+    : connectedFaces[0]?.id ?? "";
+  const mode = viewState.poseNavigatorMode ?? "current";
+  const yRotation = toSignedAngle(viewState.poseNavigatorYRotation ?? 0);
+  const restPoints = new Map<string, { x: number; y: number; z: number }>();
+  const getRestPoint = (jointId: string): { x: number; y: number; z: number } => {
+    const cached = restPoints.get(jointId);
+    if (cached) return cached;
+    const joint = state.getJoint(jointId);
+    const parent = joint.parentJointId ? getRestPoint(joint.parentJointId) : null;
+    const offset = joint.baseOffset ?? {
+      x: joint.x, y: joint.y,
+      z: joint.z - (joint.parentJointId ? state.getJoint(joint.parentJointId).z : 0),
+    };
+    const point = parent
+      ? { x: parent.x + offset.x, y: parent.y + offset.y, z: parent.z + offset.z }
+      : { x: joint.x, y: joint.y, z: joint.z };
+    restPoints.set(jointId, point);
+    return point;
+  };
+  const yaw = yRotation * Math.PI / 180;
+  const projected = state.rig.joints.map((joint) => {
+    const source = mode === "rest"
+      ? getRestPoint(joint.id)
+      : { ...getJointWorldTransform(state.rig, joint.id), z: joint.z };
+    return {
+      id: joint.id,
+      parentJointId: joint.parentJointId,
+      isVirtual: joint.isVirtual === true,
+      x: source.x * Math.cos(yaw) + source.z * Math.sin(yaw),
+      y: source.y,
+    };
+  });
+  const xs = projected.map((point) => point.x);
+  const ys = projected.map((point) => point.y);
+  const minX = xs.length ? Math.min(...xs) : 0, maxX = xs.length ? Math.max(...xs) : 1;
+  const minY = ys.length ? Math.min(...ys) : 0, maxY = ys.length ? Math.max(...ys) : 1;
+  const scale = Math.min(72 / Math.max(1, maxX - minX), 80 / Math.max(1, maxY - minY));
+  const dynamicPoints = projected.map((point) => ({
+    ...point,
+    mapX: 46 + (point.x - (minX + maxX) / 2) * scale,
+    mapY: 50 + (point.y - (minY + maxY) / 2) * scale,
+  }));
+  const dynamicById = new Map(dynamicPoints.map((point) => [point.id, point]));
+  const dynamicPath = dynamicPoints.map((point) => {
+    const parent = point.parentJointId ? dynamicById.get(point.parentJointId) : null;
+    return parent ? `M${parent.mapX.toFixed(1)} ${parent.mapY.toFixed(1)} L${point.mapX.toFixed(1)} ${point.mapY.toFixed(1)}` : "";
+  }).filter(Boolean).join(" ");
+  const points = dynamicPoints.filter((point) => !point.isVirtual);
   return `
     <section class="pose-picker" aria-label="기본 포즈 관절 선택기">
       <div class="section-heading">
         <div><span class="eyebrow">SELECT TARGET</span><h2>관절 및 면 선택</h2></div>
-        <span>${selection.jointIds.length > 1 ? `${selection.jointIds.length}개 선택` : "기본 포즈"}</span>
+        <span>${selection.jointIds.length > 1 ? `${selection.jointIds.length}개 선택` : `${mode === "rest" ? "기본 포즈" : "현재 상태"} · Y ${yRotation}°`}</span>
+      </div>
+      <div class="pose-navigator-controls">
+        <select data-pose-navigator-mode aria-label="관절 지도 표시 기준">
+          <option value="current"${mode === "current" ? " selected" : ""}>정면 기준 현재 상태</option>
+          <option value="rest"${mode === "rest" ? " selected" : ""}>기본 포즈</option>
+        </select>
+        <div aria-label="관절 지도 Y축 회전">
+          <button type="button" data-pose-navigator-rotate="-30" aria-label="관절 지도 Y축 왼쪽으로 30도 회전">−30°</button>
+          <output aria-label="관절 지도 Y축 각도">Y ${yRotation}°</output>
+          <button type="button" data-pose-navigator-rotate="30" aria-label="관절 지도 Y축 오른쪽으로 30도 회전">+30°</button>
+        </div>
       </div>
       <div class="pose-picker-card">
         <div class="pose-navigator-map">
           <svg viewBox="0 0 92 100" aria-hidden="true">
-            <path d="M46 9 L46 25 M28 25 L64 25 M28 25 L24 39 L21 53 M64 25 L68 39 L71 53 M46 25 L46 43 M46 43 L38 53 L38 70 L38 87 M46 43 L54 53 L54 70 L54 87" />
+            <path d="${dynamicPath}" />
           </svg>
-          ${points.map(([id, x, y]) => `<button type="button" class="pose-shortcut${selectedTarget === "joint" && selection.jointIds.includes(id) ? " is-selected" : ""}" style="--x:${x}px;--y:${y}px" data-joint-shortcut="${id}" aria-label="${id} 관절 선택" title="${id}"></button>`).join("")}
+          ${points.map(({ id, mapX, mapY }) => `<button type="button" class="pose-shortcut${viewState.selectedTarget === "joint" && selection.jointIds.includes(id) ? " is-selected" : ""}" style="--x:${mapX}px;--y:${mapY}px" data-joint-shortcut="${id}" aria-label="${id} 관절 선택" title="${id}"></button>`).join("")}
         </div>
         <div class="pose-picker-current">
           <span class="eyebrow">CURRENT</span>
-          <strong>${selectedTarget === "joint" ? `관절: ${escapeHtml(selection.jointId ?? "선택 없음")}` : `면: ${escapeHtml(selectedFaceId)}`}</strong>
-          <select class="pose-face-shortcut${selectedTarget === "face" ? " is-selected" : ""}" data-face-shortcut aria-label="면 선택">
-            ${state.rig.faces.map((face) => `<option value="${escapeHtml(face.id)}"${face.id === selectedFaceId ? " selected" : ""}>면: ${escapeHtml(face.id)}</option>`).join("")}
+          <strong>${viewState.selectedTarget === "joint" ? `관절: ${escapeHtml(selection.jointId ?? "선택 없음")}` : `면: ${escapeHtml(viewState.selectedFaceId)}`}</strong>
+          <select class="pose-face-shortcut${viewState.selectedTarget === "face" ? " is-selected" : ""}" data-face-shortcut aria-label="선택 관절에 연결된 면 선택"${connectedFaces.length ? "" : " disabled"}>
+            ${connectedFaces.length
+              ? connectedFaces.map((face) => `<option value="${escapeHtml(face.id)}"${face.id === shortcutFaceId ? " selected" : ""}>연결 면: ${escapeHtml(face.id)}</option>`).join("")
+              : `<option value="">연결된 면 없음</option>`}
           </select>
-          <small>Shift+클릭으로 다중 선택</small>
+          <small>선택 관절 연결 면 ${connectedFaces.length}개 · Shift+클릭으로 다중 선택</small>
         </div>
       </div>
     </section>`;
@@ -1060,6 +1148,20 @@ function bindLiveRange(
   range.addEventListener("change", () => applyValue(false));
   range.addEventListener("blur", () => {
     if (element.dataset.liveRangeEditing === "true") applyValue(false);
+  });
+  number?.addEventListener("change", () => {
+    if (!Number.isFinite(number.valueAsNumber)) {
+      number.value = range.value;
+      return;
+    }
+    const minimum = range.min === "" ? -Infinity : Number(range.min);
+    const maximum = range.max === "" ? Infinity : Number(range.max);
+    const value = Math.min(maximum, Math.max(minimum, number.valueAsNumber));
+    range.value = String(value);
+    number.value = String(value);
+    state.beginHistoryTransaction();
+    update(value);
+    state.endHistoryTransaction();
   });
 }
 
