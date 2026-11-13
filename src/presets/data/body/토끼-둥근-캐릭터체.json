@@ -1,0 +1,72 @@
+{
+  "id": "rabbit-round",
+  "name": "토끼 둥근 캐릭터체",
+  "createdAt": "2026-11-14T00:00:00.000Z",
+  "rig": {
+    "defaultColor": "#dca27b", "perspectiveEnabled": false, "projectionStrength": 24, "viewYRotation": 90,
+    "worldRotation": { "x": 0, "y": 0, "z": 0 },
+    "bodyViewProfiles": { "front": { "jointRadiusScale": {} }, "side": { "jointRadiusScale": {} }, "back": { "jointRadiusScale": {} } },
+    "palette": [],
+    "groups": [
+      { "id": "head", "name": "머리·귀", "visible": true, "order": 50 }, { "id": "torso", "name": "몸통", "visible": true, "order": 40 },
+      { "id": "front-left-leg", "name": "왼쪽 앞다리", "visible": true, "order": 30 }, { "id": "front-right-leg", "name": "오른쪽 앞다리", "visible": true, "order": 31 },
+      { "id": "hind-left-leg", "name": "왼쪽 뒷다리", "visible": true, "order": 20 }, { "id": "hind-right-leg", "name": "오른쪽 뒷다리", "visible": true, "order": 21 },
+      { "id": "tail", "name": "꼬리", "visible": true, "order": 10 }
+    ],
+    "joints": [
+      { "id": "scene-root", "groupId": "torso", "x": 300, "y": 345, "z": 0, "localRotation": 0, "isVirtual": true, "radius": 8, "axes": [], "renderOrder": 0, "guideVisible": false, "bodyVisible": false },
+      { "id": "pelvis", "groupId": "torso", "parentJointId": "scene-root", "x": 0, "y": 0, "z": 0, "localRotation": 0, "radius": 56, "axes": [{ "id": "spine", "angle": 0, "pointSides": [-1, 1] }], "renderOrder": 24, "guideVisible": true, "bodyVisible": true },
+      { "id": "spine-mid", "groupId": "torso", "parentJointId": "pelvis", "x": 0, "y": -8, "z": -48, "localRotation": 0, "radius": 54, "axes": [{ "id": "spine", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 26, "guideVisible": true, "bodyVisible": true },
+      { "id": "chest", "groupId": "torso", "parentJointId": "spine-mid", "x": 0, "y": -10, "z": -90, "localRotation": 0, "radius": 50, "axes": [{ "id": "neck", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 28, "guideVisible": true, "bodyVisible": true },
+      { "id": "neck", "groupId": "head", "parentJointId": "chest", "x": 0, "y": -18, "z": -105, "localRotation": 0, "radius": 21, "axes": [{ "id": "head", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 38, "guideVisible": true, "bodyVisible": true },
+      { "id": "head", "groupId": "head", "parentJointId": "neck", "x": 0, "y": -22, "z": -130, "localRotation": 0, "radius": 45, "axes": [], "renderOrder": 42, "guideVisible": true, "bodyVisible": true },
+      { "id": "left-ear-base", "groupId": "head", "parentJointId": "head", "x": -12, "y": -31, "z": -134, "localRotation": -7, "radius": 17, "axes": [{ "id": "ear", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 46, "guideVisible": true, "bodyVisible": true },
+      { "id": "left-ear-tip", "groupId": "head", "parentJointId": "left-ear-base", "x": 0, "y": -52, "z": -138, "localRotation": -7, "radius": 19, "axes": [], "renderOrder": 46, "guideVisible": true, "bodyVisible": true },
+      { "id": "right-ear-base", "groupId": "head", "parentJointId": "head", "x": 12, "y": -31, "z": -134, "localRotation": 7, "radius": 17, "axes": [{ "id": "ear", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 47, "guideVisible": true, "bodyVisible": true },
+      { "id": "right-ear-tip", "groupId": "head", "parentJointId": "right-ear-base", "x": 0, "y": -52, "z": -138, "localRotation": 7, "radius": 19, "axes": [], "renderOrder": 47, "guideVisible": true, "bodyVisible": true },
+      { "id": "tail-base", "groupId": "tail", "parentJointId": "pelvis", "x": 0, "y": -3, "z": 32, "localRotation": 0, "radius": 27, "axes": [{ "id": "tail", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 8, "guideVisible": true, "bodyVisible": true },
+      { "id": "tail-tip", "groupId": "tail", "parentJointId": "tail-base", "x": 0, "y": -4, "z": 46, "localRotation": 0, "radius": 25, "axes": [], "renderOrder": 8, "guideVisible": true, "bodyVisible": true },
+
+      { "id": "front-left-shoulder", "groupId": "front-left-leg", "parentJointId": "chest", "x": -24, "y": 8, "z": -90, "localRotation": 0, "radius": 19, "axes": [{ "id": "upper-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 30, "guideVisible": true, "bodyVisible": true },
+      { "id": "front-left-knee", "groupId": "front-left-leg", "parentJointId": "front-left-shoulder", "x": 0, "y": 35, "z": -98, "localRotation": 0, "radius": 16, "axes": [{ "id": "lower-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 30, "guideVisible": true, "bodyVisible": true },
+      { "id": "front-left-paw", "groupId": "front-left-leg", "parentJointId": "front-left-knee", "x": 0, "y": 32, "z": -106, "localRotation": 0, "radius": 22, "axes": [], "renderOrder": 30, "guideVisible": true, "bodyVisible": true },
+      { "id": "front-right-shoulder", "groupId": "front-right-leg", "parentJointId": "chest", "x": 24, "y": 8, "z": -90, "localRotation": 0, "radius": 19, "axes": [{ "id": "upper-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 32, "guideVisible": true, "bodyVisible": true },
+      { "id": "front-right-knee", "groupId": "front-right-leg", "parentJointId": "front-right-shoulder", "x": 0, "y": 35, "z": -98, "localRotation": 0, "radius": 16, "axes": [{ "id": "lower-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 32, "guideVisible": true, "bodyVisible": true },
+      { "id": "front-right-paw", "groupId": "front-right-leg", "parentJointId": "front-right-knee", "x": 0, "y": 32, "z": -106, "localRotation": 0, "radius": 22, "axes": [], "renderOrder": 32, "guideVisible": true, "bodyVisible": true },
+
+      { "id": "hind-left-hip", "groupId": "hind-left-leg", "parentJointId": "pelvis", "x": -30, "y": 5, "z": 0, "localRotation": 0, "radius": 52, "axes": [{ "id": "upper-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 20, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-left-knee", "groupId": "hind-left-leg", "parentJointId": "hind-left-hip", "x": 0, "y": 28, "z": -35, "localRotation": 0, "radius": 30, "axes": [{ "id": "lower-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 20, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-left-hock", "groupId": "hind-left-leg", "parentJointId": "hind-left-knee", "x": 0, "y": 43, "z": 55, "localRotation": 0, "radius": 22, "axes": [{ "id": "foot", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 20, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-left-paw", "groupId": "hind-left-leg", "parentJointId": "hind-left-hock", "x": 0, "y": 18, "z": -55, "localRotation": 0, "radius": 36, "axes": [], "renderOrder": 20, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-right-hip", "groupId": "hind-right-leg", "parentJointId": "pelvis", "x": 30, "y": 5, "z": 0, "localRotation": 0, "radius": 52, "axes": [{ "id": "upper-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 22, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-right-knee", "groupId": "hind-right-leg", "parentJointId": "hind-right-hip", "x": 0, "y": 28, "z": -35, "localRotation": 0, "radius": 30, "axes": [{ "id": "lower-leg", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 22, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-right-hock", "groupId": "hind-right-leg", "parentJointId": "hind-right-knee", "x": 0, "y": 43, "z": 55, "localRotation": 0, "radius": 22, "axes": [{ "id": "foot", "angle": 0, "pointSides": [-1, 1], "alignment": "child-perpendicular" }], "renderOrder": 22, "guideVisible": true, "bodyVisible": true },
+      { "id": "hind-right-paw", "groupId": "hind-right-leg", "parentJointId": "hind-right-hock", "x": 0, "y": 18, "z": -55, "localRotation": 0, "radius": 36, "axes": [], "renderOrder": 22, "guideVisible": true, "bodyVisible": true }
+    ],
+    "peerGroups": [],
+    "faces": [
+      { "id": "rear-spine", "cameraFacingLimb": { "startJointId": "pelvis", "endJointId": "spine-mid" }, "rotationTarget": { "type": "child", "childJointId": "spine-mid" }, "groupId": "torso", "layerOrder": 24, "vertices": [], "orderOffset": 0 },
+      { "id": "front-spine", "cameraFacingLimb": { "startJointId": "spine-mid", "endJointId": "chest" }, "rotationTarget": { "type": "child", "childJointId": "chest" }, "groupId": "torso", "layerOrder": 26, "vertices": [], "orderOffset": 0 },
+      { "id": "neck", "cameraFacingLimb": { "startJointId": "chest", "endJointId": "neck" }, "rotationTarget": { "type": "child", "childJointId": "neck" }, "groupId": "head", "layerOrder": 38, "vertices": [], "orderOffset": 0 },
+      { "id": "head-link", "cameraFacingLimb": { "startJointId": "neck", "endJointId": "head" }, "rotationTarget": { "type": "child", "childJointId": "head" }, "groupId": "head", "layerOrder": 40, "vertices": [], "orderOffset": 0 },
+      { "id": "left-ear", "cameraFacingLimb": { "startJointId": "left-ear-base", "endJointId": "left-ear-tip" }, "rotationTarget": { "type": "child", "childJointId": "left-ear-tip" }, "groupId": "head", "layerOrder": 46, "vertices": [], "orderOffset": 0 },
+      { "id": "right-ear", "cameraFacingLimb": { "startJointId": "right-ear-base", "endJointId": "right-ear-tip" }, "rotationTarget": { "type": "child", "childJointId": "right-ear-tip" }, "groupId": "head", "layerOrder": 47, "vertices": [], "orderOffset": 0 },
+      { "id": "tail-base", "cameraFacingLimb": { "startJointId": "pelvis", "endJointId": "tail-base" }, "rotationTarget": { "type": "child", "childJointId": "tail-base" }, "groupId": "tail", "layerOrder": 8, "vertices": [], "orderOffset": 0 },
+      { "id": "tail-tip", "cameraFacingLimb": { "startJointId": "tail-base", "endJointId": "tail-tip" }, "rotationTarget": { "type": "child", "childJointId": "tail-tip" }, "groupId": "tail", "layerOrder": 8, "vertices": [], "orderOffset": 0 },
+      { "id": "front-left-upper", "cameraFacingLimb": { "startJointId": "front-left-shoulder", "endJointId": "front-left-knee" }, "rotationTarget": { "type": "child", "childJointId": "front-left-knee" }, "groupId": "front-left-leg", "layerOrder": 30, "vertices": [], "orderOffset": 0 },
+      { "id": "front-left-lower", "cameraFacingLimb": { "startJointId": "front-left-knee", "endJointId": "front-left-paw" }, "rotationTarget": { "type": "child", "childJointId": "front-left-paw" }, "groupId": "front-left-leg", "layerOrder": 30, "vertices": [], "orderOffset": 0 },
+      { "id": "front-right-upper", "cameraFacingLimb": { "startJointId": "front-right-shoulder", "endJointId": "front-right-knee" }, "rotationTarget": { "type": "child", "childJointId": "front-right-knee" }, "groupId": "front-right-leg", "layerOrder": 32, "vertices": [], "orderOffset": 0 },
+      { "id": "front-right-lower", "cameraFacingLimb": { "startJointId": "front-right-knee", "endJointId": "front-right-paw" }, "rotationTarget": { "type": "child", "childJointId": "front-right-paw" }, "groupId": "front-right-leg", "layerOrder": 32, "vertices": [], "orderOffset": 0 },
+      { "id": "hind-left-upper", "cameraFacingLimb": { "startJointId": "hind-left-hip", "endJointId": "hind-left-knee" }, "rotationTarget": { "type": "child", "childJointId": "hind-left-knee" }, "groupId": "hind-left-leg", "layerOrder": 20, "vertices": [], "orderOffset": 0 },
+      { "id": "hind-left-lower", "cameraFacingLimb": { "startJointId": "hind-left-knee", "endJointId": "hind-left-hock" }, "rotationTarget": { "type": "child", "childJointId": "hind-left-hock" }, "groupId": "hind-left-leg", "layerOrder": 20, "vertices": [], "orderOffset": 0 },
+      { "id": "hind-left-foot", "cameraFacingLimb": { "startJointId": "hind-left-hock", "endJointId": "hind-left-paw" }, "rotationTarget": { "type": "child", "childJointId": "hind-left-paw" }, "groupId": "hind-left-leg", "layerOrder": 20, "vertices": [], "orderOffset": 0 },
+      { "id": "hind-right-upper", "cameraFacingLimb": { "startJointId": "hind-right-hip", "endJointId": "hind-right-knee" }, "rotationTarget": { "type": "child", "childJointId": "hind-right-knee" }, "groupId": "hind-right-leg", "layerOrder": 22, "vertices": [], "orderOffset": 0 },
+      { "id": "hind-right-lower", "cameraFacingLimb": { "startJointId": "hind-right-knee", "endJointId": "hind-right-hock" }, "rotationTarget": { "type": "child", "childJointId": "hind-right-hock" }, "groupId": "hind-right-leg", "layerOrder": 22, "vertices": [], "orderOffset": 0 },
+      { "id": "hind-right-foot", "cameraFacingLimb": { "startJointId": "hind-right-hock", "endJointId": "hind-right-paw" }, "rotationTarget": { "type": "child", "childJointId": "hind-right-paw" }, "groupId": "hind-right-leg", "layerOrder": 22, "vertices": [], "orderOffset": 0 }
+    ],
+    "artShapes": [
+      { "id": "head-base", "kind": "sphere", "vertices": [{ "id": "center", "source": "joint-center", "jointId": "head", "offsetX": 0, "offsetY": 0 }], "radius": 56, "groupId": "head", "layerOrder": 44, "compositeMode": "paint", "compositeGroupId": "composite-head-base" }
+    ],
+    "artCompositeGroups": [], "elementLayers": { "joints": true, "axes": true, "faces": true, "shapes": true }
+  }
+}

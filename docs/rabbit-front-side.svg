@@ -1,15 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="520" viewBox="0 0 1024 520" role="img" aria-labelledby="title desc">
   <title id="title">토끼 정면과 측면 체형</title>
-  <desc id="desc">관절 구조를 겹쳐 표시한 토끼의 정면 및 측면 실루엣. 점선 귀는 선택 도형이다.</desc>
+  <desc id="desc">재배치한 관절 위치의 원과 사각형 링크만으로 구성한 토끼의 정면 및 측면 실루엣. 뒷다리는 골반, 무릎, 비절, 발 순서로 배치한다.</desc>
   <defs>
     <style>
       .background { fill: #fbfaf7; }
       .panel { fill: #ffffff; stroke: #ded9d0; stroke-width: 1.5; }
-      .body { fill: #dca27b; stroke: #6f5544; stroke-width: 2.5; stroke-linejoin: round; }
-      .rear { fill: #cf9169; stroke: #6f5544; stroke-width: 2.5; }
+      .link { fill: #dca27b; stroke: #6f5544; stroke-width: 2.5; }
+      .extremity { fill: #cf9169; stroke: #6f5544; stroke-width: 2.5; }
       .ear { fill: #efd0bb; stroke: #8e7a6d; stroke-width: 2; stroke-dasharray: 7 6; }
-      .skeleton { fill: none; stroke: #725ea8; stroke-width: 2; stroke-dasharray: 6 6; }
-      .joint { fill: #ffffff; stroke: #725ea8; stroke-width: 2.5; }
+      .joint { fill: #efd0bb; stroke: #6f5544; stroke-width: 2.5; }
       .axis { fill: none; stroke: #d8d2ca; stroke-width: 1.5; stroke-dasharray: 5 7; }
       .ground { stroke: #c9c2b8; stroke-width: 1.5; }
       .label { fill: #312c28; font-family: system-ui, sans-serif; font-size: 22px; font-weight: 600; }
@@ -28,44 +27,43 @@
 
   <ellipse class="ear" cx="224" cy="146" rx="18" ry="58" transform="rotate(-8 224 146)" />
   <ellipse class="ear" cx="284" cy="146" rx="18" ry="58" transform="rotate(8 284 146)" />
-  <ellipse class="body" cx="254" cy="301" rx="66" ry="78" />
-  <ellipse class="rear" cx="177" cy="350" rx="55" ry="61" transform="rotate(13 177 350)" />
-  <ellipse class="rear" cx="331" cy="350" rx="55" ry="61" transform="rotate(-13 331 350)" />
-  <circle class="body" cx="254" cy="202" r="67" />
-  <ellipse class="body" cx="222" cy="327" rx="20" ry="63" transform="rotate(3 222 327)" />
-  <ellipse class="body" cx="286" cy="327" rx="20" ry="63" transform="rotate(-3 286 327)" />
-  <ellipse class="rear" cx="162" cy="405" rx="52" ry="24" transform="rotate(-5 162 405)" />
-  <ellipse class="rear" cx="346" cy="405" rx="52" ry="24" transform="rotate(5 346 405)" />
-
-  <path class="skeleton" d="M254 202 L254 257 L254 301 M254 257 L222 269 L222 326 L222 390 M254 257 L286 269 L286 326 L286 390 M254 301 L188 318 L157 360 L162 405 M254 301 L320 318 L351 360 L346 405" />
+  <g aria-label="정면 관절 연결 실루엣">
+    <rect class="link" x="242" y="202" width="24" height="99"/><rect class="link" x="210" y="269" width="24" height="121"/><rect class="link" x="274" y="269" width="24" height="121"/>
+    <rect class="link" x="0" y="-22" width="68" height="44" transform="translate(254 301) rotate(160)"/><rect class="link" x="0" y="-16" width="51" height="32" transform="translate(190 325) rotate(118)"/><rect class="link" x="0" y="-20" width="35" height="40" transform="translate(166 370) rotate(84)"/>
+    <rect class="link" x="0" y="-22" width="68" height="44" transform="translate(254 301) rotate(20)"/><rect class="link" x="0" y="-16" width="51" height="32" transform="translate(318 325) rotate(62)"/><rect class="link" x="0" y="-20" width="35" height="40" transform="translate(342 370) rotate(96)"/>
+  </g>
+  <ellipse class="extremity" cx="222" cy="390" rx="22" ry="30"/>
+  <ellipse class="extremity" cx="286" cy="390" rx="22" ry="30"/>
+  <ellipse class="extremity" cx="170" cy="405" rx="39" ry="20" transform="rotate(-5 170 405)"/>
+  <ellipse class="extremity" cx="338" cy="405" rx="39" ry="20" transform="rotate(5 338 405)"/>
   <g aria-hidden="true">
-    <circle class="joint" cx="254" cy="202" r="5"/><circle class="joint" cx="254" cy="257" r="5"/><circle class="joint" cx="254" cy="301" r="5"/>
-    <circle class="joint" cx="222" cy="269" r="5"/><circle class="joint" cx="222" cy="326" r="5"/><circle class="joint" cx="222" cy="390" r="5"/>
-    <circle class="joint" cx="286" cy="269" r="5"/><circle class="joint" cx="286" cy="326" r="5"/><circle class="joint" cx="286" cy="390" r="5"/>
-    <circle class="joint" cx="188" cy="318" r="5"/><circle class="joint" cx="157" cy="360" r="5"/><circle class="joint" cx="162" cy="405" r="5"/>
-    <circle class="joint" cx="320" cy="318" r="5"/><circle class="joint" cx="351" cy="360" r="5"/><circle class="joint" cx="346" cy="405" r="5"/>
+    <circle class="joint" cx="254" cy="202" r="52"/><circle class="joint" cx="254" cy="257" r="40"/><circle class="joint" cx="254" cy="301" r="58"/>
+    <circle class="joint" cx="222" cy="269" r="18"/><circle class="joint" cx="222" cy="326" r="15"/>
+    <circle class="joint" cx="286" cy="269" r="18"/><circle class="joint" cx="286" cy="326" r="15"/>
+    <circle class="joint" cx="190" cy="325" r="42"/><circle class="joint" cx="166" cy="370" r="27"/>
+    <circle class="joint" cx="318" cy="325" r="42"/><circle class="joint" cx="342" cy="370" r="27"/>
   </g>
 
   <text class="label" x="750" y="60" text-anchor="middle">측면</text>
-  <text class="note" x="750" y="84" text-anchor="middle">수평 몸통 · 접힌 큰 뒷다리</text>
+  <text class="note" x="750" y="84" text-anchor="middle">수평 몸통 · 골반 → 무릎 → 비절 → 발</text>
   <line class="ground" x1="534" y1="452" x2="966" y2="452" />
 
   <ellipse class="ear" cx="852" cy="146" rx="18" ry="65" transform="rotate(14 852 146)" />
   <ellipse class="ear" cx="886" cy="151" rx="16" ry="58" transform="rotate(24 886 151)" />
-  <ellipse class="body" cx="748" cy="311" rx="90" ry="70" transform="rotate(-5 748 311)" />
-  <ellipse class="rear" cx="666" cy="342" rx="68" ry="73" transform="rotate(-12 666 342)" />
-  <circle class="body" cx="858" cy="232" r="65" />
-  <ellipse class="body" cx="824" cy="329" rx="19" ry="65" transform="rotate(-3 824 329)" />
-  <ellipse class="body" cx="860" cy="332" rx="18" ry="61" transform="rotate(4 860 332)" />
-  <ellipse class="rear" cx="650" cy="405" rx="72" ry="24" transform="rotate(-4 650 405)" />
-  <circle class="body" cx="594" cy="306" r="19" />
-
-  <path class="skeleton" d="M858 232 L810 274 L766 291 L721 303 M810 274 L825 300 L824 354 L824 394 M810 274 L858 302 L860 356 L860 396 M721 303 L666 332 L627 372 L650 405" />
+  <g aria-label="측면 관절 연결 실루엣">
+    <rect class="link" x="0" y="-24" width="64" height="48" transform="translate(858 232) rotate(139)"/><rect class="link" x="0" y="-32" width="47" height="64" transform="translate(810 274) rotate(159)"/><rect class="link" x="0" y="-38" width="47" height="76" transform="translate(766 291) rotate(165)"/>
+    <rect class="link" x="0" y="-12" width="30" height="24" transform="translate(810 274) rotate(60)"/><rect class="link" x="813" y="300" width="24" height="94"/>
+    <rect class="link" x="0" y="-12" width="56" height="24" transform="translate(810 274) rotate(29)"/><rect class="link" x="848" y="302" width="24" height="94"/>
+    <rect class="link" x="0" y="-38" width="49" height="76" transform="translate(721 303) rotate(122)"/><rect class="link" x="0" y="-22" width="76" height="44" transform="translate(695 344) rotate(154)"/><rect class="link" x="0" y="-28" width="56" height="56" transform="translate(627 377) rotate(30)"/>
+  </g>
+  <ellipse class="extremity" cx="824" cy="394" rx="18" ry="29"/>
+  <ellipse class="extremity" cx="860" cy="396" rx="18" ry="29"/>
+  <ellipse class="extremity" cx="675" cy="405" rx="48" ry="20" transform="rotate(-4 675 405)"/>
   <g aria-hidden="true">
-    <circle class="joint" cx="858" cy="232" r="5"/><circle class="joint" cx="810" cy="274" r="5"/><circle class="joint" cx="766" cy="291" r="5"/><circle class="joint" cx="721" cy="303" r="5"/>
-    <circle class="joint" cx="825" cy="300" r="5"/><circle class="joint" cx="824" cy="354" r="5"/><circle class="joint" cx="824" cy="394" r="5"/>
-    <circle class="joint" cx="858" cy="302" r="5"/><circle class="joint" cx="860" cy="356" r="5"/><circle class="joint" cx="860" cy="396" r="5"/>
-    <circle class="joint" cx="666" cy="332" r="5"/><circle class="joint" cx="627" cy="372" r="5"/><circle class="joint" cx="650" cy="405" r="5"/>
+    <circle class="joint" cx="858" cy="232" r="52"/><circle class="joint" cx="810" cy="274" r="34"/><circle class="joint" cx="766" cy="291" r="48"/><circle class="joint" cx="721" cy="303" r="60"/>
+    <circle class="joint" cx="825" cy="300" r="18"/><circle class="joint" cx="824" cy="354" r="15"/>
+    <circle class="joint" cx="858" cy="302" r="18"/><circle class="joint" cx="860" cy="356" r="15"/>
+    <circle class="joint" cx="695" cy="344" r="42"/><circle class="joint" cx="627" cy="377" r="27"/>
   </g>
 
   <text class="note" x="512" y="486">점선 귀: 자유 도형으로 선택 적용</text>
