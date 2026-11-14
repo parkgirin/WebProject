@@ -1,6 +1,7 @@
 import type { RigState } from "../rig/rig-state.ts";
 import { getAxisWorldAngle, getJointWorldTransform } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
+import { COMPACT_WORKSPACE_MEDIA } from "./responsive-layout.ts";
 
 export function createInspector(): HTMLElement {
   const element = document.createElement("aside");
@@ -17,7 +18,7 @@ export function renderInspector(
   setViewState: (next: Partial<EditorViewState>) => void,
 ): void {
   const compactInspector = typeof window !== "undefined"
-    && window.matchMedia?.("(max-width: 820px), (max-height: 560px)").matches === true;
+    && window.matchMedia?.(COMPACT_WORKSPACE_MEDIA).matches === true;
   const inspectorDataset = element.dataset;
   if (compactInspector && inspectorDataset && inspectorDataset.mobileSectionsInitialized !== "true") {
     inspectorDataset.mobileSectionsInitialized = "true";
@@ -152,7 +153,6 @@ export function renderInspector(
       <div class="joint-distance-section">
         <strong>${escapeHtml(group.id)} ${group.virtualCapsule ? "가상 캡슐" : "동등 관계"}</strong>
         <label class="face-override-toggle"><input type="checkbox" data-peer-capsule="${escapeHtml(group.id)}"${group.virtualCapsule ? " checked" : ""} />두 관절을 가상 캡슐로 표시</label>
-        ${group.centerJointId ? `<p class="hint">가상 부모: ${escapeHtml(group.centerJointId)}</p>` : `<button type="button" data-add-peer-center="${escapeHtml(group.id)}"${state.getJoint(group.jointIds[0]).parentJointId !== state.getJoint(group.jointIds[1]).parentJointId ? " disabled" : ""}>가상 부모 관절 추가</button>`}
         <label class="joint-distance-field"><span>${group.virtualCapsule ? "캡슐 길이" : "관절 중심 간격"}<small>양 끝 중심 간격 · 중점 기준 대칭 이동</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-peer-distance="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 동등 관절 중심 간격" /></label>
         <input class="peer-distance-range" type="range" min="0" max="${distanceRangeMax}" step="1" value="${distance.toFixed(2)}" data-peer-distance-range="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 캡슐 길이 슬라이더" />
         <div class="peer-distance-actions" aria-label="${escapeHtml(group.id)} 간격 빠른 조정">
@@ -700,12 +700,6 @@ export function renderInspector(
     input.addEventListener("change", () => {
       const groupId = input.dataset.peerCapsule;
       if (groupId) state.setPeerGroupVirtualCapsule(groupId, input.checked);
-    });
-  });
-  element.querySelectorAll<HTMLButtonElement>("[data-add-peer-center]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const groupId = button.dataset.addPeerCenter;
-      if (groupId) state.addPeerCenter(groupId);
     });
   });
   element.querySelectorAll<HTMLButtonElement>("[data-peer-distance-step]").forEach((button) => {

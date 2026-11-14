@@ -168,6 +168,58 @@ test("virtual peer capsule replaces the authored shoulder band with a camera-fac
   assert.equal(host.innerHTML.match(/data-face-id="shoulder-band"/g)?.length, 1);
 });
 
+test("capsule guides show actual joints and faint virtual peer capsules together", () => {
+  const rig = createDefaultRig();
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  for (const jointId of ["waist", "left-shoulder", "right-shoulder"]) {
+    assert.match(host.innerHTML, new RegExp(`data-joint-capsule-guide\\s+data-joint-id="${jointId}"`));
+  }
+  for (const groupId of ["shoulder-band", "hip-band"]) {
+    assert.match(host.innerHTML,
+      new RegExp(`data-virtual-capsule-guide[^>]*data-peer-group-id="${groupId}"`));
+  }
+  assert.match(host.innerHTML, /data-guide-joint-id="left-hip"/);
+  assert.match(host.innerHTML, /data-guide-joint-id="right-hip"/);
+});
+
+test("capsule internals appear only for the selected actual or virtual capsule", () => {
+  const rig = createDefaultRig();
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.doesNotMatch(host.innerHTML, /data-capsule-internal-joint/);
+  assert.doesNotMatch(host.innerHTML, /class="peer-center"/);
+  assert.doesNotMatch(host.innerHTML, /virtual-joint-(?:hit|outline)/);
+  assert.doesNotMatch(host.innerHTML, /data-guide-joint-id="pelvis-pivot"/);
+
+  renderSvgEditor(host, rig, { jointId: "waist", axisId: null, jointIds: ["waist"] }, viewState);
+  assert.equal(host.innerHTML.match(/data-capsule-id="waist"/g)?.length, 2);
+
+  renderSvgEditor(host, rig, {
+    jointId: "left-shoulder", axisId: null, jointIds: ["left-shoulder", "right-shoulder"],
+  }, viewState);
+  assert.equal(host.innerHTML.match(/data-capsule-id="shoulder-band"/g)?.length, 2);
+  assert.doesNotMatch(host.innerHTML, /data-capsule-id="left-shoulder"/);
+
+  renderSvgEditor(host, rig, {
+    jointId: "left-hip", axisId: null, jointIds: ["left-hip", "right-hip"],
+  }, viewState);
+  assert.equal(host.innerHTML.match(/data-capsule-id="hip-band"/g)?.length, 2);
+});
+
 test("torso surface connects the actual shoulder band to the rotated waist section", () => {
   const rig = createDefaultRig();
   const left = rig.joints.find((joint) => joint.id === "left-shoulder")!;

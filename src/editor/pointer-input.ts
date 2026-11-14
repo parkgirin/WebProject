@@ -52,6 +52,8 @@ type Interaction =
   | { type: "rotate-axis"; jointId: string; axisId: string; lastAngle: number }
   | { type: "rotate-child"; jointId: string; lastAngle: number }
   | { type: "rotate-peer"; peerGroupId: string; pivotX: number; pivotY: number; lastAngle: number }
+  | { type: "resize-capsule"; kind: "joint" | "peer"; id: string; axis?: "x" | "y" | "z";
+      centerX: number; centerY: number; startDistance: number; startLength: number }
   | { type: "rotate-selection"; jointIds: string[]; pivotX: number; pivotY: number; lastAngle: number }
   | { type: "pending-shift-shape"; shapeId: string; wasSelected: boolean; startX: number; startY: number; clientX: number; clientY: number }
   | { type: "move-shapes"; shapeIds: string[]; startX: number; startY: number; appliedX: number; appliedY: number; axis: "x" | "y" | null; constrained: boolean }
@@ -310,6 +312,32 @@ export function enablePointerInput(
       }
       event.preventDefault();
       return;
+    } else if (event.button === 0 && target.hasAttribute("data-capsule-resize")
+      && !options.getLayerToolActive() && !options.getPaintColor()) {
+      const kind = target.dataset.capsuleKind;
+      const id = kind === "peer" ? peerGroupId : jointId;
+      if ((kind !== "peer" && kind !== "joint") || !id) return;
+      let center: { x: number; y: number };
+      let startLength: number | null;
+      let axis: "x" | "y" | "z" | undefined;
+      if (kind === "peer") {
+        const group = options.state.rig.peerGroups.find((candidate) => candidate.id === id);
+        if (!group || group.jointIds.length !== 2) return;
+        const depth = getPeerDepth(options.state.rig, id);
+        center = projectPoint(options.state.rig, getPeerGroupPivot(options.state.rig, id), depth);
+        startLength = options.state.getPeerGroupDistance(id);
+      } else {
+        const joint = options.state.getJoint(id);
+        axis = target.dataset.capsuleAxis as "x" | "y" | "z" | undefined;
+        if (!axis || !joint.capsuleFlatAxes?.includes(axis)) return;
+        center = projectPoint(options.state.rig, getJointWorldTransform(options.state.rig, id), joint.z);
+        startLength = joint.capsuleFlatLengths?.[axis] ?? null;
+      }
+      const startDistance = Math.hypot(screenPoint.x - center.x, screenPoint.y - center.y);
+      if (startLength === null || startDistance < 1e-6) return;
+      interaction = { type: "resize-capsule", kind, id, axis,
+        centerX: center.x, centerY: center.y, startDistance, startLength };
+      options.state.beginHistoryTransaction();
     } else if (event.button === 1 && jointId && (target.hasAttribute("data-drag-joint") || target.hasAttribute("data-body-joint"))) {
       const joint = options.state.getJoint(jointId);
       if (!joint.isVirtual) {
@@ -530,6 +558,13 @@ export function enablePointerInput(
     if (interaction.type === "move-joint-z") {
       // Moving upward brings the selected joint toward the viewer.
       options.state.setJointZ(interaction.jointId, interaction.startZ + (interaction.startClientY - event.clientY) * 0.5);
+      return;
+    }
+    if (interaction.type === "resize-capsule") {
+      const distance = Math.hypot(screenPoint.x - interaction.centerX, screenPoint.y - interaction.centerY);
+      const length = interaction.startLength * distance / interaction.startDistance;
+      if (interaction.kind === "peer") options.state.setPeerGroupDistance(interaction.id, length);
+      else if (interaction.axis) options.state.setJointCapsuleFlatLength(interaction.id, interaction.axis, length);
       return;
     }
     if (jointDrag && jointDrag.constrained !== shouldConstrainJointDistance(event.altKey)) {

@@ -747,13 +747,68 @@ export function renderSvgEditor(
     const handleX = pivot.x + (distance > 1e-8 ? -dy / distance : 0) * handleDistance;
     const handleY = pivot.y + (distance > 1e-8 ? dx / distance : -1) * handleDistance;
     return `<line class="peer-handle-guide" x1="${pivot.x}" y1="${pivot.y}" x2="${handleX}" y2="${handleY}" />
-      <circle class="peer-center" cx="${pivot.x}" cy="${pivot.y}" r="3" />
       <rect class="peer-pivot" x="${handleX - 6}" y="${handleY - 6}" width="12" height="12"
         data-peer-rotation data-peer-group-id="${escapeXml(group.id)}" />`;
   }).join("") : "";
 
+  // Peer capsules are derived joints rather than replacements for their
+  // member joints. Draw the complete derived capsule faintly behind the
+  // regular joint controls so both structures remain visible at once.
+  const virtualCapsuleGuides = showJointLayer ? visiblePeerGroups.flatMap((group) => {
+    if (!group.virtualCapsule || group.jointIds.length !== 2) return [];
+    const circles = group.jointIds.map(projectedJointCircle);
+    const silhouette = getOuterPoints(circles.flatMap((circle) => sampleCircle(circle)));
+    if (silhouette.length < 3) return [];
+    const points = silhouette.map((point) => `${point.x},${point.y}`).join(" ");
+    return [`<polygon class="virtual-capsule-guide" data-virtual-capsule-guide
+      data-peer-group-id="${escapeXml(group.id)}" points="${points}" />`];
+  }).join("") : "";
+
+  const selectedPeerCapsule = viewState.selectedTarget === "joint"
+    ? visiblePeerGroups.find((group) => group.virtualCapsule
+      && group.jointIds.length === selection.jointIds.length
+      && group.jointIds.every((jointId) => selection.jointIds.includes(jointId)))
+    : undefined;
+  const selectedCapsuleCircles: Array<{
+    capsuleId: string;
+    circle: ProjectedCircle;
+    resize?: { kind: "joint" | "peer"; id: string; axis?: "x" | "y" | "z" };
+  }> = [];
+  if (showJointLayer && selectedPeerCapsule) {
+    for (const jointId of selectedPeerCapsule.jointIds) {
+      selectedCapsuleCircles.push({
+        capsuleId: selectedPeerCapsule.id,
+        circle: projectedJointCircle(jointId),
+        resize: { kind: "peer", id: selectedPeerCapsule.id },
+      });
+    }
+  } else if (showJointLayer && viewState.selectedTarget === "joint") {
+    for (const jointId of selection.jointIds) {
+      const joint = rig.joints.find((candidate) => candidate.id === jointId);
+      const center = joint ? projectJoint(joint.id) : null;
+      const axis = joint?.capsuleFlatAxes?.length === 1 ? joint.capsuleFlatAxes[0] : undefined;
+      for (const circle of projectedJointCapsuleCircles(jointId) ?? []) {
+        const derived = center && Math.hypot(circle.center.x - center.x, circle.center.y - center.y) > 1;
+        selectedCapsuleCircles.push({
+          capsuleId: jointId,
+          circle,
+          ...(derived && axis ? { resize: { kind: "joint" as const, id: jointId, axis } } : {}),
+        });
+      }
+    }
+  }
+  const selectedCapsuleInternals = selectedCapsuleCircles.map(({ capsuleId, circle, resize }) => `
+    <g class="capsule-internal-joint" data-capsule-internal-joint data-capsule-id="${escapeXml(capsuleId)}">
+      <circle class="capsule-internal-sphere" cx="${circle.center.x}" cy="${circle.center.y}" r="${circle.radius}" />
+      <circle class="capsule-internal-center${resize ? " is-resizable" : ""}" cx="${circle.center.x}" cy="${circle.center.y}" r="${resize ? 6 : 3.5}"
+        ${resize ? `data-capsule-resize data-capsule-kind="${resize.kind}" ${resize.kind === "peer"
+          ? `data-peer-group-id="${escapeXml(resize.id)}"`
+          : `data-joint-id="${escapeXml(resize.id)}" data-capsule-axis="${resize.axis}"`}` : ""} />
+    </g>`).join("");
+
   const guides = rig.joints
-    .filter((joint) => (showJointLayer || showAxisLayer) && joint.guideVisible && isGroupVisible(rig, joint.groupId))
+    .filter((joint) => (showJointLayer || showAxisLayer) && !joint.isVirtual
+      && joint.guideVisible && isGroupVisible(rig, joint.groupId))
     .map((joint) => {
       const selectedJoint = viewState.selectedTarget === "joint" && selection.jointIds.includes(joint.id);
       const primaryJoint = viewState.selectedTarget === "joint" && selection.jointId === joint.id;
@@ -778,13 +833,19 @@ export function renderSvgEditor(
         })
         .join("") : "";
 
-      const jointControl = !showJointLayer ? "" : joint.isVirtual
-        ? `<rect class="virtual-joint-hit" x="${world.x - viewRadiusOf(joint.id) * scale}" y="${world.y - viewRadiusOf(joint.id) * scale}" width="${viewRadiusOf(joint.id) * 2 * scale}" height="${viewRadiusOf(joint.id) * 2 * scale}"
-              data-drag-joint data-joint-id="${escapeXml(joint.id)}" />
-           <rect class="virtual-joint-outline" x="${world.x - 5}" y="${world.y - 5}" width="10" height="10" />`
-        : `<circle class="joint-hit" cx="${world.x}" cy="${world.y}" r="${viewRadiusOf(joint.id) * scale}"
-              data-drag-joint data-joint-id="${escapeXml(joint.id)}"${joint.bodyVisible ? "" : " data-hidden-joint"} />
-           <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${viewRadiusOf(joint.id) * scale}" />`;
+      const capsuleCircles = joint.isVirtual ? null : projectedJointCapsuleCircles(joint.id);
+      const capsulePoints = capsuleCircles
+        ? getOuterPoints(capsuleCircles.flatMap((circle) => sampleCircle(circle)))
+            .map((point) => `${point.x},${point.y}`).join(" ")
+        : "";
+      const jointControl = !showJointLayer ? "" : capsulePoints
+          ? `<polygon class="joint-hit joint-capsule-hit" points="${capsulePoints}"
+                data-drag-joint data-joint-id="${escapeXml(joint.id)}"${joint.bodyVisible ? "" : " data-hidden-joint"} />
+             <polygon class="joint-outline joint-capsule-outline" data-joint-capsule-guide
+                data-joint-id="${escapeXml(joint.id)}" points="${capsulePoints}" />`
+          : `<circle class="joint-hit" cx="${world.x}" cy="${world.y}" r="${viewRadiusOf(joint.id) * scale}"
+                data-drag-joint data-joint-id="${escapeXml(joint.id)}"${joint.bodyVisible ? "" : " data-hidden-joint"} />
+             <circle class="joint-outline" cx="${world.x}" cy="${world.y}" r="${viewRadiusOf(joint.id) * scale}" />`;
 
       return `
         <g class="joint-guide${selectedJoint ? " is-selected" : ""}" data-guide-joint-id="${escapeXml(joint.id)}">
@@ -866,7 +927,7 @@ export function renderSvgEditor(
     <g data-layer="body" class="${viewState.outlinesVisible ? "show-outlines" : ""}">
       ${renderedBody}
     </g>
-    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${guides}${rotationHandle}${selectionTransform}${peerHandles}${shapeGuides}${polygonDraft}${lineDraft}</g>`;
+    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${virtualCapsuleGuides}${guides}${selectedCapsuleInternals}${rotationHandle}${selectionTransform}${peerHandles}${shapeGuides}${polygonDraft}${lineDraft}</g>`;
 }
 
 function getOuterPoints(points: Point[]): Point[] {

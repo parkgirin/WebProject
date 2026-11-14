@@ -45,6 +45,11 @@ import {
 } from "./rig/pose-interpolation.ts";
 import type { Rig } from "./rig/types.ts";
 import type { EditorSelection, EditorViewState } from "./editor/types.ts";
+import {
+  COMPACT_PORTRAIT_MEDIA,
+  COMPACT_WORKSPACE_MEDIA,
+  getPanelAvoidanceLift,
+} from "./editor/responsive-layout.ts";
 
 export function createApp(container: HTMLDivElement): void {
   const defaultRig = createDefaultRig();
@@ -99,7 +104,7 @@ export function createApp(container: HTMLDivElement): void {
             <button type="button" data-fit-selection title="선택 항목 맞춤" aria-label="선택 항목 맞춤">선택 맞춤</button>
           </div>
           <div class="save-buttons">
-            <button class="save-image-button is-secondary" type="button" data-open-controls>조작 안내</button>
+            <button class="save-image-button is-secondary controls-help-button" type="button" data-open-controls>도움말</button>
             <button class="save-image-button is-secondary" type="button" data-open-preset>저장/불러오기</button>
             <button class="save-image-button" type="button" data-open-model-export>내보내기</button>
           </div>
@@ -193,11 +198,15 @@ export function createApp(container: HTMLDivElement): void {
             <section class="world-transform-panel" data-world-panel aria-label="월드 회전 제어">
               <div class="world-transform-summary">
                 <header><strong>월드 좌표 · 회전</strong></header>
-                <div class="world-axis-guide" aria-label="월드 좌표축과 회전 조작 안내"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg><span class="world-axis-guide-desktop">우클릭 드래그: X/Y<br /><small>Alt+우클릭: Z · Shift: 15°</small></span><span class="world-axis-guide-mobile">드래그: X/Y<br /><small>두 손가락: Z</small></span></div>
-                <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
-                <label class="world-projection-strength"><span>원근 강도</span><input type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength /><input type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength-number aria-label="원근 투영 강도" /></label>
+                <div class="world-axis-guide" aria-label="월드 좌표축"><svg viewBox="0 0 54 42" role="img" aria-label="X 빨강, Y 초록, Z 파랑 월드 축"><circle cx="17" cy="27" r="2.5" fill="#444" /><path d="M17 27 L43 27" class="axis-x" /><text x="45" y="30" class="axis-x">X</text><path d="M17 27 L17 6" class="axis-y" /><text x="14" y="8" class="axis-y">Y</text><path d="M17 27 L6 38" class="axis-z" /><text x="1" y="41" class="axis-z">Z</text></svg></div>
               </div>
-              <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
+              <div class="world-transform-controls">
+                <div class="global-rotation-control">${(["x", "y", "z"] as const).map((axis) => `<label><button type="button" class="world-axis-reset axis-${axis}" data-reset-global-axis="${axis}" title="클릭: −180°~180°로 정리 · 더블클릭: 0° 초기화">${axis.toUpperCase()}축</button><input type="range" min="-180" max="180" step="1" value="${toSignedAngle(state.getGlobalAxisRotation(axis))}" data-global-axis="${axis}" /><span><button type="button" data-step-global-axis="${axis}" data-step-angle="-90">−90</button><input type="number" step="1" value="${state.getGlobalAxisRotation(axis).toFixed(0)}" data-global-axis-number="${axis}" /><button type="button" data-step-global-axis="${axis}" data-step-angle="90">+90</button>°</span></label>`).join("")}</div>
+                <div class="world-perspective-controls">
+                  <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
+                  <label class="world-projection-strength"><span>원근 강도</span><input type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength /><input type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength-number aria-label="원근 투영 강도" /></label>
+                </div>
+              </div>
             </section>
           </div>
           <nav class="mobile-panel-tabs" data-mobile-panel-tabs aria-label="패널 내용 전환">
@@ -244,7 +253,7 @@ export function createApp(container: HTMLDivElement): void {
       </section>
       <dialog class="preset-dialog controls-dialog" data-controls-dialog aria-labelledby="controls-title">
         <div class="preset-dialog-header">
-          <div><span class="eyebrow">CONTROLS</span><h2 id="controls-title">조작 안내</h2></div>
+          <div><span class="eyebrow">HELP</span><h2 id="controls-title">도움말</h2></div>
           <button type="button" class="preview-close-button" data-close-controls aria-label="조작 안내 닫기">×</button>
         </div>
         <div class="controls-dialog-content">
@@ -263,9 +272,14 @@ export function createApp(container: HTMLDivElement): void {
             <dt>좌클릭 / 우클릭</dt><dd>면이나 관절을 한 단계 앞으로 / 뒤로 이동합니다.</dd>
             <dt>Shift + 좌클릭 / 우클릭</dt><dd>맨 앞으로 / 맨 뒤로 이동합니다.</dd>
           </dl></section>
-          <section><h3>화면과 편집</h3><dl>
-            <dt>화면 도구 + 드래그</dt><dd>모델 전체를 화면 기준 X/Y축으로 3D 회전합니다.</dd>
-            <dt>두 손가락 이동 / 핀치 / 비틀기</dt><dd>모바일 화면 도구에서 화면 이동 / 확대·축소 / 모델 Z축 회전을 수행합니다.</dd>
+          <section><h3>월드 회전</h3><dl>
+            <dt>PC · 우클릭 드래그</dt><dd>가로 또는 세로로 드래그해 월드 Y축 또는 X축을 회전합니다. Shift를 누르면 15° 단위로 맞춥니다.</dd>
+            <dt>PC · Alt(Option) + 우클릭</dt><dd>가로로 드래그해 월드 Z축을 회전합니다. Shift를 함께 누르면 15° 단위로 맞춥니다.</dd>
+            <dt>PC · 화면 도구 + 좌클릭</dt><dd>드래그 방향을 따라 월드 X/Y축을 동시에 자유 회전합니다.</dd>
+            <dt>모바일 · 화면 도구 + 한 손가락</dt><dd>드래그 방향을 따라 월드 X/Y축을 회전합니다.</dd>
+            <dt>모바일 · 화면 도구 + 두 손가락</dt><dd>두 손가락 이동은 화면 이동, 핀치는 확대·축소, 비틀기는 월드 Z축 회전입니다.</dd>
+          </dl></section>
+          <section><h3>화면 이동과 편집</h3><dl>
             <dt>휠 / 확대 도구</dt><dd>화면을 확대·축소합니다. 확대 도구는 Shift 클릭으로 축소합니다.</dd>
             <dt>Space + 드래그 / 휠 버튼 드래그</dt><dd>화면을 이동합니다.</dd>
             <dt>Ctrl(⌘) + Z / Ctrl(⌘) + Shift + Z</dt><dd>실행 취소 / 다시 실행합니다.</dd>
@@ -412,7 +426,7 @@ export function createApp(container: HTMLDivElement): void {
   };
   worldPanelToggle.addEventListener("click", () => {
     const visible = worldPanel.hidden;
-    if (visible && window.matchMedia?.("(max-width: 820px), (max-height: 560px)").matches) {
+    if (visible && window.matchMedia?.(COMPACT_WORKSPACE_MEDIA).matches) {
       closeMobileMenus("world");
     }
     setWorldPanelVisible(visible);
@@ -476,11 +490,17 @@ export function createApp(container: HTMLDivElement): void {
   const mobileTimelineButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-timeline]");
   const mobilePanelToggleButton = requireElement<HTMLButtonElement>(container, "[data-toggle-mobile-panel]");
   const mobilePanelTabButtons = [...container.querySelectorAll<HTMLButtonElement>("[data-mobile-panel-tab]")];
+  const mobilePanelTabs = requireElement<HTMLElement>(container, "[data-mobile-panel-tabs]");
+  const mobileHistoryActions = requireElement<HTMLElement>(container, ".mobile-history-actions");
+  const canvasPanel = requireElement<HTMLElement>(container, ".canvas-panel");
+  const canvasActions = requireElement<HTMLElement>(container, ".canvas-actions");
+  const inspectorShell = requireElement<HTMLElement>(container, ".inspector-shell");
+  const interpolationPanel = requireElement<HTMLElement>(container, ".interpolation-panel");
   const toolbox = requireElement<HTMLElement>(container, ".toolbox");
   const toolboxContent = requireElement<HTMLElement>(container, ".toolbox-content");
   const toolboxSections = [...container.querySelectorAll<HTMLDetailsElement>(".toolbox-section")];
-  const compactToolboxQuery = window.matchMedia?.("(max-width: 820px)");
-  const portraitToolboxQuery = window.matchMedia?.("(orientation: portrait) and (max-width: 820px)");
+  const compactToolboxQuery = window.matchMedia?.(COMPACT_WORKSPACE_MEDIA);
+  const portraitToolboxQuery = window.matchMedia?.(COMPACT_PORTRAIT_MEDIA);
   const syncPortraitToolboxTab = () => {
     if (!portraitToolboxQuery?.matches) {
       workspace.style.removeProperty("--portrait-toolbox-tab-top");
@@ -1187,13 +1207,43 @@ export function createApp(container: HTMLDivElement): void {
     mobileInspectorButton.setAttribute("aria-expanded", String(!workspace.classList.contains("is-inspector-collapsed")));
   };
   type MobilePanelId = "settings" | "inspector" | "world" | "timeline";
-  const mobilePanelQuery = window.matchMedia?.(
-    "(orientation: portrait) and (max-width: 820px), (orientation: landscape) and (max-height: 560px) and (max-width: 820px)",
-  );
+  const mobilePanelQuery = window.matchMedia?.(COMPACT_WORKSPACE_MEDIA);
   const mobilePanelButtons: Record<MobilePanelId, HTMLButtonElement> = {
     settings: mobileSettingsButton, inspector: mobileInspectorButton,
     world: mobileWorldButton, timeline: mobileTimelineButton,
   };
+  const bottomPanelCandidates = [canvasActions, inspectorShell, worldPanel, interpolationPanel, mobilePanelTabs];
+  let mobileHistoryPositionFrame: number | null = null;
+  const syncMobileHistoryPosition = () => {
+    mobileHistoryPositionFrame = null;
+    mobileHistoryActions.style.setProperty("--mobile-history-lift", "0px");
+    if (!window.matchMedia?.(COMPACT_WORKSPACE_MEDIA).matches) return;
+
+    const historyRect = mobileHistoryActions.getBoundingClientRect();
+    if (!historyRect.width || !historyRect.height) return;
+    const visiblePanelRects = bottomPanelCandidates.flatMap((panel) => {
+      const style = window.getComputedStyle(panel);
+      if (panel.hidden || style.display === "none" || style.visibility === "hidden") return [];
+      return [panel.getBoundingClientRect()];
+    });
+    const lift = getPanelAvoidanceLift(historyRect, visiblePanelRects);
+    mobileHistoryActions.style.setProperty("--mobile-history-lift", `${lift}px`);
+  };
+  const scheduleMobileHistoryPosition = () => {
+    if (mobileHistoryPositionFrame !== null) return;
+    mobileHistoryPositionFrame = window.requestAnimationFrame(syncMobileHistoryPosition);
+  };
+  window.addEventListener("resize", scheduleMobileHistoryPosition);
+  if (typeof MutationObserver !== "undefined") {
+    new MutationObserver(scheduleMobileHistoryPosition).observe(workspace, {
+      attributes: true, attributeFilter: ["class", "data-mobile-panel"],
+    });
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    const panelResizeObserver = new ResizeObserver(scheduleMobileHistoryPosition);
+    for (const element of [canvasPanel, mobileHistoryActions, ...bottomPanelCandidates]) panelResizeObserver.observe(element);
+  }
+  scheduleMobileHistoryPosition();
   let lastMobilePanel: MobilePanelId = "settings";
   const setMobilePanel = (next: MobilePanelId | null): boolean => {
     if (!mobilePanelQuery?.matches) return false;
@@ -1236,16 +1286,25 @@ export function createApp(container: HTMLDivElement): void {
     mobileToolboxOpenButton.setAttribute("aria-expanded", String(!hidden));
     window.requestAnimationFrame(syncPortraitToolboxTab);
   };
-  mobileToolboxButton.addEventListener("click", () => {
-    setToolboxHidden(!workspace.classList.contains("is-toolbox-hidden"));
-  });
-  mobileToolboxOpenButton.addEventListener("click", () => {
-    setToolboxHidden(!workspace.classList.contains("is-toolbox-hidden"));
-  });
+  const toggleMobileToolbox = () => {
+    const opening = workspace.classList.contains("is-toolbox-hidden");
+    if (opening && compactToolboxQuery?.matches) {
+      if (workspace.dataset.mobilePanel === "settings") setMobilePanel(null);
+      workspace.classList.remove("is-mobile-settings-open");
+      mobileSettingsButton.setAttribute("aria-expanded", "false");
+    }
+    setToolboxHidden(!opening);
+  };
+  mobileToolboxButton.addEventListener("click", toggleMobileToolbox);
+  mobileToolboxOpenButton.addEventListener("click", toggleMobileToolbox);
   mobileSettingsButton.addEventListener("click", () => {
-    if (setMobilePanel("settings")) return;
-    if (portraitToolboxQuery?.matches) setToolboxHidden(true);
+    if (mobilePanelQuery?.matches) {
+      if (workspace.dataset.mobilePanel !== "settings") setToolboxHidden(true);
+      setMobilePanel("settings");
+      return;
+    }
     const open = !workspace.classList.contains("is-mobile-settings-open");
+    if (open && compactToolboxQuery?.matches) setToolboxHidden(true);
     closeMobileMenus("settings");
     workspace.classList.toggle("is-mobile-settings-open", open);
     mobileSettingsButton.setAttribute("aria-expanded", String(open));
@@ -1281,7 +1340,7 @@ export function createApp(container: HTMLDivElement): void {
     workspace.classList.remove("is-mobile-settings-open");
     mobileSettingsButton.setAttribute("aria-expanded", "false");
   });
-  const compactLayoutQuery = window.matchMedia?.("(max-width: 820px), (max-height: 560px)");
+  const compactLayoutQuery = window.matchMedia?.(COMPACT_WORKSPACE_MEDIA);
   const applyCompactLayoutDefaults = () => {
     workspace.classList.remove(
       "is-mobile-panel-open",
