@@ -162,7 +162,7 @@ export function createApp(container: HTMLDivElement): void {
               </div>
               <div class="canvas-actions">
                 <span>관절 ${state.rig.joints.filter((joint) => !joint.isVirtual).length} · 면 ${state.rig.faces.length} · 도형 <b data-shape-count>0</b></span>
-                <label class="avatar-preset-control">체형
+                <label class="avatar-preset-control">인체 체형
                   <select data-avatar-preset aria-label="아바타 체형 프리셋">
                     ${AVATAR_PROPORTION_PRESETS.map((preset) => `<option value="${preset.id}">${preset.name}</option>`).join("")}
                   </select>
@@ -171,6 +171,7 @@ export function createApp(container: HTMLDivElement): void {
                   <button type="button" data-delete-avatar-preset disabled title="선택한 사용자 체형 프리셋 삭제">−</button>
                 </label>
                 <span class="avatar-preset-status" data-avatar-preset-status aria-live="polite"></span>
+                <button class="experimental-entry-button" type="button" data-open-non-human-lab>비인체 실험실</button>
                 <label class="avatar-preset-control pose-preset-control">포즈
                   <select data-pose-preset aria-label="사용자 포즈 프리셋"><option value="">프리셋 없음</option></select>
                   <button type="button" data-apply-pose-preset disabled>적용</button>
@@ -334,6 +335,19 @@ export function createApp(container: HTMLDivElement): void {
         </div><p class="preset-status" data-preset-import-status></p></div>
         <div class="preset-dialog-footer"><span>선택한 데이터만 현재 작업에 적용됩니다.</span><button class="save-image-button" type="button" data-confirm-preset-import>적용</button></div>
       </dialog>
+      <dialog class="preset-dialog experimental-rig-dialog" data-non-human-lab-dialog aria-labelledby="non-human-lab-title">
+        <div class="preset-dialog-header">
+          <div><span class="eyebrow">EXPERIMENTAL</span><h2 id="non-human-lab-title">비인체 실험실</h2></div>
+          <button type="button" class="preview-close-button" data-close-non-human-lab aria-label="비인체 실험실 닫기">×</button>
+        </div>
+        <div class="preset-dialog-content">
+          <p class="experimental-notice"><strong>실험적 기능</strong> — 비인체 리그는 관절 구조를 통째로 교체합니다. 현재 조작, 포즈, 저장 호환성이 완전하지 않으며, 인체 에셋 작업을 우선합니다.</p>
+          <label class="field-label" for="non-human-preset">비인체 리그</label>
+          <select id="non-human-preset" data-non-human-preset aria-label="비인체 실험 리그"></select>
+          <p class="preset-status" data-non-human-preset-status aria-live="polite"></p>
+        </div>
+        <div class="preset-dialog-footer"><span>적용하면 현재 리그가 비인체 구조로 교체됩니다.</span><button class="save-image-button" type="button" data-apply-non-human-preset>실험 적용</button></div>
+      </dialog>
     </main>
   `;
 
@@ -384,6 +398,12 @@ export function createApp(container: HTMLDivElement): void {
   const worldPanel = requireElement<HTMLElement>(container, "[data-world-panel]");
   const worldPanelToggle = requireElement<HTMLButtonElement>(container, "[data-toggle-world-panel]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
+  const openNonHumanLabButton = requireElement<HTMLButtonElement>(container, "[data-open-non-human-lab]");
+  const nonHumanLabDialog = requireElement<HTMLDialogElement>(container, "[data-non-human-lab-dialog]");
+  const closeNonHumanLabButton = requireElement<HTMLButtonElement>(container, "[data-close-non-human-lab]");
+  const nonHumanPresetSelect = requireElement<HTMLSelectElement>(container, "[data-non-human-preset]");
+  const applyNonHumanPresetButton = requireElement<HTMLButtonElement>(container, "[data-apply-non-human-preset]");
+  const nonHumanPresetStatus = requireElement<HTMLElement>(container, "[data-non-human-preset-status]");
   const setWorldPanelVisible = (visible: boolean) => {
     worldPanel.hidden = !visible;
     workspace.classList.toggle("is-world-panel-open", visible);
@@ -532,6 +552,7 @@ export function createApp(container: HTMLDivElement): void {
   }, 0);
   let bodyPresets: UserBodyPreset[] = restoredWorkspace?.bodyPresets ?? [];
   let selectedBodyPresetId: string = DEFAULT_AVATAR_PRESET_ID;
+  let selectedNonHumanPresetId = FILE_BODY_PRESETS.find((preset) => preset.rig)?.id ?? "";
   let bodyPresetSequence = bodyPresets.reduce((max, preset) => {
     const match = /^user-body-(\d+)$/.exec(preset.id);
     return Math.max(max, match ? Number(match[1]) : 0);
@@ -689,23 +710,26 @@ export function createApp(container: HTMLDivElement): void {
       : undefined;
     paintColorInput.value = activePalette?.color ?? viewState.paintColor;
     paletteGrid.innerHTML = state.rig.palette.map((entry) => `<button type="button" class="palette-swatch${entry.id === viewState.paintPaletteId ? " is-selected" : ""}" style="--palette-color:${entry.color}" data-palette-id="${entry.id}" title="${entry.color}"><span class="sr-only">${entry.color}</span></button>`).join("");
-    const bodyPresetOption = (preset: UserBodyPreset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(
-      preset.rig ? `⚠ ${preset.name} · 인체 비호환` : preset.name,
-    )}</option>`;
+    const humanBodyPresets = [...FILE_BODY_PRESETS, ...bodyPresets].filter((preset) => !preset.rig);
+    const nonHumanPresets = [...FILE_BODY_PRESETS, ...bodyPresets].filter((preset) => preset.rig);
+    const bodyPresetOption = (preset: UserBodyPreset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`;
     avatarPresetSelect.innerHTML = `${AVATAR_PROPORTION_PRESETS
-      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${FILE_BODY_PRESETS
-      .map(bodyPresetOption).join("")}${bodyPresets.map(bodyPresetOption).join("")}`;
-    avatarPresetSelect.value = [...AVATAR_PROPORTION_PRESETS, ...FILE_BODY_PRESETS, ...bodyPresets]
+      .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${humanBodyPresets
+      .map(bodyPresetOption).join("")}`;
+    avatarPresetSelect.value = [...AVATAR_PROPORTION_PRESETS, ...humanBodyPresets]
       .some((preset) => preset.id === selectedBodyPresetId)
       ? selectedBodyPresetId : DEFAULT_AVATAR_PRESET_ID;
-    const selectedStructuralBody = [...FILE_BODY_PRESETS, ...bodyPresets]
-      .find((preset) => preset.id === avatarPresetSelect.value)?.rig !== undefined;
-    avatarPresetSelect.classList.toggle("is-warning", selectedStructuralBody);
-    avatarPresetSelect.title = selectedStructuralBody
-      ? "주의: 전체 관절 구조를 교체하며 인체 포즈와 호환되지 않습니다."
-      : "";
-    avatarPresetStatus.classList.toggle("is-warning", selectedStructuralBody);
+    avatarPresetSelect.classList.remove("is-warning");
+    avatarPresetSelect.title = "";
+    avatarPresetStatus.classList.remove("is-warning");
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === avatarPresetSelect.value);
+    nonHumanPresetSelect.innerHTML = nonHumanPresets.length
+      ? nonHumanPresets.map(bodyPresetOption).join("")
+      : `<option value="">등록된 비인체 리그 없음</option>`;
+    nonHumanPresetSelect.disabled = !nonHumanPresets.length;
+    applyNonHumanPresetButton.disabled = !nonHumanPresets.length;
+    nonHumanPresetSelect.value = nonHumanPresets.some((preset) => preset.id === selectedNonHumanPresetId)
+      ? selectedNonHumanPresetId : nonHumanPresets[0]?.id ?? "";
     posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option><option value="${BUILTIN_LIMB_SPREAD_POSE_ID}">${BUILTIN_LIMB_SPREAD_POSE_NAME}</option>${FILE_POSE_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${posePresets
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
@@ -1369,7 +1393,7 @@ export function createApp(container: HTMLDivElement): void {
   applyAvatarPresetButton.addEventListener("click", () => {
     const builtIn = AVATAR_PROPORTION_PRESETS.find((candidate) => candidate.id === selectedBodyPresetId);
     const userPreset = [...FILE_BODY_PRESETS, ...bodyPresets]
-      .find((candidate) => candidate.id === selectedBodyPresetId);
+      .find((candidate) => candidate.id === selectedBodyPresetId && !candidate.rig);
     if (builtIn) {
       if (isHumanRig(state.rig)) applyAvatarProportionPreset(state, builtIn.id);
       else {
@@ -1381,11 +1405,8 @@ export function createApp(container: HTMLDivElement): void {
       avatarPresetStatus.textContent = `${builtIn.name} 적용됨`;
     } else if (userPreset) {
       try {
-        if (userPreset.rig) prepareRigReplacement(userPreset.rig);
         applyUserBodyPreset(state, userPreset);
-        avatarPresetStatus.textContent = userPreset.rig
-          ? `⚠ ${userPreset.name} 적용됨 · 인체 포즈와 호환되지 않음`
-          : `${userPreset.name} 적용됨`;
+        avatarPresetStatus.textContent = `${userPreset.name} 적용됨`;
       } catch (error) {
         avatarPresetStatus.textContent = error instanceof Error ? error.message : "체형 프리셋을 적용하지 못했습니다.";
       }
@@ -1394,14 +1415,13 @@ export function createApp(container: HTMLDivElement): void {
   avatarPresetSelect.addEventListener("change", () => {
     selectedBodyPresetId = avatarPresetSelect.value;
     deleteAvatarPresetButton.disabled = !bodyPresets.some((preset) => preset.id === selectedBodyPresetId);
-    const selectedPreset = [...FILE_BODY_PRESETS, ...bodyPresets]
-      .find((preset) => preset.id === selectedBodyPresetId);
-    avatarPresetStatus.classList.toggle("is-warning", selectedPreset?.rig !== undefined);
-    avatarPresetStatus.textContent = selectedPreset?.rig
-      ? "⚠ 전체 관절 구조를 교체하며 기존 인체 포즈와 호환되지 않습니다."
-      : "";
+    avatarPresetStatus.textContent = "";
   });
   addAvatarPresetButton.addEventListener("click", () => {
+    if (!isHumanRig(state.rig)) {
+      avatarPresetStatus.textContent = "비인체 리그 저장은 실험실 기능 정비 후 지원합니다. 인체 에셋 작업을 우선합니다.";
+      return;
+    }
     const name = window.prompt("새 체형 프리셋 이름", `체형 ${bodyPresets.length + 1}`)?.trim();
     if (!name) return;
     let id = `user-body-${++bodyPresetSequence}`;
@@ -1422,6 +1442,30 @@ export function createApp(container: HTMLDivElement): void {
     selectedBodyPresetId = DEFAULT_AVATAR_PRESET_ID;
     avatarPresetStatus.textContent = `${preset.name} 삭제됨`;
     render();
+  });
+  openNonHumanLabButton.addEventListener("click", () => {
+    nonHumanPresetStatus.textContent = "";
+    nonHumanLabDialog.showModal();
+  });
+  closeNonHumanLabButton.addEventListener("click", () => nonHumanLabDialog.close());
+  nonHumanPresetSelect.addEventListener("change", () => {
+    selectedNonHumanPresetId = nonHumanPresetSelect.value;
+    nonHumanPresetStatus.textContent = "실험적 리그입니다. 인체 포즈와 조작 흐름은 보장되지 않습니다.";
+  });
+  applyNonHumanPresetButton.addEventListener("click", () => {
+    const preset = [...FILE_BODY_PRESETS, ...bodyPresets]
+      .find((candidate) => candidate.id === selectedNonHumanPresetId && candidate.rig);
+    if (!preset?.rig) return;
+    try {
+      prepareRigReplacement(preset.rig);
+      applyUserBodyPreset(state, preset);
+      selectedBodyPresetId = DEFAULT_AVATAR_PRESET_ID;
+      nonHumanPresetStatus.textContent = `⚠ ${preset.name} 적용됨 · 실험적 비인체 리그`;
+      avatarPresetStatus.textContent = "비인체 실험 리그 적용됨";
+      render();
+    } catch (error) {
+      nonHumanPresetStatus.textContent = error instanceof Error ? error.message : "비인체 리그를 적용하지 못했습니다.";
+    }
   });
   posePresetSelect.addEventListener("change", () => {
     selectedPosePresetId = posePresetSelect.value;

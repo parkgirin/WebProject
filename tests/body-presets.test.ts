@@ -75,7 +75,7 @@ test("a structural quadruped preset replaces the human hierarchy and supports un
   assert.ok(state.rig.joints.some((joint) => joint.id === "tail-tip"));
   assert.ok(state.rig.joints.some((joint) => joint.id === "front-left-paw"));
   assert.ok(state.rig.joints.some((joint) => joint.id === "hind-right-paw"));
-  assert.equal(state.rig.faces.filter((face) => face.cameraFacingLimb).length, 14);
+  assert.equal(state.rig.faces.filter((face) => face.cameraFacingLimb).length, 17);
   assert.ok(createUserBodyPreset("quadruped-copy", "사족 복사", state.rig).rig);
 
   state.undo();

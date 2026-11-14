@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="520" viewBox="0 0 1024 520" role="img" aria-labelledby="title desc">
   <title id="title">토끼 정면과 측면 체형</title>
-  <desc id="desc">재배치한 관절 위치의 원과 사각형 링크만으로 구성한 토끼의 정면 및 측면 실루엣. 뒷다리는 골반, 무릎, 비절, 발 순서로 배치한다.</desc>
+  <desc id="desc">한국 집토끼의 작고 둥근 체형을 기준으로, 원형 관절과 사각형 링크만으로 구성한 정면 및 측면 실루엣. 뒷다리는 골반, 무릎, 비절, 발 순서로 배치한다.</desc>
   <defs>
     <style>
       .background { fill: #fbfaf7; }
       .panel { fill: #ffffff; stroke: #ded9d0; stroke-width: 1.5; }
       .link { fill: #dca27b; stroke: #6f5544; stroke-width: 2.5; }
       .extremity { fill: #cf9169; stroke: #6f5544; stroke-width: 2.5; }
+      .tail { fill: #efd0bb; stroke: #6f5544; stroke-width: 2.5; }
       .ear { fill: #efd0bb; stroke: #8e7a6d; stroke-width: 2; stroke-dasharray: 7 6; }
       .joint { fill: #efd0bb; stroke: #6f5544; stroke-width: 2.5; }
       .axis { fill: none; stroke: #d8d2ca; stroke-width: 1.5; stroke-dasharray: 5 7; }
@@ -21,12 +22,12 @@
   <rect class="panel" x="500" y="24" width="500" height="472" rx="18" />
 
   <text class="label" x="254" y="60" text-anchor="middle">정면</text>
-  <text class="note" x="254" y="84" text-anchor="middle">좌우 대칭 · 넓은 뒷다리</text>
+  <text class="note" x="254" y="84" text-anchor="middle">한국 집토끼 · 둥근 몸통 · 짧은 앞다리</text>
   <line class="axis" x1="254" y1="92" x2="254" y2="456" />
   <line class="ground" x1="80" y1="452" x2="428" y2="452" />
 
-  <ellipse class="ear" cx="224" cy="146" rx="18" ry="58" transform="rotate(-8 224 146)" />
-  <ellipse class="ear" cx="284" cy="146" rx="18" ry="58" transform="rotate(8 284 146)" />
+  <ellipse class="ear" cx="224" cy="154" rx="20" ry="50" transform="rotate(-8 224 154)" />
+  <ellipse class="ear" cx="284" cy="154" rx="20" ry="50" transform="rotate(8 284 154)" />
   <g aria-label="정면 관절 연결 실루엣">
     <rect class="link" x="242" y="202" width="24" height="99"/><rect class="link" x="210" y="269" width="24" height="121"/><rect class="link" x="274" y="269" width="24" height="121"/>
     <rect class="link" x="0" y="-22" width="68" height="44" transform="translate(254 301) rotate(160)"/><rect class="link" x="0" y="-16" width="51" height="32" transform="translate(190 325) rotate(118)"/><rect class="link" x="0" y="-20" width="35" height="40" transform="translate(166 370) rotate(84)"/>
@@ -45,11 +46,12 @@
   </g>
 
   <text class="label" x="750" y="60" text-anchor="middle">측면</text>
-  <text class="note" x="750" y="84" text-anchor="middle">수평 몸통 · 골반 → 무릎 → 비절 → 발</text>
+  <text class="note" x="750" y="84" text-anchor="middle">낮고 둥근 몸통 · 작은 구형 꼬리 · 골반 → 무릎 → 비절 → 발</text>
   <line class="ground" x1="534" y1="452" x2="966" y2="452" />
 
-  <ellipse class="ear" cx="852" cy="146" rx="18" ry="65" transform="rotate(14 852 146)" />
-  <ellipse class="ear" cx="886" cy="151" rx="16" ry="58" transform="rotate(24 886 151)" />
+  <ellipse class="ear" cx="852" cy="154" rx="20" ry="55" transform="rotate(14 852 154)" />
+  <ellipse class="ear" cx="886" cy="158" rx="18" ry="50" transform="rotate(24 886 158)" />
+  <circle class="tail" cx="620" cy="310" r="23"/>
   <g aria-label="측면 관절 연결 실루엣">
     <rect class="link" x="0" y="-24" width="64" height="48" transform="translate(858 232) rotate(139)"/><rect class="link" x="0" y="-32" width="47" height="64" transform="translate(810 274) rotate(159)"/><rect class="link" x="0" y="-38" width="47" height="76" transform="translate(766 291) rotate(165)"/>
     <rect class="link" x="0" y="-12" width="30" height="24" transform="translate(810 274) rotate(60)"/><rect class="link" x="813" y="300" width="24" height="94"/>
