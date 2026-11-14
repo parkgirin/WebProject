@@ -1173,10 +1173,15 @@ export class RigState {
     const anchorWorld = getJointWorldTransform(this.rig, anchor.id);
     const dx = movingWorld.x - anchorWorld.x;
     const dy = movingWorld.y - anchorWorld.y;
-    const current = Math.hypot(dx, dy);
+    const dz = moving.z - anchor.z;
+    const current = Math.hypot(dx, dy, dz);
     const directionX = current > 1e-9 ? dx / current : 1;
     const directionY = current > 1e-9 ? dy / current : 0;
+    const directionZ = current > 1e-9 ? dz / current : 0;
     this.moveJoint(moving.id, anchorWorld.x + directionX * distance, anchorWorld.y + directionY * distance);
+    const previousZ = moving.z;
+    moving.z = Math.min(100, Math.max(-100, anchor.z + directionZ * distance));
+    this.translateDescendantDepths(moving.id, moving.z - previousZ);
   }
 
   /** Changes a body-type distance while retaining the current pose's distance percentage. */
@@ -1188,6 +1193,15 @@ export class RigState {
     const fallback = Math.hypot(joint.x, joint.y) || 1;
     const percent = this.getJointDistancePercent(joint.id);
     joint.baseDistance = distance;
+    const parent = this.getJoint(joint.parentJointId);
+    joint.baseOffset ??= { x: joint.x, y: joint.y, z: joint.z - parent.z };
+    const restLength = Math.hypot(joint.baseOffset.x, joint.baseOffset.y);
+    const restDirectionX = restLength > 1e-9 ? joint.baseOffset.x / restLength
+      : current > 1e-9 ? joint.x / current : 1;
+    const restDirectionY = restLength > 1e-9 ? joint.baseOffset.y / restLength
+      : current > 1e-9 ? joint.y / current : 0;
+    joint.baseOffset.x = restDirectionX * distance;
+    joint.baseOffset.y = restDirectionY * distance;
     joint.x = (current > 1e-9 ? joint.x / current : joint.x / fallback) * distance * percent / 100;
     joint.y = (current > 1e-9 ? joint.y / current : joint.y / fallback) * distance * percent / 100;
     this.alignDirectConnectionAxes(joint.id);
@@ -1196,22 +1210,35 @@ export class RigState {
 
   public getJointDistancePercent(jointId: string): number {
     const joint = this.getJoint(jointId);
-    const baseDistance = joint.baseDistance;
-    if (!joint.parentJointId || !(baseDistance && baseDistance > 1e-9)) return 100;
-    return Math.hypot(joint.x, joint.y) / baseDistance * 100;
+    if (!joint.parentJointId) return 100;
+    const parent = this.getJoint(joint.parentJointId);
+    const rest = joint.baseOffset;
+    const baseDistance = rest
+      ? Math.hypot(rest.x, rest.y, rest.z)
+      : joint.baseDistance;
+    if (!(baseDistance && baseDistance > 1e-9)) return 100;
+    return Math.hypot(joint.x, joint.y, joint.z - parent.z) / baseDistance * 100;
   }
 
   public setJointDistancePercent(jointId: string, percent: number): void {
     if (!Number.isFinite(percent) || percent < 0 || percent > 300) return;
     const joint = this.getJoint(jointId);
-    const baseDistance = joint.baseDistance;
-    if (!joint.parentJointId || !(baseDistance && baseDistance > 0)) return;
-    const current = Math.hypot(joint.x, joint.y);
+    if (!joint.parentJointId) return;
+    const parent = this.getJoint(joint.parentJointId);
+    const rest = joint.baseOffset;
+    const baseDistance = rest ? Math.hypot(rest.x, rest.y, rest.z) : joint.baseDistance;
+    if (!(baseDistance && baseDistance > 0)) return;
+    const currentZ = joint.z - parent.z;
+    const current = Math.hypot(joint.x, joint.y, currentZ);
     const directionX = current > 1e-9 ? joint.x / current : 1;
     const directionY = current > 1e-9 ? joint.y / current : 0;
+    const directionZ = current > 1e-9 ? currentZ / current : 0;
     joint.distancePercent = percent;
     joint.x = directionX * baseDistance * percent / 100;
     joint.y = directionY * baseDistance * percent / 100;
+    const previousZ = joint.z;
+    joint.z = Math.min(100, Math.max(-100, parent.z + directionZ * baseDistance * percent / 100));
+    this.translateDescendantDepths(joint.id, joint.z - previousZ);
     this.alignDirectConnectionAxes(joint.id);
     this.notify();
   }
@@ -1221,7 +1248,8 @@ export class RigState {
     if (!group || group.jointIds.length !== 2) return null;
     const first = getJointWorldTransform(this.rig, group.jointIds[0]);
     const second = getJointWorldTransform(this.rig, group.jointIds[1]);
-    return Math.hypot(second.x - first.x, second.y - first.y);
+    return Math.hypot(second.x - first.x, second.y - first.y,
+      this.getJoint(group.jointIds[1]).z - this.getJoint(group.jointIds[0]).z);
   }
 
   /** Set a two-member peer distance symmetrically, preserving its midpoint and pivot offset. */
@@ -1233,15 +1261,48 @@ export class RigState {
     const second = this.getJoint(group.jointIds[1]);
     const firstWorld = getJointWorldTransform(this.rig, first.id);
     const secondWorld = getJointWorldTransform(this.rig, second.id);
-    const midpoint = { x: (firstWorld.x + secondWorld.x) / 2, y: (firstWorld.y + secondWorld.y) / 2 };
+    const midpoint = { x: (firstWorld.x + secondWorld.x) / 2, y: (firstWorld.y + secondWorld.y) / 2,
+      z: (first.z + second.z) / 2 };
     const dx = secondWorld.x - firstWorld.x;
     const dy = secondWorld.y - firstWorld.y;
-    const current = Math.hypot(dx, dy);
+    const dz = second.z - first.z;
+    const current = Math.hypot(dx, dy, dz);
     const directionX = current > 1e-9 ? dx / current : 1;
     const directionY = current > 1e-9 ? dy / current : 0;
+    const directionZ = current > 1e-9 ? dz / current : 0;
     const half = distance / 2;
     this.setJointWorldPosition(first, midpoint.x - directionX * half, midpoint.y - directionY * half);
     this.setJointWorldPosition(second, midpoint.x + directionX * half, midpoint.y + directionY * half);
+    const firstPreviousZ = first.z;
+    const secondPreviousZ = second.z;
+    first.z = Math.min(100, Math.max(-100, midpoint.z - directionZ * half));
+    second.z = Math.min(100, Math.max(-100, midpoint.z + directionZ * half));
+    this.translateDescendantDepths(first.id, first.z - firstPreviousZ);
+    this.translateDescendantDepths(second.id, second.z - secondPreviousZ);
+    if (first.parentJointId === second.parentJointId) {
+      first.baseOffset ??= { x: first.x, y: first.y, z: 0 };
+      second.baseOffset ??= { x: second.x, y: second.y, z: 0 };
+      const restMidpoint = {
+        x: (first.baseOffset.x + second.baseOffset.x) / 2,
+        y: (first.baseOffset.y + second.baseOffset.y) / 2,
+        z: (first.baseOffset.z + second.baseOffset.z) / 2,
+      };
+      const restDx = second.baseOffset.x - first.baseOffset.x;
+      const restDy = second.baseOffset.y - first.baseOffset.y;
+      const restDz = second.baseOffset.z - first.baseOffset.z;
+      const restDistance = Math.hypot(restDx, restDy, restDz);
+      const restDirectionX = restDistance > 1e-9 ? restDx / restDistance : directionX;
+      const restDirectionY = restDistance > 1e-9 ? restDy / restDistance : directionY;
+      const restDirectionZ = restDistance > 1e-9 ? restDz / restDistance : directionZ;
+      first.baseOffset.x = restMidpoint.x - restDirectionX * half;
+      first.baseOffset.y = restMidpoint.y - restDirectionY * half;
+      first.baseOffset.z = restMidpoint.z - restDirectionZ * half;
+      second.baseOffset.x = restMidpoint.x + restDirectionX * half;
+      second.baseOffset.y = restMidpoint.y + restDirectionY * half;
+      second.baseOffset.z = restMidpoint.z + restDirectionZ * half;
+      first.baseDistance = Math.hypot(first.baseOffset.x, first.baseOffset.y, first.baseOffset.z);
+      second.baseDistance = Math.hypot(second.baseOffset.x, second.baseOffset.y, second.baseOffset.z);
+    }
     this.alignDirectConnectionAxes(first.id);
     this.alignDirectConnectionAxes(second.id);
     this.notify();
@@ -1672,6 +1733,9 @@ export class RigState {
     const poseOffset = joint.z - (joint.baseZ ?? legacyBaseZ);
     joint.baseZ = z;
     joint.z = Math.min(100, Math.max(-100, z + poseOffset));
+    const parent = joint.parentJointId ? this.getJoint(joint.parentJointId) : null;
+    joint.baseOffset ??= { x: joint.x, y: joint.y, z: 0 };
+    joint.baseOffset.z = z - (parent?.baseZ ?? parent?.z ?? 0);
     this.notify();
   }
 

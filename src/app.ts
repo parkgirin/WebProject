@@ -2,15 +2,18 @@ import { createDefaultRig } from "./rig/default-rig.ts";
 import { getArtShapeVertexPoint } from "./rig/geometry.ts";
 import {
   applyAvatarProportionPreset,
+  applyArmsDownPose,
+  applyBodyRestPose,
   applyLimbSpreadPose,
-  applyTPose,
   applyUserBodyPreset,
   applyUserPosePreset,
   AVATAR_PROPORTION_PRESETS,
+  BUILTIN_ARMS_DOWN_POSE_ID,
+  BUILTIN_ARMS_DOWN_POSE_NAME,
+  BUILTIN_BODY_REST_POSE_ID,
+  BUILTIN_BODY_REST_POSE_NAME,
   BUILTIN_LIMB_SPREAD_POSE_ID,
   BUILTIN_LIMB_SPREAD_POSE_NAME,
-  BUILTIN_T_POSE_ID,
-  BUILTIN_T_POSE_NAME,
   createUserBodyPreset,
   createUserPosePreset,
   DEFAULT_AVATAR_PRESET_ID,
@@ -26,6 +29,13 @@ import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./e
 import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
 import { applyRigPreset, createRigPreset, isHumanRig, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
+import {
+  createProjectDocument,
+  materializeProjectAnimations,
+  materializeProjectRig,
+  parseProjectDocument,
+  serializeProjectDocument,
+} from "./storage/project-document.ts";
 import {
   createWorkspaceCache,
   createWorkspaceSourceRevision,
@@ -319,8 +329,8 @@ export function createApp(container: HTMLDivElement): void {
           <button type="button" class="preview-close-button" data-close-preset aria-label="저장과 불러오기 닫기">×</button>
         </div>
         <div class="preset-dialog-content">
-          <p>저장할 데이터 범위를 선택합니다. 파일을 불러온 뒤에는 별도 창에서 적용 범위를 다시 선택합니다.</p>
-          <h3 class="preset-section-title">저장 포함 항목</h3>
+          <p>프로젝트 파일은 현재 모델과 애니메이션을 함께 보관합니다. 부분 프리셋은 선택한 데이터만 다른 인체 모델에 적용할 때 사용합니다.</p>
+          <h3 class="preset-section-title">부분 프리셋 포함 항목</h3>
           <div class="preset-part-list">
             <label><input type="checkbox" data-preset-pose checked /> <span><strong>포즈</strong><small>관절 위치와 회전, 축선 각도</small></span></label>
             <label><input type="checkbox" data-preset-proportions checked /> <span><strong>비율</strong><small>관절 크기와 부모 기준 거리</small></span></label>
@@ -331,10 +341,11 @@ export function createApp(container: HTMLDivElement): void {
           <p class="hint" data-workspace-cache-status aria-live="polite">작업 내용은 이 브라우저에 자동 저장됩니다.</p>
         </div>
         <div class="preset-dialog-footer">
-          <span>형식: Pose Mesh Editor JSON v2 · human-v1</span>
+          <span>프로젝트 v3 · 부분 프리셋 v2</span>
           <div class="save-buttons">
-            <button class="save-image-button is-secondary" type="button" data-load-preset>파일 불러오기</button>
-            <button class="save-image-button" type="button" data-save-preset>JSON 저장</button>
+            <button class="save-image-button is-secondary" type="button" data-load-preset>JSON 불러오기</button>
+            <button class="save-image-button is-secondary" type="button" data-save-preset>부분 프리셋 저장</button>
+            <button class="save-image-button" type="button" data-save-project>프로젝트 저장</button>
           </div>
           <input type="file" accept="application/json,.json" data-preset-file hidden />
         </div>
@@ -388,6 +399,7 @@ export function createApp(container: HTMLDivElement): void {
   const presetDialog = requireElement<HTMLDialogElement>(container, "[data-preset-dialog]");
   const closePresetButton = requireElement<HTMLButtonElement>(container, "[data-close-preset]");
   const savePresetButton = requireElement<HTMLButtonElement>(container, "[data-save-preset]");
+  const saveProjectButton = requireElement<HTMLButtonElement>(container, "[data-save-project]");
   const loadPresetButton = requireElement<HTMLButtonElement>(container, "[data-load-preset]");
   const presetFileInput = requireElement<HTMLInputElement>(container, "[data-preset-file]");
   const presetImportDialog = requireElement<HTMLDialogElement>(container, "[data-preset-import-dialog]");
@@ -565,7 +577,7 @@ export function createApp(container: HTMLDivElement): void {
   let posePlaybackFrameRemainder = 0;
   let draggedPoseKeyId: string | null = null;
   let posePresets: UserPosePreset[] = restoredWorkspace?.posePresets ?? [];
-  let selectedPosePresetId = BUILTIN_T_POSE_ID;
+  let selectedPosePresetId = BUILTIN_BODY_REST_POSE_ID;
   let posePresetSequence = posePresets.reduce((max, preset) => {
     const match = /^user-pose-(\d+)$/.exec(preset.id);
     return Math.max(max, match ? Number(match[1]) : 0);
@@ -750,13 +762,14 @@ export function createApp(container: HTMLDivElement): void {
     applyNonHumanPresetButton.disabled = !nonHumanPresets.length;
     nonHumanPresetSelect.value = nonHumanPresets.some((preset) => preset.id === selectedNonHumanPresetId)
       ? selectedNonHumanPresetId : nonHumanPresets[0]?.id ?? "";
-    posePresetSelect.innerHTML = `<option value="${BUILTIN_T_POSE_ID}">${BUILTIN_T_POSE_NAME}</option><option value="${BUILTIN_LIMB_SPREAD_POSE_ID}">${BUILTIN_LIMB_SPREAD_POSE_NAME}</option>${FILE_POSE_PRESETS
+    posePresetSelect.innerHTML = `<option value="${BUILTIN_BODY_REST_POSE_ID}">${BUILTIN_BODY_REST_POSE_NAME}</option><option value="${BUILTIN_ARMS_DOWN_POSE_ID}">${BUILTIN_ARMS_DOWN_POSE_NAME}</option><option value="${BUILTIN_LIMB_SPREAD_POSE_ID}">${BUILTIN_LIMB_SPREAD_POSE_NAME}</option>${FILE_POSE_PRESETS
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}${posePresets
       .map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
-    posePresetSelect.value = [BUILTIN_T_POSE_ID, BUILTIN_LIMB_SPREAD_POSE_ID].includes(selectedPosePresetId)
+    posePresetSelect.value = [BUILTIN_BODY_REST_POSE_ID, BUILTIN_ARMS_DOWN_POSE_ID,
+      BUILTIN_LIMB_SPREAD_POSE_ID].includes(selectedPosePresetId)
       || FILE_POSE_PRESETS.some((preset) => preset.id === selectedPosePresetId)
       || posePresets.some((preset) => preset.id === selectedPosePresetId)
-      ? selectedPosePresetId : BUILTIN_T_POSE_ID;
+      ? selectedPosePresetId : BUILTIN_BODY_REST_POSE_ID;
     applyPosePresetButton.disabled = false;
     deletePosePresetButton.disabled = !posePresets.some((preset) => preset.id === posePresetSelect.value);
     svg.classList.toggle("is-color-mode", viewState.activeTool === "color");
@@ -1549,14 +1562,20 @@ export function createApp(container: HTMLDivElement): void {
     const preset = [...FILE_POSE_PRESETS, ...posePresets]
       .find((candidate) => candidate.id === selectedPosePresetId);
     try {
+      if (selectedPosePresetId === BUILTIN_BODY_REST_POSE_ID) {
+        interpolationPreviewActive = false;
+        applyBodyRestPose(state);
+        posePresetStatus.textContent = `${BUILTIN_BODY_REST_POSE_NAME} 적용됨`;
+        return;
+      }
       if (!isHumanRig(state.rig)) {
         posePresetStatus.textContent = "현재 비인체 관절 구조와 호환되는 포즈 프리셋이 아닙니다.";
         return;
       }
       interpolationPreviewActive = false;
-      if (selectedPosePresetId === BUILTIN_T_POSE_ID) {
-        applyTPose(state);
-        posePresetStatus.textContent = `${BUILTIN_T_POSE_NAME} 적용됨`;
+      if (selectedPosePresetId === BUILTIN_ARMS_DOWN_POSE_ID) {
+        applyArmsDownPose(state);
+        posePresetStatus.textContent = `${BUILTIN_ARMS_DOWN_POSE_NAME} 적용됨`;
       } else if (selectedPosePresetId === BUILTIN_LIMB_SPREAD_POSE_ID) {
         applyLimbSpreadPose(state);
         posePresetStatus.textContent = `${BUILTIN_LIMB_SPREAD_POSE_NAME} 적용됨`;
@@ -1609,26 +1628,52 @@ export function createApp(container: HTMLDivElement): void {
     presetStatus.textContent = "";
   });
   savePresetButton.addEventListener("click", () => {
-    const content = JSON.stringify(createRigPreset(state.rig, {
-      pose: true,
-      proportions: true,
-      colors: true,
-      shapes: true,
-    }), null, 2);
+    const content = JSON.stringify(createRigPreset(state.rig, getPresetParts()), null, 2);
     const link = document.createElement("a");
     const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
     link.href = url;
     link.download = "pose-mesh-preset.json";
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    presetStatus.textContent = "포즈 · 비율 · 색상 · 자유 도형을 포함한 JSON 저장을 시작했습니다.";
+    presetStatus.textContent = "선택한 항목의 부분 프리셋 저장을 시작했습니다.";
+  });
+  saveProjectButton.addEventListener("click", () => {
+    const content = serializeProjectDocument(createProjectDocument(state.rig, { animations: [poseClip] }));
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+    link.href = url;
+    link.download = "pose-mesh-project.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    presetStatus.textContent = "현재 모델과 애니메이션을 포함한 프로젝트 저장을 시작했습니다.";
   });
   loadPresetButton.addEventListener("click", () => presetFileInput.click());
   presetFileInput.addEventListener("change", async () => {
     const file = presetFileInput.files?.[0];
     if (!file) return;
     try {
-      pendingPresetImport = parseRigPreset(await file.text());
+      const text = await file.text();
+      const header = JSON.parse(text) as { format?: unknown };
+      if (header?.format === "pose-mesh-project") {
+        const project = parseProjectDocument(text);
+        const rig = materializeProjectRig(project);
+        const animations = materializeProjectAnimations(project);
+        prepareRigReplacement(rig);
+        state.replaceRig(rig);
+        poseClip = animations[0] ?? {
+          id: "main-clip", name: "기본 클립", fps: 12, keys: [],
+          playback: { mode: "ping-pong", closingFrames: 6 },
+        };
+        poseKeySequence = poseClip.keys.reduce((max, key) => {
+          const match = /^pose-(\d+)$/.exec(key.id);
+          return Math.max(max, match ? Number(match[1]) : 0);
+        }, 0);
+        presetStatus.textContent = `${file.name} 프로젝트와 애니메이션 ${poseClip.keys.length}개 키를 불러왔습니다.`;
+        presetDialog.close();
+        render();
+        return;
+      }
+      pendingPresetImport = parseRigPreset(text);
       requireElement<HTMLElement>(container, "[data-preset-import-file]").textContent = `${file.name} 파일에서 적용할 정보를 선택하세요.`;
       presetImportStatus.textContent = "";
       presetImportDialog.showModal();

@@ -171,8 +171,9 @@ export function renderInspector(
           const anchor = getJointWorldTransform(state.rig, relation.anchorId);
           const movingJoint = state.getJoint(relation.movingId);
           const distance = movingJoint.parentJointId === relation.anchorId
-            ? Math.hypot(movingJoint.x, movingJoint.y)
-            : Math.hypot(moving.x - anchor.x, moving.y - anchor.y);
+            ? Math.hypot(movingJoint.x, movingJoint.y, movingJoint.z - state.getJoint(relation.anchorId).z)
+            : Math.hypot(moving.x - anchor.x, moving.y - anchor.y,
+              movingJoint.z - state.getJoint(relation.anchorId).z);
           return `<label class="joint-distance-field"><span>${escapeHtml(relation.label)}<small>${escapeHtml(relation.movingId)} 이동 · ${escapeHtml(relation.anchorId)} 고정</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-distance-moving="${escapeHtml(relation.movingId)}" data-distance-anchor="${escapeHtml(relation.anchorId)}" aria-label="${escapeHtml(relation.label)} 관절 간 거리" /></label>`;
         }).join("")}
         <p class="hint">거리를 바꾸면 이동 관절과 그 하위 관절이 함께 이동합니다. 거리가 0이면 다시 늘릴 때 오른쪽 방향을 사용합니다.</p>
@@ -774,7 +775,8 @@ export function renderInspector(
       if (Number.isFinite(distance) && distance >= 0) state.setJointDistance(movingId, anchorId, distance);
       const moving = getJointWorldTransform(state.rig, movingId);
       const anchor = getJointWorldTransform(state.rig, anchorId);
-      input.value = Math.hypot(moving.x - anchor.x, moving.y - anchor.y).toFixed(2);
+      input.value = Math.hypot(moving.x - anchor.x, moving.y - anchor.y,
+        state.getJoint(movingId).z - state.getJoint(anchorId).z).toFixed(2);
     });
   });
   element.querySelectorAll<HTMLButtonElement>("[data-inspector-axis]").forEach((button) => {

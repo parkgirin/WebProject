@@ -13,8 +13,31 @@ const position = (state: RigState, id: string) => getJointWorldTransform(state.r
 const distance = (state: RigState, a: string, b: string) => {
   const first = position(state, a);
   const second = position(state, b);
-  return Math.hypot(first.x - second.x, first.y - second.y);
+  return Math.hypot(first.x - second.x, first.y - second.y,
+    state.getJoint(a).z - state.getJoint(b).z);
 };
+
+test("joint distance percentage stays constant when a connection rotates into depth", () => {
+  const state = new RigState(createDefaultRig());
+  const before = state.getJointDistancePercent("left-elbow");
+
+  state.setJointAxisRotation("left-elbow", "y", 60);
+
+  close(state.getJointDistancePercent("left-elbow"), before);
+  assert.ok(Math.abs(state.getJoint("left-elbow").z - state.getJoint("left-shoulder").z) > 1);
+});
+
+test("peer distance stays constant when the peer axis rotates into depth", () => {
+  const state = new RigState(createDefaultRig());
+  state.setPerspectiveEnabled(false);
+  state.setGlobalAxisRotation("x", 90);
+  const before = state.getPeerGroupDistance("shoulder-band")!;
+
+  state.rotatePeerGroupInCameraPlane("shoulder-band", 45);
+
+  close(state.getPeerGroupDistance("shoulder-band")!, before);
+  assert.ok(Math.abs(state.getJoint("left-shoulder").z - state.getJoint("right-shoulder").z) > 1);
+});
 
 test("setting parent-child distance moves the child subtree along its existing direction and supports undo", () => {
   const state = new RigState(createDefaultRig());

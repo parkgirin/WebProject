@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { RigState } from "../src/rig/rig-state.ts";
-import { applyLimbSpreadPose, applyTPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
+import { applyArmsDownPose, applyBodyRestPose, applyLimbSpreadPose, applyUserPosePreset, createUserPosePreset, parseUserPosePresets } from "../src/presets/pose-presets.ts";
 import { applyAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { getJointParentWorldTransform } from "../src/rig/geometry.ts";
 
@@ -75,22 +75,38 @@ test("user pose preset lists validate names, ids, and embedded pose data", () =>
   assert.throws(() => parseUserPosePresets([{ ...entry, preset: { ...entry.preset, pose: undefined } }]), /포즈 정보/);
 });
 
-test("the built-in T pose keeps current limb lengths and aligns the body to the front", () => {
+test("the arms-down pose starts from the active body's rest pose instead of the current pose", () => {
   const state = new RigState(createDefaultRig());
-  state.setJointDistance("right-elbow", "right-shoulder", 128);
-  state.rotateChildAroundParent("right-elbow", 55);
+  for (const side of ["left", "right"] as const) {
+    const sign = side === "left" ? -1 : 1;
+    Object.assign(state.getJoint(`${side}-elbow`), { x: sign * 72, y: 36, z: 8 });
+    Object.assign(state.getJoint(`${side}-wrist`), { x: sign * 54, y: 42, z: 13 });
+  }
+  state.rebaseCurrentPoseAsBodyRest();
+  const restChest = { ...state.getJoint("chest").baseOffset! };
+  const restArms = Object.fromEntries(["left-elbow", "right-elbow", "left-wrist", "right-wrist"].map((id) => [id,
+    { ...state.getJoint(id).baseOffset! }]));
   state.setViewYRotation(35);
-  const length = Math.hypot(state.getJoint("right-elbow").x, state.getJoint("right-elbow").y);
+  state.setJointAxisRotation("chest", "z", 20);
+  state.setJointAxisRotation("left-elbow", "y", 55);
+  state.setJointDistancePercent("right-wrist", 140);
 
-  applyTPose(state);
-  const elbow = state.getJoint("right-elbow");
-  assert.ok(Math.abs(Math.hypot(elbow.x, elbow.y) - length) < 1e-6);
-  assert.ok(elbow.x > 0);
-  assert.ok(Math.abs(elbow.y) < 1e-6);
-  assert.equal(state.rig.viewYRotation, 0);
-  assert.equal(elbow.z, 0);
-  state.undo();
+  applyArmsDownPose(state);
+
+  assert.deepEqual(state.getJoint("chest").baseOffset, restChest);
+  assert.equal(state.getJoint("chest").localRotation, 0);
+  for (const id of ["left-elbow", "right-elbow", "left-wrist", "right-wrist"]) {
+    const joint = state.getJoint(id);
+    const rest = restArms[id];
+    const parent = state.getJoint(joint.parentJointId!);
+    assert.ok(Math.abs(joint.x) < 1e-7, `${id}.x`);
+    assert.ok(Math.abs(joint.y - Math.hypot(rest.x, rest.y)) < 1e-7, `${id}.y`);
+    assert.ok(Math.abs(joint.z - parent.z - rest.z) < 1e-7, `${id}.z`);
+    assert.equal(joint.distancePercent, 100);
+  }
   assert.equal(state.rig.viewYRotation, 35);
+  state.undo();
+  assert.equal(state.getJoint("chest").localRotation, 20);
 });
 
 test("the limb spread pose rotates only shoulder and hip roots by 30 degrees", () => {
@@ -116,14 +132,44 @@ test("the limb spread pose rotates only shoulder and hip roots by 30 degrees", (
   assert.equal(state.rig.viewYRotation, 0);
 });
 
-test("the built-in T pose preserves the active body type's shoulder and hip widths", () => {
+test("the body rest pose restores the active body's XYZ offsets without changing presentation", () => {
   const state = new RigState(createDefaultRig());
   applyAvatarProportionPreset(state, "child-neutral");
-  const shoulderWidth = state.getPeerGroupDistance("shoulder-band");
-  const hipWidth = state.getPeerGroupDistance("hip-band");
+  const rootBefore = { ...state.getJoint("scene-root") };
+  const radiusBefore = state.getJoint("left-knee").radius;
+  state.setViewYRotation(35);
+  state.setGlobalAxisRotation("y", 70);
+  state.setJointAxisRotation("left-knee", "x", 42);
+  const posedKnee = { ...state.getJoint("left-knee") };
 
-  applyTPose(state);
+  applyBodyRestPose(state);
 
-  assert.equal(state.getPeerGroupDistance("shoulder-band"), shoulderWidth);
-  assert.equal(state.getPeerGroupDistance("hip-band"), hipWidth);
+  for (const joint of state.rig.joints) {
+    assert.equal(joint.localRotation, 0, `${joint.id}.rz`);
+    assert.equal(joint.localRotationX ?? 0, 0, `${joint.id}.rx`);
+    assert.equal(joint.localRotationY ?? 0, 0, `${joint.id}.ry`);
+    if (!joint.parentJointId) continue;
+    const parent = state.getJoint(joint.parentJointId);
+    assert.ok(Math.abs(joint.x - joint.baseOffset!.x) < 1e-7, `${joint.id}.x`);
+    assert.ok(Math.abs(joint.y - joint.baseOffset!.y) < 1e-7, `${joint.id}.y`);
+    assert.ok(Math.abs(joint.z - parent.z - joint.baseOffset!.z) < 1e-7, `${joint.id}.z`);
+  }
+  assert.equal(state.getJoint("scene-root").x, rootBefore.x);
+  assert.equal(state.getJoint("scene-root").y, rootBefore.y);
+  assert.equal(state.getJoint("left-knee").radius, radiusBefore);
+  assert.equal(state.rig.viewYRotation, 35);
+  assert.equal(state.rig.worldRotation?.y, 70);
+  state.undo();
+  assert.equal(state.getJoint("left-knee").z, posedKnee.z);
+});
+
+test("avatar depth profiles update the body's parent-relative rest depth", () => {
+  const state = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(state, "child-neutral");
+  for (const joint of state.rig.joints) {
+    if (!joint.parentJointId) continue;
+    const parent = state.getJoint(joint.parentJointId);
+    assert.ok(Math.abs(joint.baseOffset!.z - ((joint.baseZ ?? joint.z) - (parent.baseZ ?? parent.z))) < 1e-7,
+      `${joint.id}.baseOffset.z`);
+  }
 });

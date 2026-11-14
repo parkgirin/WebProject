@@ -124,8 +124,6 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
       state.setJointRadius(`${side}-ankle`, preset.ankleRadius);
     }
     applyDepthProfile(state, preset, previousDepthProfile);
-    const head = state.getJoint("head");
-    state.applyJointProportions("head", { x: head.x, y: head.y, radius: 18 });
   } finally {
     state.endHistoryTransaction();
   }

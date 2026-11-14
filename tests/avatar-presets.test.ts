@@ -105,6 +105,17 @@ test("avatar preset replaces base depth while preserving authored 3D pose offset
   close(state.getJoint("left-knee").z, 25);
 });
 
+test("avatar preset round-trips preserve a posed neck length percentage", () => {
+  const state = new RigState(createDefaultRig());
+  state.setJointDistancePercent("head", 150);
+
+  applyAvatarProportionPreset(state, "child-neutral");
+  close(state.getJointDistancePercent("head"), 150);
+
+  applyAvatarProportionPreset(state, "straight-neutral");
+  close(state.getJointDistancePercent("head"), 150);
+});
+
 test("legacy rigs infer their previous body depth before preserving a pose offset", () => {
   const state = new RigState(createDefaultRig());
   for (const joint of state.rig.joints) delete joint.baseZ;

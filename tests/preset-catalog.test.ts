@@ -48,14 +48,10 @@ test("folder preset errors identify invalid files and duplicate ids", () => {
   );
 });
 
-test("repository sample files are valid selectable presets", () => {
+test("the repository quadruped sample is a valid selectable preset", () => {
   const quadrupedPath = new URL("../src/presets/data/body/사족동물-기본체.json", import.meta.url);
-  const verticalArmsPath = new URL("../src/presets/data/pose/팔-수직-내리기.json", import.meta.url);
   const quadruped = JSON.parse(readFileSync(quadrupedPath, "utf8"));
-  const verticalArms = JSON.parse(readFileSync(verticalArmsPath, "utf8"));
 
   assert.equal(parseBodyPresetModules({ "./data/body/사족동물-기본체.json": quadruped })[0].name,
     "사족동물 기본체");
-  assert.equal(parsePosePresetModules({ "./data/pose/팔-수직-내리기.json": verticalArms })[0].name,
-    "팔 수직 내리기");
 });

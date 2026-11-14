@@ -4,7 +4,7 @@
 
 - `avatar-presets.ts`: 기본 7종 체형 데이터와 적용
 - `body-presets.ts`: 사용자가 추가한 체형 프리셋 생성·검증·적용
-- `pose-presets.ts`: 기본 T 포즈와 사용자 포즈 프리셋 생성·검증·적용
+- `pose-presets.ts`: 체형 기본 포즈 초기화, 기본 포즈 기반 팔 내림·팔다리 벌림과 사용자 포즈 프리셋 생성·검증·적용
 
 JSON 파일 형식과 브라우저 자동 저장은 `src/storage`에서 관리한다.
 
