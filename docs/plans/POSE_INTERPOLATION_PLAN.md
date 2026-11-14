@@ -1,16 +1,16 @@
 # 포즈 키프레임 보간 계획
 
-> **상태: 구현 진행 중.** 이 계획은 리그의 자세를 여러 키프레임으로 저장하고 재생 위치에 따라 보간하는 기능을 정의한다. 포즈와 월드/카메라 프레젠테이션 변환은 서로 다른 소유 데이터로 유지한다.
+> **상태: 핵심 보간·재생·저장 구현 완료, 체형 독립 포즈 적용 미완료.** 현재 실행 순서는 [현재 작업 진행 순서와 완료도](CURRENT_WORK_PLAN.md)를 따른다.
 
 ## 0. 현재 진행 상태
 
 - 구현됨: `PoseClip`/`PoseKey` 메모리 모델, 3개 이상 키의 구간 탐색·샘플링, 키 추가·선택·갱신·삭제, 중간 보간 프레임의 키 삽입·승격, 드래그 키 순서 변경, 위치·최단각·반지름·기본/관절/면 색상 보간, 애니메이션 JSON 저장·복원, 왕복 및 마지막→첫 키 연결 보간 재생, PNG/SVG 프레임 ZIP 내보내기.
-- 다음 필수 수정: 보간 미리보기와 프레임 내보내기는 키 스냅샷의 월드 회전을 그대로 쓰지 않고, 활성 프레젠테이션 변환을 합성해야 한다. 현재 `interpolatePoseRig()`는 왼쪽 키의 리그를 복제한 뒤 관절 X/Y·각도·반지름만 보간하므로, 활성 월드 회전과 관절 Z가 중간 프레임에 일관되게 반영되지 않는다.
+- v3 프로젝트는 포즈, 월드 회전과 외형 애니메이션을 별도 트랙으로 저장·복원한다. 출력 카메라는 프로젝트의 고정 `outputView`를 사용한다.
 - 구현됨: 현재 리그의 관절 위치·회전·축 각도·깊이와 시점 값을 이름 붙인 사용자 포즈 프리셋으로 추가하고 다시 적용한다. 프리셋은 반지름·색상·자유 도형을 포함하지 않으며 브라우저 작업 자동 저장에 함께 보관한다.
 - 활성 체형이 작성한 `baseOffset`을 복원하는 `기본 포즈 초기화`를 제공한다. `팔 수직 내리기`와 `팔다리 30° 포즈`는 현재 포즈가 아니라 이 기본 포즈에서 시작한다. 특정 인체 구조와 정면 배치를 강제하던 내장 T 포즈는 제거했다.
 - 현재 체형 변경은 편집된 부모–자식 벡터의 방향을 유지하되 체형 프리셋의 절대 길이로 교체한다. 따라서 직접 이동으로 만든 각도는 유지되지만 부모와의 거리 변화와 측면 축소 표현은 초기화된다. 아래 `체형 독립 포즈 파라미터` 구조로 이 한계를 해소한다.
-- 현재 키 데이터는 첫 구현 단계에서 호환 가능한 `Rig` 스냅샷을 보관한다. 아래 데이터 모델 초안은 프로젝트 저장 형식으로 정규화할 때의 목표 구조다.
-- 보간 기능 내부의 다음 작업: 기존 두 키 사이의 전환 프레임 수 변경과 구간 눈금 UI. 다만 전체 프로젝트에서는 외형 제작과 게임용 출력이 우선이므로, 이 UI는 애니메이션 제작에 실제 병목이 될 때 진행한다. 클립 데이터는 도형·리그와 함께 저장하는 프로젝트 통합 저장 단계에서 연결한다.
+- 편집기 내부 키 데이터는 아직 호환 가능한 `Rig` 스냅샷을 보관하지만, v3 프로젝트 파일에서는 포즈·월드 회전·외형 트랙으로 분리한다.
+- 전환 프레임 수 변경과 구간 눈금 UI는 애니메이션 제작에 실제 병목이 될 때 진행한다. 현재는 체형 독립 포즈 적용과 실제 렌더 출력 검증을 우선한다.
 
 ## 1. 목표
 
@@ -82,39 +82,39 @@ interface PosePlaybackState {
 - 색상 키는 팔레트 ID가 아닌 렌더 시점의 실제 색상값을 저장한다. 팔레트는 편집 편의용 연결이고, 보간 결과 때문에 팔레트 항목을 프레임마다 생성하지 않는다.
 - 포즈 키는 관절의 로컬 위치·회전·Z만 소유한다. 월드 회전, 카메라 Y 회전, 원근 설정은 아래 프레젠테이션 계층이 소유한다.
 
-### 3.1 월드 회전과 애니메이션 프레젠테이션
+### 3.1 고정 출력 시점과 월드 회전 애니메이션
 
-월드 회전은 캐릭터 포즈가 아니라 현재 카메라에 보이는 장면의 변환이다. 따라서 재생 중에도 사용자가 바꾼 월드 회전은 모든 샘플 프레임에 즉시 적용되어야 한다.
+출력 카메라는 프로젝트 전체에서 고정한다. 캐릭터 전체 회전은 관절 포즈와 분리하지만 애니메이션에 포함할 수 있으며, v3 프로젝트의 `worldRotationTrack`이 이를 소유한다.
 
 ```ts
-interface RenderPresentation {
-  worldRotation: { x: number; y: number; z: number };
+interface OutputView {
   viewYRotation: number;
   perspectiveEnabled: boolean;
   projectionStrength: number;
 }
 
-function renderPoseSample(sampledPose: Rig, presentation: RenderPresentation): Rig {
+function renderPoseSample(sampledPose: Rig, worldRotation: Rotation, outputView: OutputView): Rig {
   return {
     ...sampledPose,
-    worldRotation: structuredClone(presentation.worldRotation),
-    viewYRotation: presentation.viewYRotation,
-    perspectiveEnabled: presentation.perspectiveEnabled,
-    projectionStrength: presentation.projectionStrength,
+    worldRotation,
+    viewYRotation: outputView.viewYRotation,
+    perspectiveEnabled: outputView.perspectiveEnabled,
+    projectionStrength: outputView.projectionStrength,
   };
 }
 ```
 
 - 편집 미리보기, 재생, PNG/SVG 프레임 내보내기는 모두 `renderPoseSample()`을 거친 리그를 사용한다.
-- 키 생성·수정·보간은 `worldRotation`을 변경하지 않는다. 키 선택으로 편집 리그를 복원할 때도 활성 프레젠테이션 변환은 보존한다.
-- 월드 회전 자체를 애니메이션으로 만들 필요가 생기면 포즈 키에 넣지 않고 별도 `ViewTrack`을 둔다. `ViewTrack`은 X/Y/Z 월드 회전과 카메라/원근만 보간하며, 없는 경우에는 현재 활성 프레젠테이션 값을 사용한다.
+- 관절 포즈 키는 `worldRotation`이나 `outputView`를 소유하지 않는다.
+- 캐릭터 전체 회전 키는 `worldRotationTrack`에서 보간한다. 트랙이 없으면 프로젝트의 현재 월드 회전을 사용한다.
+- 카메라·원근은 `outputView`에서 고정하며 애니메이션 트랙을 만들지 않는다.
 - Z는 포즈 데이터이므로 관절 X/Y·반지름과 함께 보간한다. 월드 회전은 보간된 Z를 카메라 좌표로 투영하는 마지막 단계에서만 적용한다.
 
 ### 3.2 체형 독립 포즈 파라미터
 
 현재 `Joint.x/y`는 체형의 부모–자식 기준 길이와 포즈의 방향·화면상 거리를 동시에 표현한다. 체형 프리셋은 현재 벡터의 방향을 정규화한 뒤 새 체형의 절대 길이를 곱하므로 각도는 유지하지만, 사용자가 직접 줄이거나 늘린 거리는 보존하지 못한다. 예를 들어 기준 길이 `96`인 팔을 측면 표현을 위해 `48`로 줄인 후 기준 길이 `69`인 아동체를 적용하면 현재 결과는 `69`이며, 의도한 `69 × 0.5 = 34.5`가 아니다.
 
-다음 버전에서는 체형과 포즈의 소유 데이터를 분리한다.
+v3 프로젝트 형식은 체형과 포즈의 소유 데이터를 분리한다. 다만 편집 런타임과 v2 포즈 프리셋 적용기는 아직 아래 파라미터를 직접 사용하지 않아 체형 간 포즈 적용 문제가 남아 있다.
 
 ```ts
 interface JointBodyParameters {
