@@ -1180,7 +1180,7 @@ export class RigState {
     const directionZ = current > 1e-9 ? dz / current : 0;
     this.moveJoint(moving.id, anchorWorld.x + directionX * distance, anchorWorld.y + directionY * distance);
     const previousZ = moving.z;
-    moving.z = Math.min(100, Math.max(-100, anchor.z + directionZ * distance));
+    moving.z = anchor.z + directionZ * distance;
     this.translateDescendantDepths(moving.id, moving.z - previousZ);
   }
 
@@ -1221,7 +1221,7 @@ export class RigState {
   }
 
   public setJointDistancePercent(jointId: string, percent: number): void {
-    if (!Number.isFinite(percent) || percent < 0 || percent > 300) return;
+    if (!Number.isFinite(percent) || percent < 0) return;
     const joint = this.getJoint(jointId);
     if (!joint.parentJointId) return;
     const parent = this.getJoint(joint.parentJointId);
@@ -1237,7 +1237,7 @@ export class RigState {
     joint.x = directionX * baseDistance * percent / 100;
     joint.y = directionY * baseDistance * percent / 100;
     const previousZ = joint.z;
-    joint.z = Math.min(100, Math.max(-100, parent.z + directionZ * baseDistance * percent / 100));
+    joint.z = parent.z + directionZ * baseDistance * percent / 100;
     this.translateDescendantDepths(joint.id, joint.z - previousZ);
     this.alignDirectConnectionAxes(joint.id);
     this.notify();
@@ -1275,8 +1275,8 @@ export class RigState {
     this.setJointWorldPosition(second, midpoint.x + directionX * half, midpoint.y + directionY * half);
     const firstPreviousZ = first.z;
     const secondPreviousZ = second.z;
-    first.z = Math.min(100, Math.max(-100, midpoint.z - directionZ * half));
-    second.z = Math.min(100, Math.max(-100, midpoint.z + directionZ * half));
+    first.z = midpoint.z - directionZ * half;
+    second.z = midpoint.z + directionZ * half;
     this.translateDescendantDepths(first.id, first.z - firstPreviousZ);
     this.translateDescendantDepths(second.id, second.z - secondPreviousZ);
     if (first.parentJointId === second.parentJointId) {
@@ -1449,7 +1449,7 @@ export class RigState {
       const rotated = rotateVectorAroundAxis({ x: world.x - pivot.x, y: world.y - pivot.y, z: joint.z - pivotZ }, axis, angleDelta);
       const previousZ = joint.z;
       this.setJointWorldPosition(joint, pivot.x + rotated.x, pivot.y + rotated.y);
-      joint.z = Math.min(100, Math.max(-100, pivotZ + rotated.z));
+      joint.z = pivotZ + rotated.z;
       this.translateDescendantDepths(joint.id, joint.z - previousZ);
       this.alignDirectConnectionAxes(joint.id);
     }
@@ -1473,7 +1473,7 @@ export class RigState {
       const rotated = rotateVectorAroundAxis({ x: world.x - pivot.x, y: world.y - pivot.y, z: z - pivot.z }, axis, angleDelta);
       this.setJointWorldPosition(joint, pivot.x + rotated.x, pivot.y + rotated.y);
       const previousZ = joint.z;
-      joint.z = Math.min(100, Math.max(-100, pivot.z + rotated.z));
+      joint.z = pivot.z + rotated.z;
       this.translateDescendantDepths(joint.id, joint.z - previousZ);
       this.alignDirectConnectionAxes(joint.id);
     }
@@ -1679,8 +1679,8 @@ export class RigState {
   }
 
   public setJointRadius(jointId: string, radius: number): void {
-    if (!Number.isFinite(radius)) return;
-    this.getJoint(jointId).radius = Math.min(80, Math.max(8, radius));
+    if (!Number.isFinite(radius) || radius <= 0) return;
+    this.getJoint(jointId).radius = radius;
     this.notify();
   }
 
@@ -1688,7 +1688,7 @@ export class RigState {
     if (!Number.isFinite(value) || value <= 0) return;
     const joint = this.getJoint(jointId);
     joint.surfaceScale ??= { x: 1, y: 1, z: 1 };
-    joint.surfaceScale[axis] = Math.min(10, Math.max(.05, value));
+    joint.surfaceScale[axis] = value;
     this.notify();
   }
 
@@ -1715,14 +1715,14 @@ export class RigState {
   }
 
   public setJointSideRadius(jointId: string, radius: number): void {
-    if (!Number.isFinite(radius)) return;
-    this.getJoint(jointId).sideRadius = Math.min(80, Math.max(4, radius));
+    if (!Number.isFinite(radius) || radius <= 0) return;
+    this.getJoint(jointId).sideRadius = radius;
     this.notify();
   }
 
   public setJointZ(jointId: string, z: number): void {
     if (!Number.isFinite(z)) return;
-    this.getJoint(jointId).z = Math.min(100, Math.max(-100, z));
+    this.getJoint(jointId).z = z;
     this.notify();
   }
 
@@ -1732,7 +1732,7 @@ export class RigState {
     const joint = this.getJoint(jointId);
     const poseOffset = joint.z - (joint.baseZ ?? legacyBaseZ);
     joint.baseZ = z;
-    joint.z = Math.min(100, Math.max(-100, z + poseOffset));
+    joint.z = z + poseOffset;
     const parent = joint.parentJointId ? this.getJoint(joint.parentJointId) : null;
     joint.baseOffset ??= { x: joint.x, y: joint.y, z: 0 };
     joint.baseOffset.z = z - (parent?.baseZ ?? parent?.z ?? 0);
@@ -1817,7 +1817,7 @@ export class RigState {
     joint.localRotation = normalizeAngle(rotations.z);
     for (const entry of snapshots) {
       this.setJointWorldPosition(entry.joint, entry.x, entry.y);
-      entry.joint.z = Math.min(100, Math.max(-100, entry.z));
+      entry.joint.z = entry.z;
     }
     for (const entry of snapshots) this.alignDirectConnectionAxes(entry.joint.id);
   }
@@ -1850,8 +1850,10 @@ export class RigState {
     joint.localRotation = normalizeAngle(pose.localRotation);
     joint.localRotationX = normalizeAngle(pose.localRotationX ?? 0);
     joint.localRotationY = normalizeAngle(pose.localRotationY ?? 0);
-    if (Number.isFinite(pose.z)) joint.z = Math.min(100, Math.max(-100, pose.z!));
-    if (Number.isFinite(pose.distancePercent) && joint.parentJointId) joint.distancePercent = Math.min(300, Math.max(0, pose.distancePercent!));
+    if (Number.isFinite(pose.z)) joint.z = pose.z!;
+    if (Number.isFinite(pose.distancePercent) && pose.distancePercent! >= 0 && joint.parentJointId) {
+      joint.distancePercent = pose.distancePercent!;
+    }
     for (const axis of joint.axes) {
       const angle = pose.axes[axis.id];
       if (Number.isFinite(angle)) axis.angle = normalizeAngle(angle);
@@ -1878,9 +1880,11 @@ export class RigState {
       joint.x = proportions.x;
       joint.y = proportions.y;
     }
-    joint.radius = Math.min(80, Math.max(8, proportions.radius));
+    if (Number.isFinite(proportions.radius) && proportions.radius > 0) joint.radius = proportions.radius;
     if (proportions.sideRadius === undefined) delete joint.sideRadius;
-    else if (proportions.sideRadius > 0) joint.sideRadius = Math.min(80, Math.max(4, proportions.sideRadius));
+    else if (Number.isFinite(proportions.sideRadius) && proportions.sideRadius > 0) {
+      joint.sideRadius = proportions.sideRadius;
+    }
     if (proportions.bodyRadius === undefined) delete joint.bodyRadius;
     else if (proportions.bodyRadius > 0) joint.bodyRadius = proportions.bodyRadius;
     this.alignDirectConnectionAxes(joint.id);
@@ -2487,14 +2491,14 @@ export class RigState {
     const world = getJointWorldTransform(this.rig, joint.id);
     this.setJointWorldPosition(joint, world.x + dx, world.y + dy);
     const previousZ = joint.z;
-    joint.z = Math.min(100, Math.max(-100, joint.z + dz));
+    joint.z += dz;
     this.translateDescendantDepths(joint.id, joint.z - previousZ);
   }
 
   private translateDescendantDepths(parentId: string, deltaZ: number): void {
     if (Math.abs(deltaZ) < 1e-9) return;
     for (const child of this.rig.joints.filter((candidate) => candidate.parentJointId === parentId)) {
-      child.z = Math.min(100, Math.max(-100, child.z + deltaZ));
+      child.z += deltaZ;
       this.translateDescendantDepths(child.id, deltaZ);
     }
   }

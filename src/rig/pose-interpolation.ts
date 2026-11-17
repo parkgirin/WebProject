@@ -43,21 +43,31 @@ export function interpolateAngle(from: number, to: number, amount: number): numb
 export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
   const t = Math.min(1, Math.max(0, amount));
   const result = structuredClone(start);
+  const startById = new Map(start.joints.map((joint) => [joint.id, joint]));
   const endById = new Map(end.joints.map((joint) => [joint.id, joint]));
+  const localDepthById = new Map<string, number>();
 
   for (const joint of result.joints) {
-    const startJoint = start.joints.find((candidate) => candidate.id === joint.id)!;
+    const startJoint = startById.get(joint.id)!;
     const endJoint = endById.get(joint.id);
     if (!endJoint || startJoint.axes.length !== endJoint.axes.length) {
       throw new Error("보간할 두 포즈의 관절 구조가 일치하지 않습니다.");
     }
     if (startJoint.parentJointId && startJoint.parentJointId === endJoint.parentJointId) {
-      const offset = interpolateJointOffset(startJoint.x, startJoint.y, endJoint.x, endJoint.y, t);
+      const startParent = startById.get(startJoint.parentJointId)!;
+      const endParent = endById.get(endJoint.parentJointId)!;
+      const offset = interpolateJointOffset(
+        { x: startJoint.x, y: startJoint.y, z: startJoint.z - startParent.z },
+        { x: endJoint.x, y: endJoint.y, z: endJoint.z - endParent.z },
+        t,
+      );
       joint.x = offset.x;
       joint.y = offset.y;
+      localDepthById.set(joint.id, offset.z);
     } else {
       joint.x = lerp(startJoint.x, endJoint.x, t);
       joint.y = lerp(startJoint.y, endJoint.y, t);
+      joint.z = lerp(startJoint.z, endJoint.z, t);
     }
     joint.localRotation = interpolateAngle(startJoint.localRotation, endJoint.localRotation, t);
     joint.localRotationX = interpolateAngle(startJoint.localRotationX ?? 0, endJoint.localRotationX ?? 0, t);
@@ -92,6 +102,26 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
       }
     }
   }
+
+  const resultById = new Map(result.joints.map((joint) => [joint.id, joint]));
+  const resolvedDepths = new Set<string>();
+  const resolveDepth = (jointId: string): number => {
+    const joint = resultById.get(jointId)!;
+    if (resolvedDepths.has(jointId)) return joint.z;
+    const localDepth = localDepthById.get(jointId);
+    if (joint.parentJointId && localDepth !== undefined) {
+      joint.z = resolveDepth(joint.parentJointId) + localDepth;
+    }
+    resolvedDepths.add(jointId);
+    return joint.z;
+  };
+  for (const joint of result.joints) resolveDepth(joint.id);
+
+  result.worldRotation = {
+    x: interpolateAngle(start.worldRotation?.x ?? 0, end.worldRotation?.x ?? 0, t),
+    y: interpolateAngle(start.worldRotation?.y ?? 0, end.worldRotation?.y ?? 0, t),
+    z: interpolateAngle(start.worldRotation?.z ?? 0, end.worldRotation?.z ?? 0, t),
+  };
 
   result.defaultColor = interpolateColor(start.defaultColor, end.defaultColor, t);
   const endFaces = new Map(end.faces.map((face) => [face.id, face]));
@@ -129,6 +159,15 @@ export function interpolatePoseRig(start: Rig, end: Rig, amount: number): Rig {
     }
     delete shape.paletteId;
   }
+  return result;
+}
+
+/** Apply the project's current fixed output view without replacing animated pose or world rotation. */
+export function applyFixedOutputView(sampledRig: Rig, outputView: Rig): Rig {
+  const result = structuredClone(sampledRig);
+  result.viewYRotation = outputView.viewYRotation;
+  result.perspectiveEnabled = outputView.perspectiveEnabled;
+  result.projectionStrength = outputView.projectionStrength;
   return result;
 }
 
@@ -336,24 +375,70 @@ function linearToSrgb(value: number): number {
 }
 
 function interpolateJointOffset(
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number,
+  start: { x: number; y: number; z: number },
+  end: { x: number; y: number; z: number },
   amount: number,
-): { x: number; y: number } {
-  const startDistance = Math.hypot(startX, startY);
-  const endDistance = Math.hypot(endX, endY);
-  const distanceTolerance = Math.max(1, startDistance, endDistance) * 1e-9;
-  if (Math.abs(startDistance - endDistance) > distanceTolerance || startDistance <= distanceTolerance) {
-    return { x: lerp(startX, endX, amount), y: lerp(startY, endY, amount) };
+): { x: number; y: number; z: number } {
+  const startDistance = Math.hypot(start.x, start.y, start.z);
+  const endDistance = Math.hypot(end.x, end.y, end.z);
+  const tolerance = Math.max(1, startDistance, endDistance) * 1e-9;
+  if (startDistance <= tolerance || endDistance <= tolerance) {
+    return {
+      x: lerp(start.x, end.x, amount),
+      y: lerp(start.y, end.y, amount),
+      z: lerp(start.z, end.z, amount),
+    };
   }
 
-  const startAngle = Math.atan2(startY, startX) * 180 / Math.PI;
-  const endAngle = Math.atan2(endY, endX) * 180 / Math.PI;
-  const angle = interpolateAngle(startAngle, endAngle, amount) * Math.PI / 180;
+  const from = { x: start.x / startDistance, y: start.y / startDistance, z: start.z / startDistance };
+  const to = { x: end.x / endDistance, y: end.y / endDistance, z: end.z / endDistance };
+  const dot = Math.min(1, Math.max(-1, from.x * to.x + from.y * to.y + from.z * to.z));
+  let direction: { x: number; y: number; z: number };
+  if (dot > 1 - 1e-9) {
+    direction = normalizeVector({
+      x: lerp(from.x, to.x, amount),
+      y: lerp(from.y, to.y, amount),
+      z: lerp(from.z, to.z, amount),
+    });
+  } else if (dot < -1 + 1e-9) {
+    const perpendicular = perpendicularUnitVector(from);
+    const angle = Math.PI * amount;
+    direction = {
+      x: from.x * Math.cos(angle) + perpendicular.x * Math.sin(angle),
+      y: from.y * Math.cos(angle) + perpendicular.y * Math.sin(angle),
+      z: from.z * Math.cos(angle) + perpendicular.z * Math.sin(angle),
+    };
+  } else {
+    const angle = Math.acos(dot);
+    const sine = Math.sin(angle);
+    const fromWeight = Math.sin((1 - amount) * angle) / sine;
+    const toWeight = Math.sin(amount * angle) / sine;
+    direction = {
+      x: from.x * fromWeight + to.x * toWeight,
+      y: from.y * fromWeight + to.y * toWeight,
+      z: from.z * fromWeight + to.z * toWeight,
+    };
+  }
   const distance = lerp(startDistance, endDistance, amount);
-  return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+  return { x: direction.x * distance, y: direction.y * distance, z: direction.z * distance };
+}
+
+function normalizeVector(vector: { x: number; y: number; z: number }) {
+  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
+  return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
+}
+
+function perpendicularUnitVector(vector: { x: number; y: number; z: number }) {
+  const reference = Math.abs(vector.x) <= Math.abs(vector.y) && Math.abs(vector.x) <= Math.abs(vector.z)
+    ? { x: 1, y: 0, z: 0 }
+    : Math.abs(vector.y) <= Math.abs(vector.z)
+      ? { x: 0, y: 1, z: 0 }
+      : { x: 0, y: 0, z: 1 };
+  return normalizeVector({
+    x: vector.y * reference.z - vector.z * reference.y,
+    y: vector.z * reference.x - vector.x * reference.z,
+    z: vector.x * reference.y - vector.y * reference.x,
+  });
 }
 
 function lerp(from: number, to: number, amount: number): number {

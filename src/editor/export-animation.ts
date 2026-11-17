@@ -1,4 +1,11 @@
-import { getPosePlaybackFrames, getPosePlaybackSettings, samplePosePlayback, type PoseClip } from "../rig/pose-interpolation.ts";
+import {
+  applyFixedOutputView,
+  getPosePlaybackFrames,
+  getPosePlaybackSettings,
+  samplePosePlayback,
+  type PoseClip,
+} from "../rig/pose-interpolation.ts";
+import type { Rig } from "../rig/types.ts";
 import {
   createDrawingPngBlob,
   createDrawingSvgBlob,
@@ -16,6 +23,7 @@ const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 export async function exportPoseAnimationFrames(
   clip: PoseClip,
   source: SVGSVGElement,
+  outputView: Rig,
   viewState: EditorViewState,
   format: "png" | "svg",
 ): Promise<void> {
@@ -31,12 +39,14 @@ export async function exportPoseAnimationFrames(
     const entries: ZipEntry[] = [];
     let animationBounds: DrawingExportBounds | null = null;
     for (const frame of frames) {
-      renderSvgEditor(host, samplePosePlayback(clip, frame).rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+      const rig = applyFixedOutputView(samplePosePlayback(clip, frame).rig, outputView);
+      renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
       animationBounds = mergeBounds(animationBounds, getDrawingContentBounds(host));
     }
     if (!animationBounds) throw new Error("애니메이션의 출력 영역을 계산할 수 없습니다.");
     for (let index = 0; index < frames.length; index += 1) {
-      renderSvgEditor(host, samplePosePlayback(clip, frames[index]).rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+      const rig = applyFixedOutputView(samplePosePlayback(clip, frames[index]).rig, outputView);
+      renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
       const name = `frames/frame_${String(index).padStart(digits, "0")}.${format}`;
       entries.push({
         name,

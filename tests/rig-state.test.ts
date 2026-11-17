@@ -143,13 +143,13 @@ test("shoulder capsule length moves only the anchored arm while keeping torso wi
   assert.deepEqual(getJointWorldTransform(state.rig, "right-elbow"), rightElbowBefore);
 });
 
-test("joint depth and projection strength are bounded and undoable", () => {
+test("joint depth is unbounded while projection controls remain bounded and undoable", () => {
   const state = new RigState(createDefaultRig());
   state.setPerspectiveEnabled(false);
   state.setJointZ("head", 200);
   state.setProjectionStrength(-1);
   state.setViewYRotation(240);
-  assert.equal(state.getJoint("head").z, 100);
+  assert.equal(state.getJoint("head").z, 200);
   assert.equal(state.rig.projectionStrength, 0);
   assert.equal(state.rig.viewYRotation, 180);
   state.undo();
@@ -158,6 +158,19 @@ test("joint depth and projection strength are bounded and undoable", () => {
   state.undo();
   state.undo();
   assert.equal(state.rig.perspectiveEnabled, true);
+});
+
+test("joint sizes and pose distance percentages have no arbitrary upper bound", () => {
+  const state = new RigState(createDefaultRig());
+  state.setJointRadius("head", 120);
+  state.setJointSideRadius("head", 95);
+  state.setJointSurfaceScale("head", "z", 12);
+  state.setJointDistancePercent("right-wrist", 450);
+
+  assert.equal(state.getJoint("head").radius, 120);
+  assert.equal(state.getJoint("head").sideRadius, 95);
+  assert.equal(state.getJoint("head").surfaceScale?.z, 12);
+  closeTo(state.getJointDistancePercent("right-wrist"), 450);
 });
 
 test("validation reports broken references, duplicate axes, and parent cycles", () => {
@@ -337,6 +350,22 @@ test("camera-plane rotation preserves 3D distance around the visible normal", ()
     state.getJoint("right-knee").z - state.getJoint("right-hip").z);
   closeTo(rotatedLength, originalLength);
   assert.ok(Math.abs(state.getJoint("right-knee").z) > 1);
+});
+
+test("middle-joint Y rotation preserves descendant distance beyond the legacy depth range", () => {
+  const state = new RigState(createDefaultRig());
+  const distance = (parentId: string, childId: string) => {
+    const parent = getJointWorldTransform(state.rig, parentId);
+    const child = getJointWorldTransform(state.rig, childId);
+    return Math.hypot(child.x - parent.x, child.y - parent.y,
+      state.getJoint(childId).z - state.getJoint(parentId).z);
+  };
+  const before = distance("right-elbow", "right-wrist");
+
+  state.setJointAxisRotation("right-elbow", "y", -64);
+
+  closeTo(distance("right-elbow", "right-wrist"), before);
+  assert.ok(state.getJoint("right-wrist").z > 100);
 });
 
 test("camera-plane connection rotation is stored on the joint's incoming parent connection", () => {

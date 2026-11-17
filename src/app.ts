@@ -45,6 +45,7 @@ import {
 import {
   addPoseKey,
   advancePosePlayback,
+  applyFixedOutputView,
   createPoseKey,
   getPosePlaybackFrames,
   getPosePlaybackSettings,
@@ -702,8 +703,14 @@ export function createApp(container: HTMLDivElement): void {
     render();
   };
   const applyRigSnapshot = (rig: Rig) => {
+    const fixedOutputView = {
+      viewYRotation: state.rig.viewYRotation,
+      perspectiveEnabled: state.rig.perspectiveEnabled,
+      projectionStrength: state.rig.projectionStrength,
+    };
     state.beginHistoryTransaction();
     Object.assign(state.rig, structuredClone(rig));
+    Object.assign(state.rig, fixedOutputView);
     state.endHistoryTransaction();
   };
   const render = () => {
@@ -859,7 +866,9 @@ export function createApp(container: HTMLDivElement): void {
             ? `${orderedKeys.find((key) => key.id === selectedPoseKeyId)?.name ?? "키"} 편집 중`
             : `${orderedKeys.length}개 키프레임`;
     container.classList.toggle("is-interpolation-preview", interpolationPreviewActive);
-    const renderedRig = interpolationPreviewActive && sample ? sample.rig : state.rig;
+    const renderedRig = interpolationPreviewActive && sample
+      ? applyFixedOutputView(sample.rig, state.rig)
+      : state.rig;
     renderSvgEditor(svg, renderedRig, selection, viewState);
     if (inspector.dataset.liveRangeEditing !== "true") {
       renderInspector(inspector, state, selection, setSelection, viewState, setViewState);
@@ -1772,7 +1781,9 @@ export function createApp(container: HTMLDivElement): void {
     exportStatus.textContent = "파일을 생성하고 있습니다.";
     try {
       const format = exportFormatSelect.value === "svg" ? "svg" : "png";
-      if (exportTarget === "animation") await exportPoseAnimationFrames(poseClip, svg, viewState, format);
+      if (exportTarget === "animation") {
+        await exportPoseAnimationFrames(poseClip, svg, state.rig, viewState, format);
+      }
       else if (format === "svg") exportDrawingAsSvg(svg);
       else await exportDrawingAsPng(svg);
       exportStatus.textContent = "내보내기를 시작했습니다.";

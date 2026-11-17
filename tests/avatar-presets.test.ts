@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { applyAvatarProportionPreset, AVATAR_PROPORTION_PRESETS, DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
+import { captureBodyRelativePose } from "../src/rig/body-relative-pose.ts";
 import { getJointParentWorldTransform, getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
@@ -91,19 +92,58 @@ test("avatar preset replaces base depth while preserving authored 3D pose offset
   state.setJointAxisRotation("left-knee", "x", 25);
   state.setJointZ("left-knee", 24);
   const rotation = state.getJoint("left-knee").localRotationX;
+  const beforePose = captureBodyRelativePose(state.rig).joints.find((joint) => joint.jointId === "left-knee")!;
 
   applyAvatarProportionPreset(state, "female");
 
   close(state.getJoint("left-knee").baseZ!, 3);
-  close(state.getJoint("left-knee").z, 27);
   close(state.getJoint("left-knee").localRotationX!, rotation!);
+  assertSameRelativeJointPose(
+    captureBodyRelativePose(state.rig).joints.find((joint) => joint.jointId === "left-knee")!,
+    beforePose,
+  );
   close(getJointWorldTransform(state.rig, "scene-root").x, 340);
   close(getJointWorldTransform(state.rig, "scene-root").y, 280);
 
   applyAvatarProportionPreset(state, "child-neutral");
   close(state.getJoint("left-knee").baseZ!, 1);
-  close(state.getJoint("left-knee").z, 25);
+  assertSameRelativeJointPose(
+    captureBodyRelativePose(state.rig).joints.find((joint) => joint.jointId === "left-knee")!,
+    beforePose,
+  );
 });
+
+test("avatar body round-trips do not accumulate deformation in a 3D pose", () => {
+  const state = new RigState(createDefaultRig());
+  state.setJointAxisRotation("right-elbow", "y", -64);
+  state.setJointAxisRotation("left-knee", "x", 31);
+  state.setJointAxisRotation("waist", "z", 18);
+
+  applyAvatarProportionPreset(state, "female");
+  const firstFemale = structuredClone(state.rig);
+  for (let index = 0; index < 4; index += 1) {
+    applyAvatarProportionPreset(state, "child-neutral");
+    applyAvatarProportionPreset(state, "female");
+  }
+
+  for (const expected of firstFemale.joints) {
+    const actual = state.getJoint(expected.id);
+    close(actual.x, expected.x);
+    close(actual.y, expected.y);
+    close(actual.z, expected.z);
+    close(actual.baseOffset!.x, expected.baseOffset!.x);
+    close(actual.baseOffset!.y, expected.baseOffset!.y);
+    close(actual.baseOffset!.z, expected.baseOffset!.z);
+  }
+});
+
+function assertSameRelativeJointPose(
+  actual: ReturnType<typeof captureBodyRelativePose>["joints"][number],
+  expected: ReturnType<typeof captureBodyRelativePose>["joints"][number],
+): void {
+  close(actual.lengthScale, expected.lengthScale);
+  actual.directionInRestFrame.forEach((value, index) => close(value, expected.directionInRestFrame[index]));
+}
 
 test("avatar preset round-trips preserve a posed neck length percentage", () => {
   const state = new RigState(createDefaultRig());

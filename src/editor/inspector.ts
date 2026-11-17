@@ -146,7 +146,7 @@ export function renderInspector(
       ${state.getValidParents(joint.id).map((candidateId) => `<option value="${escapeHtml(candidateId)}"${candidateId === joint.parentJointId ? " selected" : ""}>${escapeHtml(candidateId)}</option>`).join("")}
     </select>
     <p class="hint">부모를 변경해도 현재 화면 포즈는 유지됩니다.</p>
-    ${joint.parentJointId ? `<label class="joint-distance-field"><span>포즈 거리 비율<small>체형 기준 거리의 백분율 · 100%는 원래 길이</small></span><input type="number" min="0" max="300" step="1" value="${state.getJointDistancePercent(joint.id).toFixed(1)}" data-distance-percent="${escapeHtml(joint.id)}" aria-label="${escapeHtml(joint.id)} 포즈 거리 비율" /></label>` : ""}
+    ${joint.parentJointId ? `<label class="joint-distance-field"><span>포즈 거리 비율<small>체형 기준 거리의 백분율 · 100%는 원래 길이</small></span><input type="number" min="0" step="1" value="${state.getJointDistancePercent(joint.id).toFixed(1)}" data-distance-percent="${escapeHtml(joint.id)}" aria-label="${escapeHtml(joint.id)} 포즈 거리 비율" /></label>` : ""}
     ${relatedPeerGroups.map((group) => {
       const distance = state.getPeerGroupDistance(group.id)!;
       const distanceRangeMax = Math.max(300, Math.ceil(distance * 2 / 10) * 10);
@@ -182,12 +182,12 @@ export function renderInspector(
     <label class="field-label" for="joint-radius">반지름</label>
     <div class="range-number-control">
       <input id="joint-radius" type="range" min="8" max="80" step="1" value="${joint.radius}" />
-      <input id="joint-radius-number" type="number" min="8" max="80" step="1" value="${joint.radius.toFixed(0)}" aria-label="관절 반지름 숫자 입력" />
+      <input id="joint-radius-number" type="number" step="any" value="${joint.radius.toFixed(2)}" aria-label="관절 반지름 숫자 입력" />
     </div>
     <div class="joint-surface-profile">
       <strong>표면 프로필: ${escapeHtml(joint.surfaceProfileId ?? "원형 (없음)")}</strong>
       <div class="numeric-field-grid">
-        ${(["x", "y", "z"] as const).map((axis) => `<label><span>로컬 ${axis.toUpperCase()} 스케일${axis === "z" ? " (두께)" : ""}</span><input type="number" min="0.05" max="10" step="0.05" value="${(joint.surfaceScale?.[axis] ?? 1).toFixed(2)}" data-surface-scale-axis="${axis}" /></label>`).join("")}
+        ${(["x", "y", "z"] as const).map((axis) => `<label><span>로컬 ${axis.toUpperCase()} 스케일${axis === "z" ? " (두께)" : ""}</span><input type="number" step="any" value="${(joint.surfaceScale?.[axis] ?? 1).toFixed(2)}" data-surface-scale-axis="${axis}" /></label>`).join("")}
       </div>
       <div class="axis-side-options" aria-label="캡슐 평면 축">${(["x", "y", "z"] as const).map((axis) => {
         const active = joint.capsuleFlatAxes?.includes(axis) ?? false;
@@ -720,7 +720,7 @@ export function renderInspector(
 
   bindLiveRange(element, state, "#joint-radius", "#joint-radius-number", (value) => {
     if (joint) state.setJointRadius(joint.id, value);
-  });
+  }, false);
   (["x", "y", "z"] as const).forEach((axis) => {
     bindLiveRange(element, state, `#joint-rotation-${axis}`, `[data-joint-rotation-number="${axis}"]`, (value) => {
       if (joint) state.setJointAxisRotation(joint.id, axis, value);
@@ -1126,6 +1126,7 @@ function bindLiveRange(
   rangeSelector: string,
   numberSelector: string,
   update: (value: number) => void,
+  clampNumberToRange = true,
 ): void {
   const range = element.querySelector<HTMLInputElement>(rangeSelector);
   const number = element.querySelector<HTMLInputElement>(numberSelector);
@@ -1157,7 +1158,9 @@ function bindLiveRange(
     }
     const minimum = range.min === "" ? -Infinity : Number(range.min);
     const maximum = range.max === "" ? Infinity : Number(range.max);
-    const value = Math.min(maximum, Math.max(minimum, number.valueAsNumber));
+    const value = clampNumberToRange
+      ? Math.min(maximum, Math.max(minimum, number.valueAsNumber))
+      : number.valueAsNumber;
     range.value = String(value);
     number.value = String(value);
     state.beginHistoryTransaction();

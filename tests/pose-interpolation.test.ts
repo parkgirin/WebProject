@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
+import { getJointWorldTransform } from "../src/rig/geometry.ts";
+import { RigState } from "../src/rig/rig-state.ts";
 import {
   addPoseKey,
   advancePosePlayback,
+  applyFixedOutputView,
   createPoseKey,
   getPosePlaybackFrames,
   interpolateAngle,
@@ -57,6 +60,56 @@ test("rotation-only interpolation preserves the distance between connected joint
   assert.ok(Math.abs(Math.hypot(middleElbow.x, middleElbow.y) - connectionLength) < 1e-9);
   assert.ok(Math.abs(middleElbow.x + connectionLength / Math.sqrt(2)) < 1e-9);
   assert.ok(Math.abs(middleElbow.y + connectionLength / Math.sqrt(2)) < 1e-9);
+});
+
+test("3D rotation-only interpolation preserves a middle joint's descendant distance", () => {
+  const start = createDefaultRig();
+  const endState = new RigState(structuredClone(start));
+  endState.setJointAxisRotation("right-elbow", "y", -64);
+  const middle = interpolatePoseRig(start, endState.rig, .5);
+  const distance = (rig: typeof start, parentId: string, childId: string) => {
+    const parent = getJointWorldTransform(rig, parentId);
+    const child = getJointWorldTransform(rig, childId);
+    const parentJoint = rig.joints.find((joint) => joint.id === parentId)!;
+    const childJoint = rig.joints.find((joint) => joint.id === childId)!;
+    return Math.hypot(child.x - parent.x, child.y - parent.y, childJoint.z - parentJoint.z);
+  };
+
+  assert.ok(Math.abs(distance(middle, "right-elbow", "right-wrist")
+    - distance(start, "right-elbow", "right-wrist")) < 1e-9);
+  assert.ok(middle.joints.find((joint) => joint.id === "right-wrist")!.z > 0);
+});
+
+test("animation samples use the current fixed output view without replacing world rotation", () => {
+  const sampled = createDefaultRig();
+  sampled.viewYRotation = 0;
+  sampled.projectionStrength = 10;
+  sampled.perspectiveEnabled = true;
+  sampled.worldRotation = { x: 10, y: 20, z: 30 };
+  const outputView = structuredClone(sampled);
+  outputView.viewYRotation = 75;
+  outputView.projectionStrength = 90;
+  outputView.perspectiveEnabled = false;
+
+  const rendered = applyFixedOutputView(sampled, outputView);
+
+  assert.equal(rendered.viewYRotation, 75);
+  assert.equal(rendered.projectionStrength, 90);
+  assert.equal(rendered.perspectiveEnabled, false);
+  assert.deepEqual(rendered.worldRotation, { x: 10, y: 20, z: 30 });
+  assert.equal(sampled.viewYRotation, 0);
+});
+
+test("world rotation interpolates independently from the fixed output view", () => {
+  const start = createDefaultRig();
+  const end = structuredClone(start);
+  start.worldRotation = { x: 0, y: 350, z: 0 };
+  end.worldRotation = { x: 40, y: 10, z: 90 };
+
+  const middle = interpolatePoseRig(start, end, .5);
+
+  assert.deepEqual(middle.worldRotation, { x: 20, y: 0, z: 45 });
+  assert.equal(middle.viewYRotation, start.viewYRotation);
 });
 
 test("root joint movement remains a straight position interpolation", () => {

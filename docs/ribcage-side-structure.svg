@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="760" viewBox="0 0 720 760" role="img" aria-labelledby="title desc">
+  <title id="title">흉통 관절을 추가한 인체 측면 구조</title>
+  <desc id="desc">어깨 단면과 허리 단면 사이에 흉통 관절 단면을 두고 각 단면을 직선으로 연결한 측면 인체 구조도</desc>
+  <defs>
+    <style>
+      .body { fill: #dca27b; stroke: #533c31; stroke-width: 3; stroke-linejoin: round; }
+      .limb { fill: none; stroke: #dca27b; stroke-width: 44; stroke-linecap: round; stroke-linejoin: round; }
+      .limb-outline { fill: none; stroke: #533c31; stroke-width: 50; stroke-linecap: round; stroke-linejoin: round; }
+      .section { fill: rgba(255,255,255,.18); stroke: #9c3d33; stroke-width: 2.5; stroke-dasharray: 7 6; }
+      .axis { stroke: #9c3d33; stroke-width: 2; stroke-dasharray: 5 5; }
+      .joint { fill: #fff7f0; stroke: #9c3d33; stroke-width: 3; }
+      .label { font: 600 20px system-ui, sans-serif; fill: #382b26; }
+      .sub { font: 15px system-ui, sans-serif; fill: #6d5950; }
+      .note { font: 16px system-ui, sans-serif; fill: #9c3d33; }
+      .leader { fill: none; stroke: #6d5950; stroke-width: 1.8; }
+    </style>
+  </defs>
+
+  <rect width="720" height="760" rx="28" fill="#fbf7f2"/>
+  <text x="36" y="48" class="label" style="font-size:26px">흉통 단면을 추가한 측면</text>
+  <text x="36" y="75" class="sub">관절 단면은 둥글고, 단면 사이는 기존 방식대로 직선으로 연결</text>
+
+  <!-- far limbs -->
+  <path class="limb-outline" d="M326 207 L262 278 L132 296"/>
+  <path class="limb" d="M326 207 L262 278 L132 296"/>
+  <path class="limb-outline" d="M347 428 L258 529 L252 685"/>
+  <path class="limb" d="M347 428 L258 529 L252 685"/>
+
+  <!-- head and neck -->
+  <path class="limb-outline" style="stroke-width:34" d="M346 155 L351 195"/>
+  <path class="limb" style="stroke-width:29" d="M346 155 L351 195"/>
+  <circle class="body" cx="342" cy="126" r="70"/>
+
+  <!-- torso: shoulder -> ribcage -> waist, all straight edges -->
+  <polygon class="body" points="318,198 377,198 393,286 373,365 329,365 315,286"/>
+
+  <!-- pelvis and near leg -->
+  <polygon class="body" points="329,365 373,365 397,445 352,461 319,425"/>
+  <path class="limb-outline" d="M376 432 L405 558 L538 684"/>
+  <path class="limb" d="M376 432 L405 558 L538 684"/>
+
+  <!-- near arm -->
+  <path class="limb-outline" d="M374 209 L424 266 L451 365"/>
+  <path class="limb" d="M374 209 L424 266 L451 365"/>
+
+  <!-- structural section overlay -->
+  <line class="axis" x1="354" y1="188" x2="354" y2="380"/>
+  <ellipse class="section" cx="347.5" cy="198" rx="29.5" ry="16"/>
+  <ellipse class="section" cx="354" cy="286" rx="39" ry="22"/>
+  <ellipse class="section" cx="351" cy="365" rx="22" ry="15"/>
+
+  <circle class="joint" cx="347.5" cy="198" r="7"/>
+  <circle class="joint" cx="354" cy="286" r="8"/>
+  <circle class="joint" cx="351" cy="365" r="7"/>
+
+  <!-- labels -->
+  <path class="leader" d="M383 198 H520"/>
+  <text x="536" y="193" class="label">어깨 단면</text>
+  <text x="536" y="216" class="sub">기존 shoulder band</text>
+
+  <path class="leader" d="M395 286 H520"/>
+  <text x="536" y="281" class="label">흉통 단면</text>
+  <text x="536" y="304" class="sub">새 ribcage 관절</text>
+
+  <path class="leader" d="M375 365 H520"/>
+  <text x="536" y="360" class="label">허리 단면</text>
+  <text x="536" y="383" class="sub">기존 waist 관절</text>
+
+  <!-- optional breast attachment cue -->
+  <circle cx="397" cy="272" r="5" fill="#b65b7a"/>
+  <path d="M402 272 C438 253 466 252 503 259" fill="none" stroke="#b65b7a" stroke-width="2" stroke-dasharray="5 5"/>
+  <text x="510" y="263" class="note">가슴 부착 기준점</text>
+
+  <g transform="translate(505 473)">
+    <rect width="176" height="118" rx="16" fill="#fff" stroke="#e4d8ce"/>
+    <text x="18" y="30" class="label" style="font-size:17px">직선 연결</text>
+    <path d="M25 52 L80 72 L142 48" fill="none" stroke="#533c31" stroke-width="4"/>
+    <circle cx="25" cy="52" r="8" fill="#dca27b" stroke="#533c31" stroke-width="2"/>
+    <circle cx="80" cy="72" r="11" fill="#dca27b" stroke="#533c31" stroke-width="2"/>
+    <circle cx="142" cy="48" r="8" fill="#dca27b" stroke="#533c31" stroke-width="2"/>
+    <text x="18" y="103" class="sub">자유 곡선은 사용하지 않음</text>
+  </g>
+</svg>

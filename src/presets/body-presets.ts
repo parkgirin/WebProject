@@ -1,7 +1,14 @@
 import { RigState, normalizeArtShapeSpheres, validateRig } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
 import { rotateVectorAroundAxis } from "../rig/geometry.ts";
-import { createRigPreset, isHumanRig, parseRigPreset, proportionEntries, type RigPreset } from "../storage/rig-preset.ts";
+import { captureBodyRelativePose, restoreBodyRelativePose } from "../rig/body-relative-pose.ts";
+import {
+  createRigPreset,
+  isHumanRig,
+  parseRigPreset,
+  proportionEntries,
+  type RigPreset,
+} from "../storage/rig-preset.ts";
 
 export interface UserBodyPreset {
   id: string;
@@ -35,6 +42,7 @@ export function applyUserBodyPreset(state: RigState, entry: UserBodyPreset): voi
     return;
   }
   if (!entry.preset?.proportions) throw new Error("체형 정보가 없는 프리셋입니다.");
+  const preservedPose = captureBodyRelativePose(state.rig);
   state.beginHistoryTransaction();
   try {
     for (const [jointId, value] of proportionEntries(entry.preset)) {
@@ -47,7 +55,7 @@ export function applyUserBodyPreset(state: RigState, entry: UserBodyPreset): voi
         const parent = state.getJoint(joint.parentJointId);
         joint.x = posed.x;
         joint.y = posed.y;
-        joint.z = Math.min(100, Math.max(-100, parent.z + posed.z));
+        joint.z = parent.z + posed.z;
         joint.baseOffset = rest;
         joint.baseDistance = Math.hypot(rest.x, rest.y);
         joint.distancePercent = 100;
@@ -82,6 +90,7 @@ export function applyUserBodyPreset(state: RigState, entry: UserBodyPreset): voi
     const errors = validateRig(candidate);
     if (errors.length) throw new Error(`체형 도형을 적용할 수 없습니다: ${errors[0]}`);
     state.rig.artShapes = candidate.artShapes;
+    restoreBodyRelativePose(state, preservedPose);
   } finally {
     state.endHistoryTransaction();
   }

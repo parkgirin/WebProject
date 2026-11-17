@@ -1,4 +1,5 @@
 import type { RigState } from "../rig/rig-state.ts";
+import { captureBodyRelativePose, restoreBodyRelativePose } from "../rig/body-relative-pose.ts";
 
 export type AvatarPresetId =
   | "large"
@@ -84,6 +85,7 @@ export function getAvatarProportionPreset(id: string): AvatarProportionPreset | 
 export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPresetId): void {
   const preset = getAvatarProportionPreset(presetId);
   if (!preset) return;
+  const preservedPose = captureBodyRelativePose(state.rig);
   const previousDepthProfile = inferCurrentAvatarPreset(state).depthProfile;
   state.beginHistoryTransaction();
   try {
@@ -124,6 +126,7 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
       state.setJointRadius(`${side}-ankle`, preset.ankleRadius);
     }
     applyDepthProfile(state, preset, previousDepthProfile);
+    restoreBodyRelativePose(state, preservedPose);
   } finally {
     state.endHistoryTransaction();
   }

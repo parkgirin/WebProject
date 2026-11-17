@@ -1,4 +1,5 @@
 import { createDefaultRig } from "../rig/default-rig.ts";
+import { captureBodyRelativePose, restoreBodyRelativePose } from "../rig/body-relative-pose.ts";
 import { normalizeArtShapeSpheres, validateRig, type RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
 import {
@@ -76,32 +77,7 @@ interface BodyRelativePoseData extends PosePresentation {
 export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
   assertHumanRig(rig);
   const preset: RigPreset = { format: "pose-mesh-editor", version: 2, createdAt: new Date().toISOString(), rigTemplate: HUMAN_RIG_TEMPLATE_ID };
-  if (parts.pose) {
-    const root = rig.joints.find((joint) => !joint.parentJointId) ?? rig.joints[0];
-    if (!root) throw new Error("포즈를 저장할 관절이 없습니다.");
-    preset.pose = {
-    space: "body-relative-v3",
-    perspectiveEnabled: rig.perspectiveEnabled !== false,
-    projectionStrength: rig.projectionStrength,
-    viewYRotation: rig.viewYRotation,
-    rootOrientation: quaternionFromEuler(root.localRotationX ?? 0, root.localRotationY ?? 0, root.localRotation),
-    joints: rig.joints.flatMap((joint, index): CompactRelativeJointPose[] => {
-      if (!joint.parentJointId) return [];
-      const parent = rig.joints.find((candidate) => candidate.id === joint.parentJointId);
-      const rest = joint.baseOffset ?? { x: joint.x, y: joint.y, z: joint.z - (parent?.z ?? 0) };
-      const posed: Vector3Tuple = [joint.x, joint.y, joint.z - (parent?.z ?? 0)];
-      const restVector: Vector3Tuple = [rest.x, rest.y, rest.z];
-      const restLength = Math.hypot(...restVector);
-      const posedLength = Math.hypot(...posed);
-      return [[index,
-        restLength > 1e-9 && posedLength > 1e-9 ? quaternionBetweenVectors(restVector, posed) : [0, 0, 0, 1],
-        restLength > 1e-9 ? posedLength / restLength : 1,
-        quaternionFromEuler(joint.localRotationX ?? 0, joint.localRotationY ?? 0, joint.localRotation),
-        axisIds[index].map((axisId) => joint.axes.find((axis) => axis.id === axisId)?.angle ?? 0),
-      ]];
-    }),
-  };
-  }
+  if (parts.pose) preset.pose = createBodyRelativePose(rig);
   if (parts.proportions) preset.proportions = {
     joints: rig.joints.map((joint, index): CompactJointProportions => {
       const parent = joint.parentJointId ? rig.joints.find((candidate) => candidate.id === joint.parentJointId) : null;
@@ -137,6 +113,35 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
   return preset;
 }
 
+/** Capture a pose independently from the active body's rest offsets. */
+function createBodyRelativePose(rig: Rig): BodyRelativePoseData {
+  assertHumanRig(rig);
+  const root = rig.joints.find((joint) => !joint.parentJointId) ?? rig.joints[0];
+  if (!root) throw new Error("포즈를 저장할 관절이 없습니다.");
+  return {
+    space: "body-relative-v3",
+    perspectiveEnabled: rig.perspectiveEnabled !== false,
+    projectionStrength: rig.projectionStrength,
+    viewYRotation: rig.viewYRotation,
+    rootOrientation: quaternionFromEuler(root.localRotationX ?? 0, root.localRotationY ?? 0, root.localRotation),
+    joints: rig.joints.flatMap((joint, index): CompactRelativeJointPose[] => {
+      if (!joint.parentJointId) return [];
+      const parent = rig.joints.find((candidate) => candidate.id === joint.parentJointId);
+      const rest = joint.baseOffset ?? { x: joint.x, y: joint.y, z: joint.z - (parent?.z ?? 0) };
+      const posed: Vector3Tuple = [joint.x, joint.y, joint.z - (parent?.z ?? 0)];
+      const restVector: Vector3Tuple = [rest.x, rest.y, rest.z];
+      const restLength = Math.hypot(...restVector);
+      const posedLength = Math.hypot(...posed);
+      return [[index,
+        restLength > 1e-9 && posedLength > 1e-9 ? quaternionBetweenVectors(restVector, posed) : [0, 0, 0, 1],
+        restLength > 1e-9 ? posedLength / restLength : 1,
+        quaternionFromEuler(joint.localRotationX ?? 0, joint.localRotationY ?? 0, joint.localRotation),
+        axisIds[index].map((axisId) => joint.axes.find((axis) => axis.id === axisId)?.angle ?? 0),
+      ]];
+    }),
+  };
+}
+
 export function parseRigPreset(text: string): RigPreset {
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new Error("JSON 파일을 읽을 수 없습니다."); }
@@ -169,6 +174,8 @@ export function proportionEntries(preset: RigPreset): Array<[string, CompactJoin
 export function applyRigPreset(state: RigState, preset: RigPreset, parts: PresetParts): string[] {
   assertHumanRig(state.rig);
   const applied: string[] = [];
+  const preservedPose = parts.proportions && preset.proportions && !(parts.pose && preset.pose)
+    ? captureBodyRelativePose(state.rig) : null;
   state.beginHistoryTransaction();
   try {
     if (parts.proportions && preset.proportions) {
@@ -180,6 +187,7 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
       }
       applied.push("비율");
     }
+    if (preservedPose) restoreBodyRelativePose(state, preservedPose);
     if (parts.pose && preset.pose) {
       if (typeof preset.pose.perspectiveEnabled === "boolean") state.setPerspectiveEnabled(preset.pose.perspectiveEnabled);
       if (isFiniteNumber(preset.pose.projectionStrength)) state.setProjectionStrength(preset.pose.projectionStrength);
@@ -301,7 +309,7 @@ function applyBodyProportions(state: RigState, jointId: string, value: CompactJo
     const posed = rotateVector(rest, quaternionFromEuler(joint.localRotationX ?? 0, joint.localRotationY ?? 0, joint.localRotation));
     joint.x = posed[0];
     joint.y = posed[1];
-    joint.z = Math.min(100, Math.max(-100, parent.z + posed[2]));
+    joint.z = parent.z + posed[2];
     joint.baseOffset = { x: rest[0], y: rest[1], z: rest[2] };
     joint.baseDistance = Math.hypot(rest[0], rest[1]);
     joint.distancePercent = 100;
