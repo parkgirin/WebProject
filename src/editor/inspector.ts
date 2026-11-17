@@ -132,6 +132,7 @@ export function renderInspector(
       <div class="numeric-field-grid">
         <label for="joint-world-x"><span>월드 X</span><input id="joint-world-x" type="number" step="1" value="${jointWorld!.x.toFixed(1)}" /></label>
         <label for="joint-world-y"><span>월드 Y</span><input id="joint-world-y" type="number" step="1" value="${jointWorld!.y.toFixed(1)}" /></label>
+        <label for="joint-world-z"><span>월드 Z</span><input id="joint-world-z" type="number" step="0.1" value="${joint.z.toFixed(1)}" /></label>
       </div>
       <div class="joint-layer-actions">
         <span>겹침 순서</span>
@@ -750,6 +751,10 @@ export function renderInspector(
   element.querySelector<HTMLInputElement>("#joint-world-y")?.addEventListener("change", (event) => {
     if (!joint || !jointWorld) return;
     state.moveJoint(joint.id, jointWorld.x, (event.target as HTMLInputElement).valueAsNumber);
+  });
+  element.querySelector<HTMLInputElement>("#joint-world-z")?.addEventListener("change", (event) => {
+    if (!joint) return;
+    state.setJointZ(joint.id, (event.target as HTMLInputElement).valueAsNumber);
   });
   bindLayerStepActions(element, "joint", (direction) => {
     state.moveJointsInLayerStack(selection.jointIds, direction);

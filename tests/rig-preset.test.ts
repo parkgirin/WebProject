@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
+import { applyAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
 import { RigState } from "../src/rig/rig-state.ts";
+import { rotateVector } from "../src/storage/project-document.ts";
 import { applyRigPreset, createRigPreset, parseRigPreset } from "../src/storage/rig-preset.ts";
 
 test("a human-v1 preset round-trips pose, proportions, and colors", () => {
@@ -43,9 +45,56 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   assert.equal(target.rig.viewYRotation, 35);
   assert.equal(target.rig.defaultColor, "#123456");
   assert.equal(target.getFace("torso").color, "#abcdef");
-  assert.equal(target.getJoint("head").x, source.getJoint("head").x);
-  assert.equal(target.getJoint("head").y, source.getJoint("head").y);
+  assert.ok(Math.abs(target.getJoint("head").x - source.getJoint("head").x) < 1e-9);
+  assert.ok(Math.abs(target.getJoint("head").y - source.getJoint("head").y) < 1e-9);
   assert.equal(target.getPeerGroupDistance("shoulder-band"), 180);
+});
+
+test("a body-relative JSON pose preserves the target body's rest depth", () => {
+  const source = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(source, "female");
+  source.rebaseCurrentPoseAsBodyRest();
+  source.setJointAxisRotation("waist", "z", 18);
+  const preset = parseRigPreset(JSON.stringify(createRigPreset(source.rig, {
+    pose: true, proportions: false, colors: false,
+  })));
+  assert.equal(preset.pose?.space, "body-relative-v3");
+
+  const target = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(target, "child-neutral");
+  target.rebaseCurrentPoseAsBodyRest();
+  const waistRest = { ...target.getJoint("waist").baseOffset! };
+  const waistPose = preset.pose!.joints.find((entry) => entry[0] === 2)!;
+
+  applyRigPreset(target, preset, { pose: true, proportions: false, colors: false });
+
+  const [expectedX, expectedY, expectedZ] = rotateVector([waistRest.x, waistRest.y, waistRest.z], waistPose[1])
+    .map((value) => value * waistPose[2]);
+  const waist = target.getJoint("waist");
+  const pelvis = target.getJoint("pelvis-pivot");
+  assert.ok(Math.abs(waist.x - expectedX) < 1e-7);
+  assert.ok(Math.abs(waist.y - expectedY) < 1e-7);
+  assert.ok(Math.abs(waist.z - (pelvis.z + expectedZ)) < 1e-7);
+  assert.notEqual(waist.z, source.getJoint("waist").z, "source body depth must not overwrite the target body");
+});
+
+test("a proportions JSON applies body depth and capsule flat lengths", () => {
+  const source = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(source, "female");
+  const preset = parseRigPreset(JSON.stringify(createRigPreset(source.rig, {
+    pose: false, proportions: true, colors: false,
+  })));
+  const sourceWaist = source.getJoint("waist");
+
+  const target = new RigState(createDefaultRig());
+  applyAvatarProportionPreset(target, "neutral-straight");
+  applyRigPreset(target, preset, { pose: false, proportions: true, colors: false });
+
+  const waist = target.getJoint("waist");
+  const pelvis = target.getJoint("pelvis-pivot");
+  assert.equal(waist.baseOffset!.z, sourceWaist.baseOffset!.z);
+  assert.equal(waist.z - pelvis.z, sourceWaist.baseOffset!.z);
+  assert.equal(waist.capsuleFlatLengths?.x, sourceWaist.capsuleFlatLengths?.x);
 });
 
 test("preset parts can be applied selectively", () => {

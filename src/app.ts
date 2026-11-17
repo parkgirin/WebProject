@@ -337,6 +337,8 @@ export function createApp(container: HTMLDivElement): void {
             <label><input type="checkbox" data-preset-colors checked /> <span><strong>색상</strong><small>기본색과 관절·면별 색상</small></span></label>
             <label><input type="checkbox" data-preset-shapes checked /> <span><strong>자유 도형</strong><small>다각형과 축 끝점 연결</small></span></label>
           </div>
+          <p class="preset-data-summary" data-preset-export-summary aria-live="polite"></p>
+          <p class="preset-data-summary">프로젝트 저장에는 리그·체형·현재 포즈·외형·출력 시점·애니메이션 전체가 포함됩니다.</p>
           <p class="preset-status" data-preset-status aria-live="polite"></p>
           <p class="hint" data-workspace-cache-status aria-live="polite">작업 내용은 이 브라우저에 자동 저장됩니다.</p>
         </div>
@@ -352,7 +354,7 @@ export function createApp(container: HTMLDivElement): void {
       </dialog>
       <dialog class="preset-dialog" data-preset-import-dialog>
         <div class="preset-dialog-header"><div><span class="eyebrow">IMPORT DATA</span><h2>불러올 정보 선택</h2></div><button type="button" class="preview-close-button" data-close-preset-import aria-label="불러오기 취소">×</button></div>
-        <div class="preset-dialog-content"><p data-preset-import-file></p><div class="preset-part-list">
+        <div class="preset-dialog-content"><p data-preset-import-file></p><p class="preset-data-summary" data-preset-import-summary aria-live="polite"></p><div class="preset-part-list">
           <label><input type="checkbox" data-import-pose checked /> <span><strong>포즈</strong><small>관절 위치와 회전, 축선 각도</small></span></label>
           <label><input type="checkbox" data-import-proportions checked /> <span><strong>비율</strong><small>관절 크기와 부모 기준 거리</small></span></label>
           <label><input type="checkbox" data-import-colors checked /> <span><strong>색상</strong><small>기본색과 관절·면별 색상</small></span></label>
@@ -406,6 +408,8 @@ export function createApp(container: HTMLDivElement): void {
   const confirmPresetImportButton = requireElement<HTMLButtonElement>(container, "[data-confirm-preset-import]");
   const presetImportStatus = requireElement<HTMLElement>(container, "[data-preset-import-status]");
   const presetStatus = requireElement<HTMLElement>(container, "[data-preset-status]");
+  const presetExportSummary = requireElement<HTMLElement>(container, "[data-preset-export-summary]");
+  const presetImportSummary = requireElement<HTMLElement>(container, "[data-preset-import-summary]");
   const workspaceCacheStatus = requireElement<HTMLElement>(container, "[data-workspace-cache-status]");
   if (restoredWorkspace) {
     workspaceCacheStatus.textContent = `자동 저장 작업 복원됨 · ${new Date(restoredWorkspace.savedAt).toLocaleString()}`;
@@ -638,6 +642,39 @@ export function createApp(container: HTMLDivElement): void {
     colors: container.querySelector<HTMLInputElement>("[data-import-colors]")?.checked ?? false,
     shapes: container.querySelector<HTMLInputElement>("[data-import-shapes]")?.checked ?? false,
   });
+  const describePresetParts = (parts: PresetParts): string => {
+    const included = [
+      parts.pose && "포즈(체형 상대 회전·길이·축)",
+      parts.proportions && "비율(관절 크기·기본 거리)",
+      parts.colors && "색상",
+      parts.shapes && "자유 도형",
+    ].filter(Boolean);
+    return included.length ? `JSON 포함 항목: ${included.join(" · ")}` : "JSON에 포함할 항목을 하나 이상 선택하세요.";
+  };
+  const refreshPresetExportSummary = () => { presetExportSummary.textContent = describePresetParts(getPresetParts()); };
+  container.querySelectorAll<HTMLInputElement>("[data-preset-pose], [data-preset-proportions], [data-preset-colors], [data-preset-shapes]")
+    .forEach((input) => input.addEventListener("change", refreshPresetExportSummary));
+  const updatePresetImportChoices = (preset: ReturnType<typeof parseRigPreset>) => {
+    const available: Record<keyof PresetParts, boolean> = {
+      pose: preset.pose !== undefined,
+      proportions: preset.proportions !== undefined,
+      colors: preset.colors !== undefined,
+      shapes: preset.artShapes !== undefined,
+    };
+    (Object.entries(available) as Array<[keyof PresetParts, boolean]>).forEach(([part, included]) => {
+      const input = container.querySelector<HTMLInputElement>(`[data-import-${part}]`);
+      if (!input) return;
+      input.checked = included;
+      input.disabled = !included;
+      input.closest("label")?.classList.toggle("is-disabled", !included);
+    });
+    const included = Object.entries(available).filter(([, value]) => value).map(([part]) => ({
+      pose: "포즈", proportions: "비율", colors: "색상", shapes: "자유 도형",
+    }[part]!));
+    const poseFormat = preset.pose?.space === "body-relative-v3"
+      ? " · 포즈는 체형 상대 형식" : preset.pose ? " · 포즈는 이전 절대 좌표 형식" : "";
+    presetImportSummary.textContent = included.length ? `파일 포함 항목: ${included.join(" · ")}${poseFormat}` : "파일에 적용 가능한 부분 프리셋 데이터가 없습니다.";
+  };
   let pendingPresetImport: ReturnType<typeof parseRigPreset> | null = null;
   const inspector = createInspector();
   inspectorHost.append(inspector);
@@ -1626,6 +1663,7 @@ export function createApp(container: HTMLDivElement): void {
   bindDialog(openControlsButton, closeControlsButton, controlsDialog);
   bindDialog(openPresetButton, closePresetButton, presetDialog, () => {
     presetStatus.textContent = "";
+    refreshPresetExportSummary();
   });
   savePresetButton.addEventListener("click", () => {
     const content = JSON.stringify(createRigPreset(state.rig, getPresetParts()), null, 2);
@@ -1656,6 +1694,8 @@ export function createApp(container: HTMLDivElement): void {
       const header = JSON.parse(text) as { format?: unknown };
       if (header?.format === "pose-mesh-project") {
         const project = parseProjectDocument(text);
+        const projectSummary = `리그 ${project.rig.joints.length}개 관절 · 체형 · 현재 포즈 · 외형 · 출력 시점 · 애니메이션 ${project.animations.length}개`;
+        if (!window.confirm(`${file.name} JSON 포함 데이터:\n${projectSummary}\n\n이 프로젝트 전체를 불러올까요?`)) return;
         const rig = materializeProjectRig(project);
         const animations = materializeProjectAnimations(project);
         prepareRigReplacement(rig);
@@ -1674,6 +1714,7 @@ export function createApp(container: HTMLDivElement): void {
         return;
       }
       pendingPresetImport = parseRigPreset(text);
+      updatePresetImportChoices(pendingPresetImport);
       requireElement<HTMLElement>(container, "[data-preset-import-file]").textContent = `${file.name} 파일에서 적용할 정보를 선택하세요.`;
       presetImportStatus.textContent = "";
       presetImportDialog.showModal();

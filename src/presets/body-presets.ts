@@ -53,6 +53,7 @@ export function applyUserBodyPreset(state: RigState, entry: UserBodyPreset): voi
         joint.distancePercent = 100;
         state.setJointRadius(joint.id, value[3]);
         if (typeof value[4] === "number") state.setJointSideRadius(joint.id, value[4]);
+        applyCapsuleFlatLengths(state, joint.id, value[6]);
         continue;
       }
       const targetLength = Math.hypot(value[1], value[2]);
@@ -67,6 +68,7 @@ export function applyUserBodyPreset(state: RigState, entry: UserBodyPreset): voi
         radius: value[3],
         ...(typeof value[4] === "number" ? { sideRadius: value[4] } : {}),
       });
+      applyCapsuleFlatLengths(state, joint.id, value[6]);
     }
     const candidate = structuredClone(state.rig);
     candidate.artShapes = (candidate.artShapes ?? []).filter((shape) => !shape.id.startsWith(BODY_PRESET_SHAPE_PREFIX));
@@ -82,6 +84,17 @@ export function applyUserBodyPreset(state: RigState, entry: UserBodyPreset): voi
     state.rig.artShapes = candidate.artShapes;
   } finally {
     state.endHistoryTransaction();
+  }
+}
+
+function applyCapsuleFlatLengths(
+  state: RigState,
+  jointId: string,
+  flatLengths: Partial<Record<"x" | "y" | "z", number>> | undefined,
+): void {
+  if (!flatLengths) return;
+  for (const [axis, length] of Object.entries(flatLengths)) {
+    if (typeof length === "number") state.setJointCapsuleFlatLength(jointId, axis as "x" | "y" | "z", length);
   }
 }
 

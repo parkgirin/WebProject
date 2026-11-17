@@ -1,6 +1,6 @@
 import type { RigState } from "../rig/rig-state.ts";
 import type { Rig } from "../rig/types.ts";
-import { applyRigPreset, createRigPreset, parseRigPreset, poseEntries, type RigPreset } from "../storage/rig-preset.ts";
+import { applyRigPreset, createRigPreset, isBodyRelativePose, parseRigPreset, poseEntries, type RigPreset } from "../storage/rig-preset.ts";
 
 export interface UserPosePreset {
   id: string;
@@ -29,6 +29,12 @@ export function createUserPosePreset(id: string, name: string, rig: Rig): UserPo
 
 export function applyUserPosePreset(state: RigState, entry: UserPosePreset): void {
   const preset = structuredClone(entry.preset);
+  // New presets store a v3 rotation/scale delta from each body's rest offset.
+  // Legacy v2 JSON retains its historical XY length adaptation on import.
+  if (preset.pose && isBodyRelativePose(preset.pose)) {
+    applyRigPreset(state, preset, { pose: true, proportions: false, colors: false, shapes: false });
+    return;
+  }
   for (const [jointId, saved] of poseEntries(preset)) {
     const current = state.rig.joints.find((joint) => joint.id === jointId);
     if (!current) continue;

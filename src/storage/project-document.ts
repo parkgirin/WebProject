@@ -515,7 +515,7 @@ export function rotateVector(vector: Vector3Tuple, rotation: Quaternion): Vector
   ];
 }
 
-function quaternionBetweenVectors(from: Vector3Tuple, to: Vector3Tuple): Quaternion {
+export function quaternionBetweenVectors(from: Vector3Tuple, to: Vector3Tuple): Quaternion {
   const a = normalizeVector(from);
   const b = normalizeVector(to);
   const dot = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
