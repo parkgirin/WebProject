@@ -24,6 +24,7 @@ test("a legacy rig separates into structure, body, pose, appearance, and output 
   state.paintJointWithColor("right-wrist", "#123456");
   state.setViewYRotation(35);
   state.setProjectionStrength(70);
+  state.setOutputPivot("manual", 275, 640, "left-ankle");
   state.setGlobalAxisRotation("z", 25);
 
   const project = createProjectDocument(state.rig, { createdAt: "2026-11-14T00:00:00.000Z" });
@@ -37,8 +38,10 @@ test("a legacy rig separates into structure, body, pose, appearance, and output 
   assert.ok(project.pose.joints["right-elbow"].lengthScale > 0);
   assert.equal(project.appearance.joints["right-wrist"].paletteId, state.getJoint("right-wrist").paletteId);
   assert.equal(project.outputView.projectionStrength, 70);
+  assert.deepEqual(project.outputView.pivot,
+    { mode: "manual", space: "output-canvas", x: 275, y: 640, jointId: "left-ankle" });
   assert.deepEqual(Object.keys(project.outputView).sort(),
-    ["perspectiveEnabled", "projectionStrength", "rotation", "transparentBackground"]);
+    ["perspectiveEnabled", "pivot", "projectionStrength", "rotation", "transparentBackground"]);
 });
 
 test("materializing a separated project preserves the legacy editor rig", () => {
@@ -62,6 +65,7 @@ test("materializing a separated project preserves the legacy editor rig", () => 
   }
   close(restored.worldRotation!.y, 40);
   assert.deepEqual(restored.artShapes, state.rig.artShapes);
+  assert.deepEqual(restored.outputPivot, project.outputView.pivot);
 });
 
 test("v3 project JSON round-trips and rejects mismatched rig identities", () => {
@@ -69,6 +73,14 @@ test("v3 project JSON round-trips and rejects mismatched rig identities", () => 
   const parsed = parseProjectDocument(serializeProjectDocument(project));
   assert.equal(parsed.rig.id, "human-v1");
   assert.equal(parsed.outputView.transparentBackground, true);
+
+  const legacy = structuredClone(project);
+  delete (legacy.outputView as Partial<typeof legacy.outputView>).pivot;
+  assert.equal(parseProjectDocument(JSON.stringify(legacy)).outputView.pivot.mode, "auto");
+
+  const invalidPivot = structuredClone(project);
+  invalidPivot.outputView.pivot.x = Number.NaN;
+  assert.throws(() => parseProjectDocument(JSON.stringify(invalidPivot)), /출력 피벗/);
 
   const incompatible = structuredClone(project);
   incompatible.pose.rigId = "rabbit-v1";

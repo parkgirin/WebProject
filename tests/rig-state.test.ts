@@ -251,6 +251,20 @@ test("changing a parent preserves world pose and rejects cyclic parenting", () =
   assert.throws(() => state.setParentJoint("waist", "left-wrist"), /descendant/i);
 });
 
+test("manual output pivot is undoable and remains separate from joint pose", () => {
+  const state = new RigState(createDefaultRig());
+  const chest = structuredClone(state.getJoint("chest"));
+
+  state.setOutputPivot("manual", 275, 640, "left-ankle");
+  assert.deepEqual(state.rig.outputPivot,
+    { mode: "manual", space: "output-canvas", x: 275, y: 640, jointId: "left-ankle" });
+  assert.deepEqual(state.getJoint("chest"), chest);
+
+  state.undo();
+  assert.deepEqual(state.rig.outputPivot,
+    { mode: "auto", space: "output-canvas", x: 300, y: 700 });
+});
+
 test("history restores an edited radius", () => {
   const state = new RigState(createDefaultRig());
   const original = state.getJoint("head").radius;

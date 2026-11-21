@@ -202,6 +202,16 @@ export type ElementLayerId = "joints" | "axes" | "faces" | "shapes";
 
 export type ElementLayerVisibility = Record<ElementLayerId, boolean>;
 
+export interface OutputPivot {
+  mode: "auto" | "manual";
+  /** Fixed coordinates in the editor's output canvas (600 × 780 viewBox). */
+  space: "output-canvas";
+  x: number;
+  y: number;
+  /** Optional joint binding evaluated independently for each animation frame. */
+  jointId?: string;
+}
+
 export interface Rig {
   defaultColor: string;
   /** False uses orthographic size while retaining camera rotation and depth ordering. Defaults to true. */
@@ -212,6 +222,8 @@ export interface Rig {
   viewYRotation: number;
   /** Scene transform, kept separate from character pose and pose animation. */
   worldRotation?: { x: number; y: number; z: number };
+  /** Project-wide sprite placement anchor, separate from body and pose data. */
+  outputPivot?: OutputPivot;
   /** Independent body-shape corrections for front, side, and back views. */
   bodyViewProfiles: BodyViewProfiles;
   surfaceProfiles?: SurfaceProfile[];

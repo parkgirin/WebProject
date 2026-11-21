@@ -9,6 +9,7 @@ import type {
   Joint,
   JointAxis,
   LayerGroup,
+  OutputPivot,
   PeerGroup,
   Rig,
   SurfaceProfile,
@@ -104,6 +105,7 @@ export interface OutputView {
   perspectiveEnabled: boolean;
   projectionStrength: number;
   transparentBackground: boolean;
+  pivot: OutputPivot;
 }
 
 export interface WorldTransformState {
@@ -181,6 +183,9 @@ export function createProjectDocument(rig: Rig, options: ProjectDocumentOptions 
       perspectiveEnabled: rig.perspectiveEnabled !== false,
       projectionStrength: rig.projectionStrength,
       transparentBackground: true,
+      pivot: structuredClone(rig.outputPivot ?? {
+        mode: "auto", space: "output-canvas", x: 300, y: 700,
+      }),
     },
     worldTransform: { rotation: quaternionFromEuler(
       rig.worldRotation?.x ?? 0, rig.worldRotation?.y ?? 0, rig.worldRotation?.z ?? 0,
@@ -207,6 +212,12 @@ export function parseProjectDocument(text: string): ProjectDocument {
     throw new Error("지원하지 않는 Pose Mesh Project 저장 파일입니다.");
   }
   const project = structuredClone(value) as unknown as ProjectDocument;
+  project.outputView.pivot ??= { mode: "auto", space: "output-canvas", x: 300, y: 700 };
+  const pivot = project.outputView.pivot;
+  if ((pivot.mode !== "auto" && pivot.mode !== "manual") || pivot.space !== "output-canvas"
+    || !Number.isFinite(pivot.x) || !Number.isFinite(pivot.y)) {
+    throw new Error("프로젝트의 출력 피벗이 올바르지 않습니다.");
+  }
   if (typeof project.rig.id !== "string" || !project.rig.id.trim()
     || project.body.rigId !== project.rig.id || project.pose.rigId !== project.rig.id
     || project.body.rigVersion !== project.rig.version || project.pose.rigVersion !== project.rig.version) {
@@ -459,6 +470,7 @@ export function materializeProjectRig(project: ProjectDocument): Rig {
     projectionStrength: project.outputView.projectionStrength,
     viewYRotation: viewEuler.y,
     worldRotation: worldEuler,
+    outputPivot: structuredClone(project.outputView.pivot),
     bodyViewProfiles: structuredClone(project.body.bodyViewProfiles),
     surfaceProfiles: structuredClone(project.body.surfaceProfiles),
     palette: structuredClone(project.appearance.palette),

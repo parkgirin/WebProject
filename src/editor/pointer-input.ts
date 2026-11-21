@@ -27,6 +27,7 @@ interface PointerInputOptions {
   insertShapeVertex?: (shapeId: string, afterVertexId: string, point: { x: number; y: number }) => void;
   bindSelectedShapeVertex?: (jointId: string, axisId: string, side: -1 | 1, snap: boolean) => void;
   deleteSelectedShapeVertex?: () => boolean;
+  setOutputPivot?: (x: number, y: number) => void;
   getSelectedShapeIds?: () => string[];
   duplicateSelectedShapes?: (clickedShapeId: string) => string[];
   setSelection: (selection: EditorSelection) => void;
@@ -61,7 +62,8 @@ type Interaction =
   | { type: "move-joint-z"; jointId: string; startClientY: number; startZ: number }
   | { type: "rotate-view"; startClientX: number; startClientY: number; startWorldX: number; startWorldY: number; startWorldZ: number; axis: "x" | "y" | "z" | null; free?: boolean }
   | { type: "pan"; startClientX: number; startClientY: number; viewBox: ViewBox }
-  | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement };
+  | { type: "marquee"; startX: number; startY: number; additive: boolean; rectangle: SVGRectElement }
+  | { type: "move-output-pivot" };
 
 const DEFAULT_VIEW_BOX: ViewBox = { x: 0, y: 0, width: 600, height: 780 };
 
@@ -256,6 +258,9 @@ export function enablePointerInput(
 
     if (event.button === 2 && !options.getLayerToolActive()) {
       interaction = { type: "rotate-view", startClientX: event.clientX, startClientY: event.clientY, startWorldX: options.state.getGlobalAxisRotation("x"), startWorldY: options.state.getGlobalAxisRotation("y"), startWorldZ: options.state.getGlobalAxisRotation("z"), axis: event.altKey ? "z" : null };
+      options.state.beginHistoryTransaction();
+    } else if (event.button === 0 && target.hasAttribute("data-output-pivot") && options.setOutputPivot) {
+      interaction = { type: "move-output-pivot" };
       options.state.beginHistoryTransaction();
     } else if (event.button === 0 && screenMode) {
       interaction = { type: "rotate-view", startClientX: event.clientX, startClientY: event.clientY,
@@ -554,6 +559,10 @@ export function enablePointerInput(
     }
 
     const screenPoint = toSvgPoint(element, event);
+    if (interaction.type === "move-output-pivot") {
+      options.setOutputPivot?.(screenPoint.x, screenPoint.y);
+      return;
+    }
     const point = toSvgPoint(element, event, options.state.rig, interactionDepth);
     if (interaction.type === "move-joint-z") {
       // Moving upward brings the selected joint toward the viewer.

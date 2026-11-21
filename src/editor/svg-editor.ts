@@ -917,6 +917,18 @@ export function renderSvgEditor(
   const polygonDraft = draftPoints.length ? `<g class="polygon-draft"><polyline points="${draftPoints.map((point) => `${point.x},${point.y}`).join(" ")}" />${draftPoints.map((point, index) => `<circle data-polygon-draft-point${index === 0 ? " data-polygon-draft-start" : ""} cx="${point.x}" cy="${point.y}" r="${index === 0 ? 8 : 5}" />`).join("")}</g>` : "";
   const lineDraftPoints = (viewState.lineDraft ?? []).map((point) => project(point, point.axisPoint ? zOf(point.axisPoint.jointId) : 0));
   const lineDraft = lineDraftPoints.length ? `<g class="line-draft"><polyline points="${lineDraftPoints.map((point) => `${point.x},${point.y}`).join(" ")}" />${lineDraftPoints.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="6" />`).join("")}</g>` : "";
+  const outputPivotPoint = rig.outputPivot?.mode === "manual"
+    ? rig.outputPivot.jointId && rig.joints.some((joint) => joint.id === rig.outputPivot!.jointId)
+      ? projectJoint(rig.outputPivot.jointId)
+      : { x: rig.outputPivot.x, y: rig.outputPivot.y }
+    : null;
+  const outputPivotGuide = outputPivotPoint ? `
+    <g class="output-pivot-guide" aria-label="수동 출력 피벗">
+      <line x1="${outputPivotPoint.x - 16}" y1="${outputPivotPoint.y}" x2="${outputPivotPoint.x + 16}" y2="${outputPivotPoint.y}" />
+      <line x1="${outputPivotPoint.x}" y1="${outputPivotPoint.y - 16}" x2="${outputPivotPoint.x}" y2="${outputPivotPoint.y + 16}" />
+      <circle class="output-pivot-hit" data-output-pivot cx="${outputPivotPoint.x}" cy="${outputPivotPoint.y}" r="13" />
+      <circle class="output-pivot-center" cx="${outputPivotPoint.x}" cy="${outputPivotPoint.y}" r="4" />
+    </g>` : "";
 
   host.innerHTML = `
     <defs data-export-defs>${jointOutlineMasks}${torsoConnectionOutlineMasks}${compositeMaskDefs.join("")}</defs>
@@ -927,7 +939,7 @@ export function renderSvgEditor(
     <g data-layer="body" class="${viewState.outlinesVisible ? "show-outlines" : ""}">
       ${renderedBody}
     </g>
-    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${virtualCapsuleGuides}${guides}${selectedCapsuleInternals}${rotationHandle}${selectionTransform}${peerHandles}${shapeGuides}${polygonDraft}${lineDraft}</g>`;
+    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${virtualCapsuleGuides}${guides}${selectedCapsuleInternals}${rotationHandle}${selectionTransform}${peerHandles}${shapeGuides}${polygonDraft}${lineDraft}${outputPivotGuide}</g>`;
 }
 
 function getOuterPoints(points: Point[]): Point[] {

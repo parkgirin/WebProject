@@ -1,5 +1,12 @@
 import { createDefaultRig } from "./rig/default-rig.ts";
-import { getArtShapeVertexPoint } from "./rig/geometry.ts";
+import {
+  getArtShapeVertexPoint,
+  getCameraZ,
+  getJointViewRadius,
+  getJointWorldTransform,
+  getProjectionScale,
+  projectPoint,
+} from "./rig/geometry.ts";
 import {
   applyAvatarProportionPreset,
   applyArmsDownPose,
@@ -26,7 +33,7 @@ import { renderSvgEditor } from "./editor/svg-editor.ts";
 import { enablePointerInput } from "./editor/pointer-input.ts";
 import { createInspector, renderInspector } from "./editor/inspector.ts";
 import { createExportPreview, exportDrawingAsPng, exportDrawingAsSvg } from "./editor/export-image.ts";
-import { exportPoseAnimationFrames } from "./editor/export-animation.ts";
+import { exportPoseAnimationFrames, exportPoseAnimationSpriteSheet } from "./editor/export-animation.ts";
 import { applyRigPreset, createRigPreset, isHumanRig, parseRigPreset, type PresetParts } from "./storage/rig-preset.ts";
 import { createPoseAnimationFile, parsePoseAnimationFile } from "./storage/pose-animation.ts";
 import {
@@ -216,6 +223,14 @@ export function createApp(container: HTMLDivElement): void {
                 <div class="world-perspective-controls">
                   <label class="world-perspective-toggle"><input type="checkbox" data-perspective-enabled${state.rig.perspectiveEnabled === false ? "" : " checked"} />원근 적용</label>
                   <label class="world-projection-strength"><span>원근 강도</span><input type="range" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength /><input type="number" min="0" max="100" step="1" value="${state.rig.projectionStrength}" data-projection-strength-number aria-label="원근 투영 강도" /></label>
+                </div>
+                <div class="output-pivot-controls">
+                  <label><input type="checkbox" data-manual-output-pivot />수동 출력 피벗</label>
+                  <label>X <input type="number" step="1" data-output-pivot-x aria-label="출력 피벗 X" /></label>
+                  <label>Y <input type="number" step="1" data-output-pivot-y aria-label="출력 피벗 Y" /></label>
+                  <button type="button" data-output-pivot-selection>선택 관절에 맞춤</button>
+                  <button type="button" data-output-pivot-auto>자동값 복귀</button>
+                  <output class="output-pivot-status" data-output-pivot-status></output>
                 </div>
               </div>
             </section>
@@ -426,6 +441,12 @@ export function createApp(container: HTMLDivElement): void {
   const perspectiveEnabledInput = requireElement<HTMLInputElement>(container, "[data-perspective-enabled]");
   const projectionStrengthInput = requireElement<HTMLInputElement>(container, "[data-projection-strength]");
   const projectionStrengthNumber = requireElement<HTMLInputElement>(container, "[data-projection-strength-number]");
+  const manualOutputPivotInput = requireElement<HTMLInputElement>(container, "[data-manual-output-pivot]");
+  const outputPivotXInput = requireElement<HTMLInputElement>(container, "[data-output-pivot-x]");
+  const outputPivotYInput = requireElement<HTMLInputElement>(container, "[data-output-pivot-y]");
+  const outputPivotSelectionButton = requireElement<HTMLButtonElement>(container, "[data-output-pivot-selection]");
+  const outputPivotAutoButton = requireElement<HTMLButtonElement>(container, "[data-output-pivot-auto]");
+  const outputPivotStatus = requireElement<HTMLOutputElement>(container, "[data-output-pivot-status]");
   const worldPanel = requireElement<HTMLElement>(container, "[data-world-panel]");
   const worldPanelToggle = requireElement<HTMLButtonElement>(container, "[data-toggle-world-panel]");
   const avatarPresetSelect = requireElement<HTMLSelectElement>(container, "[data-avatar-preset]");
@@ -707,9 +728,14 @@ export function createApp(container: HTMLDivElement): void {
       viewYRotation: state.rig.viewYRotation,
       perspectiveEnabled: state.rig.perspectiveEnabled,
       projectionStrength: state.rig.projectionStrength,
+      outputPivot: structuredClone(state.rig.outputPivot),
     };
     state.beginHistoryTransaction();
     Object.assign(state.rig, structuredClone(rig));
+    if (fixedOutputView.outputPivot?.jointId
+      && !state.rig.joints.some((joint) => joint.id === fixedOutputView.outputPivot!.jointId)) {
+      delete fixedOutputView.outputPivot.jointId;
+    }
     Object.assign(state.rig, fixedOutputView);
     state.endHistoryTransaction();
   };
@@ -767,6 +793,17 @@ export function createApp(container: HTMLDivElement): void {
     projectionStrengthNumber.value = String(state.rig.projectionStrength);
     projectionStrengthInput.disabled = state.rig.perspectiveEnabled === false;
     projectionStrengthNumber.disabled = state.rig.perspectiveEnabled === false;
+    const outputPivot = state.rig.outputPivot;
+    const manualOutputPivot = outputPivot?.mode === "manual";
+    manualOutputPivotInput.checked = manualOutputPivot;
+    outputPivotXInput.value = String(outputPivot?.x ?? 300);
+    outputPivotYInput.value = String(outputPivot?.y ?? 700);
+    outputPivotXInput.disabled = !manualOutputPivot;
+    outputPivotYInput.disabled = !manualOutputPivot;
+    outputPivotSelectionButton.disabled = !selection.jointId;
+    outputPivotAutoButton.disabled = !manualOutputPivot;
+    outputPivotStatus.value = !manualOutputPivot ? "자동 기준"
+      : outputPivot?.jointId ? `관절 추적: ${outputPivot.jointId}` : "고정 출력 좌표";
     undoButton.disabled = !state.canUndo;
     redoButton.disabled = !state.canRedo;
     mobileUndoButton.disabled = !state.canUndo;
@@ -923,6 +960,7 @@ export function createApp(container: HTMLDivElement): void {
   const viewport = enablePointerInput(svg, {
     state,
     getSelection: () => selection,
+    setOutputPivot: (x, y) => state.setOutputPivot("manual", x, y),
     getEditBodyProportions: () => viewState.editBodyProportions,
     getMoveSelectedIndividually: () => viewState.moveSelectedIndividually,
     getPaintColor: () => viewState.activeTool === "color" ? viewState.paintColor : null,
@@ -1655,6 +1693,33 @@ export function createApp(container: HTMLDivElement): void {
   perspectiveEnabledInput.addEventListener("change", () => state.setPerspectiveEnabled(perspectiveEnabledInput.checked));
   projectionStrengthInput.addEventListener("input", () => state.setProjectionStrength(projectionStrengthInput.valueAsNumber));
   projectionStrengthNumber.addEventListener("change", () => state.setProjectionStrength(projectionStrengthNumber.valueAsNumber));
+  manualOutputPivotInput.addEventListener("change", () => {
+    if (manualOutputPivotInput.checked) {
+      const pivot = getSuggestedOutputPivot(state.rig);
+      state.setOutputPivot("manual", pivot.x, pivot.y);
+    } else {
+      state.setOutputPivot("auto", state.rig.outputPivot?.x ?? 300, state.rig.outputPivot?.y ?? 700);
+    }
+  });
+  outputPivotXInput.addEventListener("change", () => {
+    if (state.rig.outputPivot?.mode === "manual") {
+      state.setOutputPivot("manual", outputPivotXInput.valueAsNumber, state.rig.outputPivot.y);
+    }
+  });
+  outputPivotYInput.addEventListener("change", () => {
+    if (state.rig.outputPivot?.mode === "manual") {
+      state.setOutputPivot("manual", state.rig.outputPivot.x, outputPivotYInput.valueAsNumber);
+    }
+  });
+  outputPivotSelectionButton.addEventListener("click", () => {
+    if (!selection.jointId) return;
+    const joint = state.getJoint(selection.jointId);
+    const point = projectPoint(state.rig, getJointWorldTransform(state.rig, joint.id), joint.z);
+    state.setOutputPivot("manual", point.x, point.y, joint.id);
+  });
+  outputPivotAutoButton.addEventListener("click", () => {
+    state.setOutputPivot("auto", state.rig.outputPivot?.x ?? 300, state.rig.outputPivot?.y ?? 700);
+  });
   container.querySelectorAll<HTMLButtonElement>("[data-reset-global-axis]").forEach((button) => {
     button.addEventListener("click", () => {
       const axis = button.dataset.resetGlobalAxis as "x" | "y" | "z";
@@ -1758,7 +1823,7 @@ export function createApp(container: HTMLDivElement): void {
     exportTitle.textContent = target === "model" ? "단일 모델 내보내기" : "애니메이션 내보내기";
     exportFormatSelect.innerHTML = target === "model"
       ? `<option value="png">PNG 이미지</option><option value="svg">SVG 벡터</option>`
-      : `<option value="png">PNG 프레임 시퀀스 (.zip)</option><option value="svg">SVG 프레임 시퀀스 (.zip)</option>`;
+      : `<option value="sprite-sheet">PNG 스프라이트 시트 + JSON (.zip)</option><option value="png">PNG 프레임 시퀀스 (.zip)</option><option value="svg">SVG 프레임 시퀀스 (.zip)</option>`;
     exportStatus.textContent = "";
     previewSize.textContent = target === "model"
       ? `${Math.round(preview.width)} × ${Math.round(preview.height)} · 투명 배경`
@@ -1782,7 +1847,9 @@ export function createApp(container: HTMLDivElement): void {
     try {
       const format = exportFormatSelect.value === "svg" ? "svg" : "png";
       if (exportTarget === "animation") {
-        await exportPoseAnimationFrames(poseClip, svg, state.rig, viewState, format);
+        if (exportFormatSelect.value === "sprite-sheet") {
+          await exportPoseAnimationSpriteSheet(poseClip, svg, state.rig, viewState);
+        } else await exportPoseAnimationFrames(poseClip, svg, state.rig, viewState, format);
       }
       else if (format === "svg") exportDrawingAsSvg(svg);
       else await exportDrawingAsPng(svg);
@@ -1863,6 +1930,24 @@ export function createApp(container: HTMLDivElement): void {
 function toSignedAngle(angle: number): number {
   const normalized = ((angle % 360) + 360) % 360;
   return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function getSuggestedOutputPivot(rig: Rig): { x: number; y: number } {
+  const root = rig.joints.find((joint) => !joint.parentJointId) ?? rig.joints[0];
+  const chest = rig.joints.find((joint) => joint.id === "chest") ?? root;
+  const chestPoint = chest
+    ? projectPoint(rig, getJointWorldTransform(rig, chest.id), chest.z) : { x: 300, y: 390 };
+  const ankleIds = new Set(["left-ankle", "right-ankle"]);
+  const groundJoints = rig.joints.filter((joint) => ankleIds.has(joint.id));
+  const candidates = groundJoints.length ? groundJoints : rig.joints.filter((joint) => !joint.isVirtual && joint.bodyVisible);
+  const groundY = candidates.reduce((lowest, joint) => {
+    const world = getJointWorldTransform(rig, joint.id);
+    const projected = projectPoint(rig, world, joint.z);
+    const radius = getJointViewRadius(rig, joint)
+      * getProjectionScale(rig, getCameraZ(rig, world, joint.z));
+    return Math.max(lowest, projected.y + radius);
+  }, chestPoint.y);
+  return { x: chestPoint.x, y: groundY };
 }
 
 function poseKeyLabel(index: number): string {

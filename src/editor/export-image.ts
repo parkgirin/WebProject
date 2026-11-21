@@ -37,7 +37,7 @@ export async function createDrawingPngBlob(
     if (!context) throw new Error("Canvas 2D context is unavailable");
 
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return await canvasToBlob(canvas);
+    return await canvasToPngBlob(canvas);
   } finally {
     URL.revokeObjectURL(svgUrl);
   }
@@ -148,7 +148,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);

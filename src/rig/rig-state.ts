@@ -257,6 +257,12 @@ export function validateRig(
   limits: Readonly<RigLimits> = DEFAULT_RIG_LIMITS,
 ): string[] {
   const errors: string[] = [];
+  if (rig.outputPivot && ((rig.outputPivot.mode !== "auto" && rig.outputPivot.mode !== "manual")
+    || rig.outputPivot.space !== "output-canvas" || !Number.isFinite(rig.outputPivot.x)
+    || !Number.isFinite(rig.outputPivot.y)
+    || (rig.outputPivot.jointId !== undefined && typeof rig.outputPivot.jointId !== "string"))) {
+    errors.push("Invalid output pivot");
+  }
   const jointIds = new Set<string>();
   const faceIds = new Set<string>();
   const shapeIds = new Set<string>();
@@ -384,6 +390,10 @@ export function validateRig(
         sides.add(side);
       }
     }
+  }
+
+  if (rig.outputPivot?.jointId && !jointIds.has(rig.outputPivot.jointId)) {
+    errors.push(`Unknown output pivot joint: ${rig.outputPivot.jointId}`);
   }
 
   for (const joint of rig.joints) {
@@ -610,6 +620,7 @@ export class RigState {
     normalizeSurfaceProfiles(rig);
     normalizeArtShapeSpheres(rig);
     rig.perspectiveEnabled ??= true;
+    rig.outputPivot ??= { mode: "auto", space: "output-canvas", x: 300, y: 700 };
     rig.artShapes ??= [];
     rig.artCompositeGroups ??= [];
     rig.elementLayers ??= { joints: true, axes: true, faces: true, shapes: true };
@@ -1828,6 +1839,13 @@ export class RigState {
     this.notify();
   }
 
+  public setOutputPivot(mode: "auto" | "manual", x = 300, y = 700, jointId?: string): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (jointId && !this.rig.joints.some((joint) => joint.id === jointId)) return;
+    this.rig.outputPivot = { mode, space: "output-canvas", x, y, ...(jointId ? { jointId } : {}) };
+    this.notify();
+  }
+
   public setPerspectiveEnabled(enabled: boolean): void {
     this.rig.perspectiveEnabled = enabled;
     this.notify();
@@ -2317,7 +2335,9 @@ export class RigState {
 
   private restore(snapshot: Rig): void {
     this.restoringHistory = true;
-    Object.assign(this.rig, cloneRig(snapshot));
+    const target = this.rig as unknown as Record<string, unknown>;
+    for (const key of Object.keys(target)) delete target[key];
+    Object.assign(target, cloneRig(snapshot));
     this.lastSnapshot = cloneRig(this.rig);
     this.restoringHistory = false;
     this.emit();

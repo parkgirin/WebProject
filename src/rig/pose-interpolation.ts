@@ -168,6 +168,7 @@ export function applyFixedOutputView(sampledRig: Rig, outputView: Rig): Rig {
   result.viewYRotation = outputView.viewYRotation;
   result.perspectiveEnabled = outputView.perspectiveEnabled;
   result.projectionStrength = outputView.projectionStrength;
+  result.outputPivot = structuredClone(outputView.outputPivot);
   return result;
 }
 
