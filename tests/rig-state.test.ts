@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
-import { getArtShapeVertexPoint, getAxisWorldAngle, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisWorldAngle, getCameraZ, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getProjectionScale, projectPoint, unprojectPoint } from "../src/rig/geometry.ts";
 import { RigState, validateRig } from "../src/rig/rig-state.ts";
 
 const closeTo = (actual: number, expected: number, message?: string) => {
@@ -17,11 +17,26 @@ test("the default rig satisfies all structural constraints", () => {
 test("depth projection scales around the canvas centre and remains invertible", () => {
   const rig = createDefaultRig();
   rig.projectionStrength = 50;
-  assert.equal(getProjectionScale(rig, 40), 1.2);
+  closeTo(getProjectionScale(rig, 40), 1 / 0.98);
   const projected = projectPoint(rig, { x: 400, y: 500 }, 40);
-  closeTo(projected.x, 420);
-  closeTo(projected.y, 522);
+  closeTo(projected.x, 300 + 100 / 0.98);
+  closeTo(projected.y, 390 + 110 / 0.98);
   assert.deepEqual(unprojectPoint(rig, projected, 40), { x: 400, y: 500 });
+});
+
+test("a near-side T-pose keeps moderate wrist perspective at the reported settings", () => {
+  const rig = createDefaultRig();
+  rig.worldRotation = { x: 0, y: -79, z: 0 };
+  rig.projectionStrength = 35;
+  const projectedWrists = ["left-wrist", "right-wrist"].map((jointId) => {
+    const joint = rig.joints.find((candidate) => candidate.id === jointId)!;
+    const world = getJointWorldTransform(rig, jointId);
+    const cameraZ = getCameraZ(rig, world, joint.z);
+    return { point: projectPoint(rig, world, joint.z), scale: getProjectionScale(rig, cameraZ) };
+  });
+
+  assert.ok(projectedWrists.every(({ scale }) => scale > 0.85 && scale < 1.15));
+  assert.ok(Math.abs(projectedWrists[0].point.y - projectedWrists[1].point.y) < 40);
 });
 
 test("perspective can be disabled without disabling camera rotation", () => {

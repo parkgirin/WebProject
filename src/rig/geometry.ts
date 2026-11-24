@@ -247,7 +247,12 @@ export function rotateVectorAroundAxis(vector: Point3, axis: Point3, angle: numb
 export function getProjectionScale(rig: Rig, cameraZ = 0): number {
   if (rig.perspectiveEnabled === false) return 1;
   const strength = Number.isFinite(rig.projectionStrength) ? rig.projectionStrength : 0;
-  return Math.min(1.5, Math.max(0.5, 1 + cameraZ * strength / 10_000));
+  // Treat the UI strength as an inverse focal-length control. The previous
+  // linear scale reached the 0.5/1.5 clamps for an ordinary T-pose turned near
+  // side-on, pulling its two wrists far above and below the shoulders. A focal
+  // projection keeps the same depth ordering while changing size gradually.
+  const denominator = Math.max(0.01, 1 - cameraZ * strength / 100_000);
+  return Math.min(1.5, Math.max(0.5, 1 / denominator));
 }
 
 /** Camera-space Z after rotating the X/Z plane around the canvas vertical Y axis. */

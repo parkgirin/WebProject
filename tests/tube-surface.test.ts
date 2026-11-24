@@ -4,7 +4,7 @@ import test from "node:test";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { renderSvgEditor } from "../src/editor/svg-editor.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
-import { getCameraFacingLimbSurface, getJointTubeSurface, getProjectedCircleConnectionSurface, projectPoint } from "../src/rig/geometry.ts";
+import { getCameraFacingLimbSurface, getJointTubeSurface, getProjectedCircleConnectionSurface, PROJECTION_ORIGIN, projectPoint } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
 test("limb tube creates circular eight-sided surfaces from joint x/y/z coordinates", () => {
@@ -22,6 +22,51 @@ test("limb tube creates circular eight-sided surfaces from joint x/y/z coordinat
     }
   }
   assert.ok(surface.some((quad) => quad.points.some((point) => point.z !== 0)));
+});
+
+test("perspective strength changes projection only and does not rotate the authored limb surface", () => {
+  const rig = createDefaultRig();
+  rig.viewYRotation = 35;
+  rig.worldRotation = { x: 18, y: -27, z: 12 };
+  rig.projectionStrength = 0;
+  const flatSurface = getCameraFacingLimbSurface(rig, "left-shoulder", "left-elbow")!;
+  const flatTube = getJointTubeSurface(rig, "left-shoulder", "left-elbow");
+
+  rig.projectionStrength = 100;
+  const perspectiveSurface = getCameraFacingLimbSurface(rig, "left-shoulder", "left-elbow")!;
+  const perspectiveTube = getJointTubeSurface(rig, "left-shoulder", "left-elbow");
+
+  assert.deepEqual(perspectiveSurface.points, flatSurface.points);
+  assert.deepEqual(
+    perspectiveTube.map((quad) => quad.points),
+    flatTube.map((quad) => quad.points),
+  );
+  assert.notDeepEqual(
+    perspectiveSurface.points.map((point) => projectPoint(rig, point, point.z)),
+    flatSurface.points.map((point) => projectPoint({ ...rig, projectionStrength: 0 }, point, point.z)),
+  );
+});
+
+test("world Z rotation is applied exactly once to limb centres and surface sections", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  rig.viewYRotation = 0;
+  rig.worldRotation = { x: 0, y: 0, z: 0 };
+  const unrotated = getCameraFacingLimbSurface(rig, "left-shoulder", "left-elbow")!.points
+    .map((point) => projectPoint(rig, point, point.z));
+
+  rig.worldRotation = { x: 0, y: 0, z: 90 };
+  const rotated = getCameraFacingLimbSurface(rig, "left-shoulder", "left-elbow")!.points
+    .map((point) => projectPoint(rig, point, point.z));
+  const expected = unrotated.map((point) => ({
+    x: PROJECTION_ORIGIN.x - (point.y - PROJECTION_ORIGIN.y),
+    y: PROJECTION_ORIGIN.y + (point.x - PROJECTION_ORIGIN.x),
+  }));
+
+  rotated.forEach((point, index) => {
+    assert.ok(Math.abs(point.x - expected[index].x) < 1e-8);
+    assert.ok(Math.abs(point.y - expected[index].y) < 1e-8);
+  });
 });
 
 test("projected circle connections follow the two common external tangents", () => {

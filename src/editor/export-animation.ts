@@ -17,7 +17,9 @@ import {
   type DrawingExportBounds,
 } from "./export-image.ts";
 import {
+  createBakedSpriteSequenceContract,
   createCenteredFrameBounds,
+  createSpriteSheetFrameRecords,
   createSpriteSheetLayout,
   getRigRootTranslation,
   placeRigRootAt,
@@ -96,7 +98,6 @@ export async function exportPoseAnimationSpriteSheet(
     const referenceRoot = getRigRootTranslation(samples[0]);
     const manualPivot = outputView.outputPivot?.mode === "manual" ? outputView.outputPivot : null;
     const inspected = samples.map((rig, index) => {
-      const root = getRigRootTranslation(rig);
       const inPlaceRig = placeRigRootAt(rig, referenceRoot);
       renderSvgEditor(host, inPlaceRig, { jointId: null, axisId: null, jointIds: [] }, viewState);
       return {
@@ -106,7 +107,6 @@ export async function exportPoseAnimationSpriteSheet(
         chestX: getOutputJointPivot(inPlaceRig, "chest")?.x,
         groundY: getRenderedJointBottom(host, ["left-ankle", "right-ankle"]),
         boundPivot: manualPivot?.jointId ? getOutputJointPivot(inPlaceRig, manualPivot.jointId) : null,
-        rootMotion: { x: root.x - referenceRoot.x, y: root.y - referenceRoot.y, z: root.z - referenceRoot.z },
       };
     });
     const mergedBounds = inspected.reduce<DrawingExportBounds | null>(
@@ -159,12 +159,20 @@ export async function exportPoseAnimationSpriteSheet(
       ySource: manualPivot?.jointId ? "manual-joint" : manualPivot ? "manual" : inspected.some((frame) => frame.groundY !== undefined) ? "lowest-ankle" : "bounds-bottom",
       ...(manualPivot?.jointId ? { jointId: manualPivot.jointId } : {}),
     };
+    const frameRecords = createSpriteSheetFrameRecords(
+      frames,
+      layout,
+      samples.map(getRigRootTranslation),
+      pivotPoints,
+      clip.fps,
+    );
     const metadata = {
       format: "pose-mesh-sprite-sheet",
       version: 1,
       image: imageName,
       fps: clip.fps,
       playback: getPosePlaybackSettings(clip),
+      sequence: createBakedSpriteSequenceContract(),
       frameCount: frames.length,
       durationMs,
       sheet: { width: layout.width, height: layout.height, columns: layout.columns, rows: layout.rows },
@@ -180,7 +188,11 @@ export async function exportPoseAnimationSpriteSheet(
         },
       },
       pivot,
-      rootMotion: { space: "model", bakedIntoImage: false },
+      rootMotion: {
+        space: "model",
+        bakedIntoImage: false,
+        reference: frameRecords.referenceRoot,
+      },
       outputView: {
         viewYRotation: outputView.viewYRotation,
         perspectiveEnabled: outputView.perspectiveEnabled !== false,
@@ -190,17 +202,7 @@ export async function exportPoseAnimationSpriteSheet(
         const rotation = rig.worldRotation;
         return Boolean(rotation && (rotation.x !== 0 || rotation.y !== 0 || rotation.z !== 0));
       }),
-      frames: layout.cells.map((cell, index) => ({
-        index,
-        timelineFrame: inspected[index].frame,
-        x: cell.x,
-        y: cell.y,
-        width: cell.width,
-        height: cell.height,
-        durationMs,
-        rootMotion: inspected[index].rootMotion,
-        sourcePivot: pivotPoints[index],
-      })),
+      frames: frameRecords.frames,
     };
     const entries: ZipEntry[] = [
       { name: imageName, data: await canvasToPngBlob(canvas) },

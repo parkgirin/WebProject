@@ -6,12 +6,15 @@ import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { getOutputJointPivot } from "../src/editor/export-animation.ts";
 import {
   centerBoundsHorizontally,
+  createBakedSpriteSequenceContract,
   createCenteredFrameBounds,
+  createSpriteSheetFrameRecords,
   createSpriteSheetLayout,
   getRigRootTranslation,
   includePointInBounds,
   placeRigRootAt,
 } from "../src/editor/sprite-sheet.ts";
+import { createPoseKey, getPosePlaybackFrames, samplePosePlayback, type PoseClip } from "../src/rig/pose-interpolation.ts";
 
 test("sprite bounds expand around the reference chest without changing vertical bounds", () => {
   assert.deepEqual(
@@ -107,6 +110,56 @@ test("placing a rig at a reference root removes XYZ root motion without changing
   const inPlaceRoot = inPlace.joints.find((joint) => !joint.parentJointId)!;
   const inPlaceKnee = inPlace.joints.find((joint) => joint.id === "left-knee")!;
   assert.equal(inPlaceKnee.z - inPlaceRoot.z, beforeLocalDepth);
+});
+
+test("baked ping-pong metadata is consumed in frame order without reflecting twice", () => {
+  const first = createDefaultRig();
+  const last = structuredClone(first);
+  const firstRoot = first.joints.find((joint) => !joint.parentJointId)!;
+  const lastRoot = last.joints.find((joint) => !joint.parentJointId)!;
+  firstRoot.x = 100;
+  firstRoot.y = 200;
+  firstRoot.z = 10;
+  lastRoot.x = 160;
+  lastRoot.y = 230;
+  lastRoot.z = 22;
+  const clip: PoseClip = {
+    id: "root-motion-ping-pong",
+    name: "루트 이동 왕복",
+    fps: 10,
+    playback: { mode: "ping-pong", closingFrames: 2 },
+    keys: [createPoseKey("first", "처음", 0, first), createPoseKey("last", "끝", 3, last)],
+  };
+  const timelineFrames = getPosePlaybackFrames(clip);
+  const roots = timelineFrames.map((frame) => getRigRootTranslation(samplePosePlayback(clip, frame).rig));
+  const layout = createSpriteSheetLayout(timelineFrames.length, 32, 48, 3);
+  const pivots = timelineFrames.map((frame) => ({ x: 20 + frame, y: 40 - frame }));
+  const records = createSpriteSheetFrameRecords(timelineFrames, layout, roots, pivots, clip.fps);
+
+  assert.deepEqual(timelineFrames, [0, 1, 2, 3, 2, 1]);
+  assert.deepEqual(createBakedSpriteSequenceContract(), {
+    kind: "baked-cycle",
+    order: "frames",
+    repeat: "loop",
+    firstFrameDuplicatedAtEnd: false,
+  });
+  assert.deepEqual(records.referenceRoot, { x: 100, y: 200, z: 10 });
+  assert.deepEqual(records.frames.map((frame) => frame.timelineFrame), [0, 1, 2, 3, 2, 1]);
+  assert.deepEqual(records.frames.map((frame) => frame.rootMotion.x), [0, 20, 40, 60, 40, 20]);
+  assert.deepEqual(records.frames.map((frame) => frame.rootMotion.y), [0, 10, 20, 30, 20, 10]);
+  assert.deepEqual(records.frames.map((frame) => frame.rootMotion.z), [0, 4, 8, 12, 8, 4]);
+  assert.ok(records.frames.every((frame) => frame.durationMs === 100));
+  assert.notEqual(records.frames.at(-1)?.timelineFrame, records.frames[0].timelineFrame);
+});
+
+test("sprite frame metadata rejects mismatched inputs and invalid playback rates", () => {
+  const layout = createSpriteSheetLayout(2, 32, 48);
+  const roots = [{ x: 0, y: 0, z: 0 }, { x: 1, y: 2, z: 3 }];
+  const pivots = [{ x: 10, y: 20 }, { x: 11, y: 21 }];
+
+  assert.throws(() => createSpriteSheetFrameRecords([0], layout, roots, pivots, 12), /개수가 일치/);
+  assert.throws(() => createSpriteSheetFrameRecords([0, 1], layout, roots, pivots, 0), /FPS/);
+  assert.throws(() => createSpriteSheetFrameRecords([0, 1], layout, roots, [{ x: Number.NaN, y: 0 }, pivots[1]], 12), /좌표/);
 });
 
 test("animation export UI exposes the sprite sheet package without removing frame sequences", () => {

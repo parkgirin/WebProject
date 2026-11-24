@@ -15,14 +15,16 @@
 - [도형 모드 전환](SHAPE_MODE_PLAN.md)
 - [일러스트 합성·반응형 검증](ILLUSTRATION_COMPOSITING_RESPONSIVE_SCHEDULE.md)
 - [리소스 출력 최소 기능](RESOURCE_OUTPUT_MINIMUM_SCHEDULE.md)
+- [신체 확장 의상과 렌더링 최소 일정](GARMENT_RENDERING_SCHEDULE.md)
+- [렌더링 및 의상 통합 작업 일정](RENDERING_COSTUME_WORK_SCHEDULE.md)
 - [다음 작업 일정 — 게임 리소스 출력과 편집 확장](NEXT_WORK_SCHEDULE.md)
 - [반응형 레이아웃](responsive/RESPONSIVE_LAYOUT_PLAN.md)
 - [범용 편집 기능과 장기 백로그](GENERAL_EDITOR_FEATURES.md)
 
 ## 현재 우선순위
 
-1. PNG 스프라이트 시트와 프레임 메타데이터
-2. 의상용 튜브 셸과 그룹 병합 SVG
+1. 외곽선·원근·X/Y/Z 회전 출력 보정
+2. 튜브 단면, 허리–골반·가슴 전이 표면과 기본 얼굴 면 검토
 3. 자동 저장의 v3 이전, 다중 클립 UI와 런타임 데이터 이전
 4. 관절·축·면 생성 UI와 캡슐·사각형 확장 기준
 5. 고급 고정 출력 카메라

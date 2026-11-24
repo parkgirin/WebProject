@@ -18,6 +18,20 @@ export interface SpriteSheetLayout {
   cells: SpriteSheetCell[];
 }
 
+export interface SpriteSheetFrameRecord extends SpriteSheetCell {
+  timelineFrame: number;
+  durationMs: number;
+  rootMotion: RootTranslation;
+  sourcePivot: { x: number; y: number };
+}
+
+export interface BakedSpriteSequenceContract {
+  kind: "baked-cycle";
+  order: "frames";
+  repeat: "loop";
+  firstFrameDuplicatedAtEnd: false;
+}
+
 export interface RectBounds {
   x: number;
   y: number;
@@ -131,6 +145,57 @@ export function createSpriteSheetLayout(
     cellWidth,
     cellHeight,
     cells,
+  };
+}
+
+/**
+ * Describe the runtime contract for exported frames. Ping-pong and loop closing
+ * segments are already baked into `frames`, so consumers must iterate the array
+ * once and loop to index zero instead of reflecting it a second time.
+ */
+export function createBakedSpriteSequenceContract(): BakedSpriteSequenceContract {
+  return {
+    kind: "baked-cycle",
+    order: "frames",
+    repeat: "loop",
+    firstFrameDuplicatedAtEnd: false,
+  };
+}
+
+/** Build frame records and root-motion deltas from one already baked playback cycle. */
+export function createSpriteSheetFrameRecords(
+  timelineFrames: number[],
+  layout: SpriteSheetLayout,
+  roots: RootTranslation[],
+  sourcePivots: { x: number; y: number }[],
+  fps: number,
+): { referenceRoot: RootTranslation; frames: SpriteSheetFrameRecord[] } {
+  if (!Number.isFinite(fps) || fps <= 0) throw new Error("스프라이트 FPS가 올바르지 않습니다.");
+  const frameCount = timelineFrames.length;
+  if (frameCount === 0 || layout.cells.length !== frameCount
+    || roots.length !== frameCount || sourcePivots.length !== frameCount) {
+    throw new Error("스프라이트 프레임 메타데이터의 개수가 일치하지 않습니다.");
+  }
+  if (!timelineFrames.every(Number.isFinite)
+    || !roots.every((root) => [root.x, root.y, root.z].every(Number.isFinite))
+    || !sourcePivots.every((pivot) => [pivot.x, pivot.y].every(Number.isFinite))) {
+    throw new Error("스프라이트 프레임 메타데이터에 올바르지 않은 좌표가 있습니다.");
+  }
+  const referenceRoot = { ...roots[0] };
+  const durationMs = 1000 / fps;
+  return {
+    referenceRoot,
+    frames: layout.cells.map((cell, index) => ({
+      ...cell,
+      timelineFrame: timelineFrames[index],
+      durationMs,
+      rootMotion: {
+        x: roots[index].x - referenceRoot.x,
+        y: roots[index].y - referenceRoot.y,
+        z: roots[index].z - referenceRoot.z,
+      },
+      sourcePivot: { ...sourcePivots[index] },
+    })),
   };
 }
 
