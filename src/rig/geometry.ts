@@ -17,6 +17,11 @@ export interface Point3 extends Point {
   z: number;
 }
 
+export interface ProjectedCircle {
+  center: Point;
+  radius: number;
+}
+
 export interface CameraBasis {
   right: Point3;
   up: Point3;
@@ -319,6 +324,14 @@ export function projectPoint(rig: Rig, point: Point, z = 0): Point {
   return {
     x: PROJECTION_ORIGIN.x + rotatedX * scale,
     y: PROJECTION_ORIGIN.y + (world.y - PROJECTION_ORIGIN.y) * scale,
+  };
+}
+
+/** Project a camera-facing sphere silhouette from one shared centre-depth contract. */
+export function projectSphereCircle(rig: Rig, center: Point, z: number, radius: number): ProjectedCircle {
+  return {
+    center: projectPoint(rig, center, z),
+    radius: radius * getProjectionScale(rig, getCameraZ(rig, center, z)),
   };
 }
 

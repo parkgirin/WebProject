@@ -1,11 +1,10 @@
 import { createDefaultRig } from "./rig/default-rig.ts";
 import {
   getArtShapeVertexPoint,
-  getCameraZ,
   getJointViewRadius,
   getJointWorldTransform,
-  getProjectionScale,
   projectPoint,
+  projectSphereCircle,
 } from "./rig/geometry.ts";
 import {
   applyAvatarProportionPreset,
@@ -1942,10 +1941,8 @@ function getSuggestedOutputPivot(rig: Rig): { x: number; y: number } {
   const candidates = groundJoints.length ? groundJoints : rig.joints.filter((joint) => !joint.isVirtual && joint.bodyVisible);
   const groundY = candidates.reduce((lowest, joint) => {
     const world = getJointWorldTransform(rig, joint.id);
-    const projected = projectPoint(rig, world, joint.z);
-    const radius = getJointViewRadius(rig, joint)
-      * getProjectionScale(rig, getCameraZ(rig, world, joint.z));
-    return Math.max(lowest, projected.y + radius);
+    const circle = projectSphereCircle(rig, world, joint.z, getJointViewRadius(rig, joint));
+    return Math.max(lowest, circle.center.y + circle.radius);
   }, chestPoint.y);
   return { x: chestPoint.x, y: groundY };
 }

@@ -1,5 +1,5 @@
 import type { ArtCompositeMode, ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
-import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraFacingFaceSurface, getCameraZ, getFacePoints, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedCircleConnectionSurface, getProjectionScale, projectPoint, type Point, type Point3 } from "../rig/geometry.ts";
+import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraBasis, getCameraFacingFaceSurface, getCameraZ, getFacePoints, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedCircleConnectionSurface, getProjectionScale, projectPoint, projectSphereCircle, type Point, type Point3, type ProjectedCircle } from "../rig/geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -13,6 +13,11 @@ export function renderSvgEditor(
   const showFaceLayer = rig.elementLayers?.faces !== false;
   const showShapeLayer = rig.elementLayers?.shapes !== false;
   const zOf = (jointId: string) => rig.joints.find((joint) => joint.id === jointId)?.z ?? 0;
+  const vertexDepth = (vertex: ArtShapeVertex) => {
+    const jointId = vertex.source === "axis-point" ? vertex.jointId
+      : vertex.source === "root" ? vertex.rootJointId : vertex.source === "joint-center" ? vertex.jointId : null;
+    return jointId ? zOf(jointId) : 0;
+  };
   const project = (point: Point, depth = 0) => projectPoint(rig, point, depth);
   const projectJoint = (jointId: string) => project(getJointWorldTransform(rig, jointId), zOf(jointId));
   const scaleOf = (jointId: string) => {
@@ -25,7 +30,6 @@ export function renderSvgEditor(
     const bodyRadius = joint.bodyRadius ?? joint.radius;
     return bodyRadius * viewRadiusOf(jointId) / joint.radius;
   };
-  type ProjectedCircle = { center: Point; radius: number };
   type CapsuleSphere = { center: Point3; radius: number };
   const jointCapsuleSpheres = (jointId: string): [CapsuleSphere, CapsuleSphere] | null => {
     const joint = rig.joints.find((candidate) => candidate.id === jointId);
@@ -82,19 +86,12 @@ export function renderSvgEditor(
   const projectedJointCapsuleCircles = (jointId: string): [ProjectedCircle, ProjectedCircle] | null => {
     const spheres = jointCapsuleSpheres(jointId);
     if (!spheres) return null;
-    return spheres.map(({ center, radius }) => ({
-      center: project(center, center.z),
-      radius: radius * getProjectionScale(rig, getCameraZ(rig, center, center.z)),
-    })) as [ProjectedCircle, ProjectedCircle];
+    return spheres.map(({ center, radius }) => projectSphereCircle(rig, center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
   };
-  const projectedSphereCircle = (world: Point, depth: number, radius: number): ProjectedCircle => ({
-    center: project(world, depth),
-    radius: radius * getProjectionScale(rig, getCameraZ(rig, world, depth)),
-  });
   const projectedJointCircle = (jointId: string): ProjectedCircle => {
     const joint = rig.joints.find((candidate) => candidate.id === jointId);
     if (!joint) throw new Error(`Unknown joint: ${jointId}`);
-    return projectedSphereCircle(getJointWorldTransform(rig, jointId), joint.z, bodyRadiusOf(jointId));
+    return projectSphereCircle(rig, getJointWorldTransform(rig, jointId), joint.z, bodyRadiusOf(jointId));
   };
   const projectedJointConnectionSurface = (startJointId: string, endJointId: string): Point[] | null => {
     const startJoint = rig.joints.find((joint) => joint.id === startJointId);
@@ -105,7 +102,7 @@ export function renderSvgEditor(
       const spheres = jointCapsuleSpheres(startJoint.id);
       const anchoredSphere = spheres?.[1];
       if (anchoredSphere) {
-        startCircle = projectedSphereCircle(anchoredSphere.center, anchoredSphere.center.z, anchoredSphere.radius);
+        startCircle = projectSphereCircle(rig, anchoredSphere.center, anchoredSphere.center.z, anchoredSphere.radius);
       }
     }
     const endCircle = projectedJointCircle(endJoint.id);
@@ -205,8 +202,477 @@ export function renderSvgEditor(
     }
     return [{ face, points: getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z)) }];
   });
+  const neckSurface = visibleFaces.find(({ face }) => face.id === "neck");
+  if (neckSurface) torsoConnectionSurfaces.push({ id: "neck", points: neckSurface.points });
+  const surfaceOcclusionMaskIds = new Map<string, string>();
+  const surfaceOcclusionMaskDefs: string[] = [];
+  const surfaceIntersectionPaths = new Map<string, string>();
+  const connectedSphereOutlineMaskIds = new Map<string, string>();
+  const connectedSphereOutlineMaskDefs: string[] = [];
+  const lerpPoint = (start: Point, end: Point, amount: number): Point => ({
+    x: start.x + (end.x - start.x) * amount,
+    y: start.y + (end.y - start.y) * amount,
+  });
+  const connectedSphereShapes = (jointIds: readonly string[]) => (rig.artShapes ?? []).filter((shape) => (
+    showShapeLayer
+    && shape.kind === "sphere"
+    && (shape.compositeMode ?? "paint") === "paint"
+    && isGroupVisible(rig, shape.groupId)
+    && shape.vertices[0]?.source === "joint-center"
+    && jointIds.includes(shape.vertices[0].jointId)
+  ));
+  for (const { face, points } of visibleFaces) {
+    if (!face.cameraFacingLimb || points.length !== 4) continue;
+    const { startJointId, endJointId } = face.cameraFacingLimb;
+    const sphereShapes = connectedSphereShapes([startJointId, endJointId]);
+    if (!sphereShapes.length) continue;
+    const sphereSurfaces = sphereShapes.map((shape) => {
+      const vertex = shape.vertices[0];
+      const center = getArtShapeVertexPoint(rig, vertex);
+      const depth = vertexDepth(vertex);
+      const radius = shape.radius ?? 1;
+      return { circle: projectSphereCircle(rig, center, depth, radius),
+        centerDepth: getCameraZ(rig, center, depth), radius };
+    });
+    const outlineMaskId = `connected-sphere-outline-mask-${face.id}`;
+    connectedSphereOutlineMaskIds.set(face.id, outlineMaskId);
+    connectedSphereOutlineMaskDefs.push(`<mask id="${escapeXml(outlineMaskId)}" data-connected-sphere-outline-face-id="${escapeXml(face.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${sphereSurfaces.map(({ circle }) => `<circle cx="${circle.center.x}" cy="${circle.center.y}" r="${circle.radius}" fill="#000" />`).join("")}
+    </mask>`);
+    const startDepth = renderedDepthOf(startJointId);
+    const endDepth = renderedDepthOf(endJointId);
+    const startRadius = bodyRadiusOf(startJointId);
+    const endRadius = bodyRadiusOf(endJointId);
+    const slices: Array<{ left: Point; right: Point } | null> = [];
+    const longitudinalSteps = 36;
+    const crossSteps = 28;
+    const isSphereInFront = (point: Point, t: number, cross: number) => {
+      const tubeRadius = startRadius + (endRadius - startRadius) * t;
+      const radial = Math.abs(cross * 2 - 1);
+      const tubeDepth = startDepth + (endDepth - startDepth) * t
+        + tubeRadius * Math.sqrt(Math.max(0, 1 - radial * radial));
+      return sphereSurfaces.some(({ circle, centerDepth, radius }) => {
+        const normalized = Math.hypot(point.x - circle.center.x, point.y - circle.center.y) / circle.radius;
+        if (normalized > 1) return false;
+        const sphereDepth = centerDepth + radius * Math.sqrt(Math.max(0, 1 - normalized * normalized));
+        return sphereDepth > tubeDepth + 1e-5;
+      });
+    };
+    for (let step = 0; step <= longitudinalSteps; step += 1) {
+      const t = step / longitudinalSteps;
+      const edgeA = lerpPoint(points[0], points[1], t);
+      const edgeB = lerpPoint(points[3], points[2], t);
+      const samples = Array.from({ length: crossSteps + 1 }, (_, index) => {
+        const cross = index / crossSteps;
+        const point = lerpPoint(edgeA, edgeB, cross);
+        return { cross, point, hidden: isSphereInFront(point, t, cross) };
+      });
+      const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
+      if (!hiddenIndexes.length) {
+        slices.push(null);
+        continue;
+      }
+      const refineBoundary = (outside: number, inside: number) => {
+        let outsideCross = samples[outside]?.cross ?? samples[inside].cross;
+        let insideCross = samples[inside].cross;
+        for (let iteration = 0; iteration < 8; iteration += 1) {
+          const middle = (outsideCross + insideCross) / 2;
+          const point = lerpPoint(edgeA, edgeB, middle);
+          if (isSphereInFront(point, t, middle)) insideCross = middle;
+          else outsideCross = middle;
+        }
+        return lerpPoint(edgeA, edgeB, insideCross);
+      };
+      const first = hiddenIndexes[0];
+      const last = hiddenIndexes[hiddenIndexes.length - 1];
+      const left = first === 0 ? samples[first].point : refineBoundary(first - 1, first);
+      const right = last === crossSteps ? samples[last].point : refineBoundary(last + 1, last);
+      slices.push({ left, right });
+    }
+    const preferEnd = sphereShapes.some((shape) => shape.vertices[0]?.source === "joint-center"
+      && shape.vertices[0].jointId === endJointId);
+    const intersectionPoints: Point[] = [];
+    for (let crossStep = 0; crossStep <= crossSteps; crossStep += 1) {
+      const cross = crossStep / crossSteps;
+      const samples = Array.from({ length: longitudinalSteps + 1 }, (_, index) => {
+        const t = index / longitudinalSteps;
+        const edgeA = lerpPoint(points[0], points[1], t);
+        const edgeB = lerpPoint(points[3], points[2], t);
+        const point = lerpPoint(edgeA, edgeB, cross);
+        return { t, hidden: isSphereInFront(point, t, cross) };
+      });
+      const transitions = samples.slice(1).flatMap((sample, index) =>
+        sample.hidden !== samples[index].hidden ? [[samples[index], sample] as const] : []);
+      const transition = preferEnd ? transitions.at(-1) : transitions[0];
+      if (!transition) continue;
+      let [outside, inside] = transition[0].hidden ? [transition[1].t, transition[0].t]
+        : [transition[0].t, transition[1].t];
+      for (let iteration = 0; iteration < 9; iteration += 1) {
+        const middle = (outside + inside) / 2;
+        const edgeA = lerpPoint(points[0], points[1], middle);
+        const edgeB = lerpPoint(points[3], points[2], middle);
+        const point = lerpPoint(edgeA, edgeB, cross);
+        if (isSphereInFront(point, middle, cross)) inside = middle;
+        else outside = middle;
+      }
+      const edgeA = lerpPoint(points[0], points[1], inside);
+      const edgeB = lerpPoint(points[3], points[2], inside);
+      intersectionPoints.push(lerpPoint(edgeA, edgeB, cross));
+    }
+    if (intersectionPoints.length >= 2) {
+      const start = intersectionPoints[0];
+      const middle = intersectionPoints[Math.floor(intersectionPoints.length / 2)];
+      const end = intersectionPoints[intersectionPoints.length - 1];
+      // Fit one quadratic curve through the sampled midpoint. This preserves
+      // the calculated surface intersection without exposing sampling kinks
+      // or tiny self-crossing loops in the exported outline.
+      const control = {
+        x: middle.x * 2 - (start.x + end.x) / 2,
+        y: middle.y * 2 - (start.y + end.y) / 2,
+      };
+      surfaceIntersectionPaths.set(face.id,
+        `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`);
+    }
+    const polygons: Point[][] = [];
+    let segment: Array<{ left: Point; right: Point }> = [];
+    for (const slice of [...slices, null]) {
+      if (slice) {
+        segment.push(slice);
+        continue;
+      }
+      if (segment.length >= 2) polygons.push([
+        ...segment.map(({ left }) => left),
+        ...segment.map(({ right }) => right).reverse(),
+      ]);
+      segment = [];
+    }
+    if (!polygons.length) continue;
+    const maskId = `surface-occlusion-mask-${face.id}`;
+    surfaceOcclusionMaskIds.set(face.id, maskId);
+    surfaceOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-surface-occlusion-face-id="${escapeXml(face.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${polygons.map((polygon) => `<polygon data-surface-depth-occluder points="${polygon.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
+    </mask>`);
+  }
+  type LimbSurfaceInfo = {
+    face: (typeof visibleFaces)[number]["face"];
+    points: Point[];
+    jointIds: [string, string];
+    startDepth: number;
+    endDepth: number;
+    startRadius: number;
+    endRadius: number;
+    bounds: { minX: number; minY: number; maxX: number; maxY: number };
+  };
+  const limbSurfaces: LimbSurfaceInfo[] = visibleFaces.flatMap(({ face, points }) => {
+    if (!face.cameraFacingLimb || points.length !== 4) return [];
+    const jointIds: [string, string] = [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId];
+    return [{
+      face, points, jointIds,
+      startDepth: renderedDepthOf(jointIds[0]),
+      endDepth: renderedDepthOf(jointIds[1]),
+      startRadius: bodyRadiusOf(jointIds[0]),
+      endRadius: bodyRadiusOf(jointIds[1]),
+      bounds: {
+        minX: Math.min(...points.map((point) => point.x)),
+        minY: Math.min(...points.map((point) => point.y)),
+        maxX: Math.max(...points.map((point) => point.x)),
+        maxY: Math.max(...points.map((point) => point.y)),
+      },
+    }];
+  });
+  const tubeCoordinatesAt = (surface: LimbSurfaceInfo, point: Point) => {
+    const startCenter = lerpPoint(surface.points[0], surface.points[3], 0.5);
+    const endCenter = lerpPoint(surface.points[1], surface.points[2], 0.5);
+    const centerDx = endCenter.x - startCenter.x;
+    const centerDy = endCenter.y - startCenter.y;
+    const centerLengthSquared = centerDx * centerDx + centerDy * centerDy;
+    let t = centerLengthSquared > 1e-9
+      ? ((point.x - startCenter.x) * centerDx + (point.y - startCenter.y) * centerDy) / centerLengthSquared
+      : 0.5;
+    let cross = 0.5;
+    for (let iteration = 0; iteration < 7; iteration += 1) {
+      const edgeA = lerpPoint(surface.points[0], surface.points[1], t);
+      const edgeB = lerpPoint(surface.points[3], surface.points[2], t);
+      const current = lerpPoint(edgeA, edgeB, cross);
+      const errorX = point.x - current.x;
+      const errorY = point.y - current.y;
+      const tangentA = { x: surface.points[1].x - surface.points[0].x, y: surface.points[1].y - surface.points[0].y };
+      const tangentB = { x: surface.points[2].x - surface.points[3].x, y: surface.points[2].y - surface.points[3].y };
+      const derivativeT = lerpPoint(tangentA, tangentB, cross);
+      const derivativeCross = { x: edgeB.x - edgeA.x, y: edgeB.y - edgeA.y };
+      const determinant = derivativeT.x * derivativeCross.y - derivativeT.y * derivativeCross.x;
+      if (Math.abs(determinant) < 1e-9) break;
+      t += (errorX * derivativeCross.y - errorY * derivativeCross.x) / determinant;
+      cross += (derivativeT.x * errorY - derivativeT.y * errorX) / determinant;
+    }
+    if (t < -1e-5 || t > 1 + 1e-5 || cross < -1e-5 || cross > 1 + 1e-5) return null;
+    t = Math.min(1, Math.max(0, t));
+    cross = Math.min(1, Math.max(0, cross));
+    const radius = surface.startRadius + (surface.endRadius - surface.startRadius) * t;
+    const radial = Math.abs(cross * 2 - 1);
+    return {
+      t, cross,
+      depth: surface.startDepth + (surface.endDepth - surface.startDepth) * t
+        + radius * Math.sqrt(Math.max(0, 1 - radial * radial)),
+    };
+  };
+  const tubeOcclusionMaskIds = new Map<string, string>();
+  const tubeOcclusionMaskDefs: string[] = [];
+  const boundsOverlap = (first: LimbSurfaceInfo["bounds"], second: LimbSurfaceInfo["bounds"]) => (
+    first.minX < second.maxX && first.maxX > second.minX
+    && first.minY < second.maxY && first.maxY > second.minY
+  );
+  for (const target of limbSurfaces) {
+    const occlusionPolygons: Array<{ faceId: string; points: Point[] }> = [];
+    const tubeCandidates = limbSurfaces.filter((candidate) => candidate !== target
+      && boundsOverlap(target.bounds, candidate.bounds)
+      && !candidate.jointIds.some((jointId) => target.jointIds.includes(jointId)))
+      .map((candidate) => ({
+        id: candidate.face.id,
+        groupId: candidate.face.groupId,
+        order: getFaceOrder(rig, candidate.face),
+        depthAt: (point: Point) => tubeCoordinatesAt(candidate, point)?.depth ?? null,
+      }));
+    const jointCandidates = visibleJoints.filter((joint) => !target.jointIds.includes(joint.id)).flatMap((joint) => {
+      const circle = projectedJointCircle(joint.id);
+      const bounds = {
+        minX: circle.center.x - circle.radius, minY: circle.center.y - circle.radius,
+        maxX: circle.center.x + circle.radius, maxY: circle.center.y + circle.radius,
+      };
+      if (!boundsOverlap(target.bounds, bounds)) return [];
+      const centerDepth = renderedDepthOf(joint.id);
+      const radius = bodyRadiusOf(joint.id);
+      return [{
+        id: `joint:${joint.id}`,
+        groupId: joint.groupId,
+        order: joint.renderOrder,
+        depthAt: (point: Point) => {
+          const normalized = Math.hypot(point.x - circle.center.x, point.y - circle.center.y) / circle.radius;
+          return normalized <= 1
+            ? centerDepth + radius * Math.sqrt(Math.max(0, 1 - normalized * normalized)) : null;
+        },
+      }];
+    });
+    const candidates = [...tubeCandidates, ...jointCandidates];
+    for (const candidate of candidates) {
+      const slices: Array<{ left: Point; right: Point } | null> = [];
+      const isCandidateInFront = (point: Point, t: number, cross: number) => {
+        const candidateDepth = candidate.depthAt(point);
+        if (candidateDepth === null) return false;
+        const targetRadius = target.startRadius + (target.endRadius - target.startRadius) * t;
+        const radial = Math.abs(cross * 2 - 1);
+        const targetDepth = target.startDepth + (target.endDepth - target.startDepth) * t
+          + targetRadius * Math.sqrt(Math.max(0, 1 - radial * radial));
+        const difference = candidateDepth - targetDepth;
+        if (Math.abs(difference) > 1e-5) return difference > 0;
+        return compareItemStackOrder(rig, {
+          groupId: target.face.groupId, order: getFaceOrder(rig, target.face), depth: targetDepth,
+        }, {
+          groupId: candidate.groupId, order: candidate.order, depth: candidateDepth,
+        }) < 0;
+      };
+      const longitudinalSteps = 28;
+      const crossSteps = 20;
+      for (let step = 0; step <= longitudinalSteps; step += 1) {
+        const t = step / longitudinalSteps;
+        const edgeA = lerpPoint(target.points[0], target.points[1], t);
+        const edgeB = lerpPoint(target.points[3], target.points[2], t);
+        const samples = Array.from({ length: crossSteps + 1 }, (_, index) => {
+          const cross = index / crossSteps;
+          const point = lerpPoint(edgeA, edgeB, cross);
+          return { cross, point, hidden: isCandidateInFront(point, t, cross) };
+        });
+        const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
+        if (!hiddenIndexes.length) {
+          slices.push(null);
+          continue;
+        }
+        const boundary = (outside: number, inside: number) => {
+          let outsideCross = samples[outside]?.cross ?? samples[inside].cross;
+          let insideCross = samples[inside].cross;
+          for (let iteration = 0; iteration < 7; iteration += 1) {
+            const middle = (outsideCross + insideCross) / 2;
+            const point = lerpPoint(edgeA, edgeB, middle);
+            if (isCandidateInFront(point, t, middle)) insideCross = middle;
+            else outsideCross = middle;
+          }
+          return lerpPoint(edgeA, edgeB, insideCross);
+        };
+        const first = hiddenIndexes[0];
+        const last = hiddenIndexes[hiddenIndexes.length - 1];
+        slices.push({
+          left: first === 0 ? samples[first].point : boundary(first - 1, first),
+          right: last === crossSteps ? samples[last].point : boundary(last + 1, last),
+        });
+      }
+      let segment: Array<{ left: Point; right: Point }> = [];
+      for (const slice of [...slices, null]) {
+        if (slice) {
+          segment.push(slice);
+          continue;
+        }
+        if (segment.length >= 2) occlusionPolygons.push({
+          faceId: candidate.id,
+          points: [...segment.map(({ left }) => left), ...segment.map(({ right }) => right).reverse()],
+        });
+        segment = [];
+      }
+    }
+    if (!occlusionPolygons.length) continue;
+    const maskId = `tube-surface-occlusion-mask-${target.face.id}`;
+    tubeOcclusionMaskIds.set(target.face.id, maskId);
+    tubeOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-tube-occlusion-face-id="${escapeXml(target.face.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${occlusionPolygons.map((polygon) => `<polygon data-tube-depth-occluder="${escapeXml(polygon.faceId)}" points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
+    </mask>`);
+  }
+  const jointSurfaceOcclusionMaskIds = new Map<string, string>();
+  const jointSurfaceOcclusionMaskDefs: string[] = [];
+  for (const joint of visibleJoints) {
+    const circle = projectedJointCircle(joint.id);
+    const jointBounds = {
+      minX: circle.center.x - circle.radius, minY: circle.center.y - circle.radius,
+      maxX: circle.center.x + circle.radius, maxY: circle.center.y + circle.radius,
+    };
+    const candidates = limbSurfaces.filter((surface) => !surface.jointIds.includes(joint.id)
+      && boundsOverlap(jointBounds, surface.bounds));
+    const polygons: Array<{ id: string; points: Point[] }> = [];
+    for (const candidate of candidates) {
+      const slices: Array<{ left: Point; right: Point } | null> = [];
+      const centerDepth = renderedDepthOf(joint.id);
+      const radius = bodyRadiusOf(joint.id);
+      const isTubeInFront = (point: Point) => {
+        const tube = tubeCoordinatesAt(candidate, point);
+        if (!tube) return false;
+        const normalized = Math.hypot(point.x - circle.center.x, point.y - circle.center.y) / circle.radius;
+        if (normalized > 1) return false;
+        const sphereDepth = centerDepth + radius * Math.sqrt(Math.max(0, 1 - normalized * normalized));
+        return tube.depth > sphereDepth + 1e-5;
+      };
+      const steps = 24;
+      for (let yStep = 0; yStep <= steps; yStep += 1) {
+        const normalizedY = yStep / steps * 2 - 1;
+        const y = circle.center.y + normalizedY * circle.radius;
+        const halfWidth = Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY)) * circle.radius;
+        const samples = Array.from({ length: steps + 1 }, (_, index) => {
+          const amount = index / steps;
+          const point = { x: circle.center.x - halfWidth + halfWidth * 2 * amount, y };
+          return { amount, point, hidden: isTubeInFront(point) };
+        });
+        const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
+        if (!hiddenIndexes.length) {
+          slices.push(null);
+          continue;
+        }
+        const boundary = (outside: number, inside: number) => {
+          let outsideAmount = samples[outside]?.amount ?? samples[inside].amount;
+          let insideAmount = samples[inside].amount;
+          for (let iteration = 0; iteration < 7; iteration += 1) {
+            const middle = (outsideAmount + insideAmount) / 2;
+            const point = { x: circle.center.x - halfWidth + halfWidth * 2 * middle, y };
+            if (isTubeInFront(point)) insideAmount = middle;
+            else outsideAmount = middle;
+          }
+          return { x: circle.center.x - halfWidth + halfWidth * 2 * insideAmount, y };
+        };
+        const first = hiddenIndexes[0];
+        const last = hiddenIndexes[hiddenIndexes.length - 1];
+        slices.push({
+          left: first === 0 ? samples[first].point : boundary(first - 1, first),
+          right: last === steps ? samples[last].point : boundary(last + 1, last),
+        });
+      }
+      let segment: Array<{ left: Point; right: Point }> = [];
+      for (const slice of [...slices, null]) {
+        if (slice) {
+          segment.push(slice);
+          continue;
+        }
+        if (segment.length >= 2) polygons.push({
+          id: candidate.face.id,
+          points: [...segment.map(({ left }) => left), ...segment.map(({ right }) => right).reverse()],
+        });
+        segment = [];
+      }
+    }
+    if (!polygons.length) continue;
+    const maskId = `joint-surface-occlusion-mask-${joint.id}`;
+    jointSurfaceOcclusionMaskIds.set(joint.id, maskId);
+    jointSurfaceOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-joint-surface-occlusion-id="${escapeXml(joint.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${polygons.map((polygon) => `<polygon data-joint-tube-occluder="${escapeXml(polygon.id)}" points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
+    </mask>`);
+  }
+  const bendCreasePaths = new Map<string, string>();
+  const positiveAngle = (angle: number) => (angle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+  for (const joint of visibleJoints) {
+    const center = projectedJointCircle(joint.id);
+    const connections = visibleFaces.flatMap(({ face, points }) => {
+      if (!face.cameraFacingLimb || points.length !== 4) return [];
+      const isStart = face.cameraFacingLimb.startJointId === joint.id;
+      const isEnd = face.cameraFacingLimb.endJointId === joint.id;
+      if (!isStart && !isEnd) return [];
+      const otherJointId = isStart ? face.cameraFacingLimb.endJointId : face.cameraFacingLimb.startJointId;
+      const other = projectJoint(otherJointId);
+      const length = Math.hypot(other.x - center.center.x, other.y - center.center.y);
+      if (length < 1e-7) return [];
+      return [{
+        direction: { x: (other.x - center.center.x) / length, y: (other.y - center.center.y) / length },
+        attachments: isStart ? [points[0], points[3]] : [points[1], points[2]],
+      }];
+    });
+    if (connections.length !== 2) continue;
+    const directionDot = Math.min(1, Math.max(-1,
+      connections[0].direction.x * connections[1].direction.x
+      + connections[0].direction.y * connections[1].direction.y));
+    const bend = Math.PI - Math.acos(directionDot);
+    if (bend < 3 * Math.PI / 180) continue;
+    const inner = {
+      x: connections[0].direction.x + connections[1].direction.x,
+      y: connections[0].direction.y + connections[1].direction.y,
+    };
+    const innerLength = Math.hypot(inner.x, inner.y);
+    if (innerLength < 1e-7) continue;
+    inner.x /= innerLength;
+    inner.y /= innerLength;
+    const innerAttachment = (connection: (typeof connections)[number]) => connection.attachments.reduce((selected, point) => {
+      const selectedScore = (selected.x - center.center.x) * inner.x + (selected.y - center.center.y) * inner.y;
+      const pointScore = (point.x - center.center.x) * inner.x + (point.y - center.center.y) * inner.y;
+      return pointScore > selectedScore ? point : selected;
+    });
+    const start = innerAttachment(connections[0]);
+    const end = innerAttachment(connections[1]);
+    const startAngle = Math.atan2(start.y - center.center.y, start.x - center.center.x);
+    const endAngle = Math.atan2(end.y - center.center.y, end.x - center.center.x);
+    const innerAngle = Math.atan2(inner.y, inner.x);
+    const counterClockwiseSpan = positiveAngle(endAngle - startAngle);
+    const innerCounterClockwiseSpan = positiveAngle(innerAngle - startAngle);
+    const delta = innerCounterClockwiseSpan <= counterClockwiseSpan
+      ? counterClockwiseSpan : counterClockwiseSpan - Math.PI * 2;
+    const steps = Math.max(4, Math.ceil(Math.abs(delta) / (Math.PI / 18)));
+    const arc = Array.from({ length: steps + 1 }, (_, index) => {
+      if (index === 0) return start;
+      if (index === steps) return end;
+      const angle = startAngle + delta * index / steps;
+      return {
+        x: center.center.x + Math.cos(angle) * center.radius,
+        y: center.center.y + Math.sin(angle) * center.radius,
+      };
+    });
+    bendCreasePaths.set(joint.id, arc.map((point, index) =>
+      `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" "));
+  }
   const jointMaskGeometry = new Map<string, string>();
-  const connectionSurfaceOccluders: Point[][] = [];
+  const connectionSurfaceOccluders: {
+    points: Point[];
+    jointIds: string[];
+    groupId?: string;
+    order: number;
+    depth: number;
+    id: string;
+  }[] = [];
 
   const jointItems = visibleJoints
     .map((joint, index) => {
@@ -256,43 +722,20 @@ export function renderSvgEditor(
         id: `joint:${joint.id}`,
         groupId: joint.groupId,
         order: joint.renderOrder,
-        markup: `<g class="body-joint-item">
+        markup: `<g class="body-joint-item"${jointSurfaceOcclusionMaskIds.has(joint.id) ? ` mask="url(#${jointSurfaceOcclusionMaskIds.get(joint.id)})"` : ""}>
           ${profileMarkup}
           ${joint.outlineVisible !== false && !profile ? `<circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />` : ""}
+          ${joint.outlineVisible !== false && bendCreasePaths.has(joint.id) ? `<path class="body-joint-outline body-bend-crease" data-bend-crease-joint-id="${escapeXml(joint.id)}" d="${bendCreasePaths.get(joint.id)}" mask="url(#joint-bend-mask-${index})" />` : ""}
         </g>`,
       };
     });
 
-  const legGapItems = new Map<string, {
-    id: string; groupId?: string; order: number; depth: number; markup: string;
-  }>();
   const faceItems = visibleFaces
     .map(({ face, points }) => {
       const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
-      const oppositeLegFaceId = /^(left|right)-(upper|lower)-leg$/.test(face.id)
-        ? face.id.replace(face.id.startsWith("left-") ? "left-" : "right-", face.id.startsWith("left-") ? "right-" : "left-")
-        : null;
-      const oppositeLegPoints = oppositeLegFaceId
-        ? visibleFaces.find(({ face: candidate }) => candidate.id === oppositeLegFaceId)?.points
-        : undefined;
-      const legGapEdgeIndex = face.cameraFacingLimb && oppositeLegPoints ? (() => {
-        const oppositeCenter = oppositeLegPoints.reduce((center, point) => ({
-          x: center.x + point.x / oppositeLegPoints.length,
-          y: center.y + point.y / oppositeLegPoints.length,
-        }), { x: 0, y: 0 });
-        const edgeDistance = (startIndex: number, endIndex: number) => {
-          const midpoint = {
-            x: (points[startIndex].x + points[endIndex].x) / 2,
-            y: (points[startIndex].y + points[endIndex].y) / 2,
-          };
-          return Math.hypot(midpoint.x - oppositeCenter.x, midpoint.y - oppositeCenter.y);
-        };
-        return edgeDistance(0, 1) <= edgeDistance(2, 3) ? 0 : 2;
-      })() : null;
       const outlinePath = points.map((point, index) => {
         const nextIndex = (index + 1) % points.length;
         const nextPoint = points[nextIndex];
-        if (index === legGapEdgeIndex) return "";
         const sameJoint = face.cameraFacingLimb
           ? index === 1 || index === 3
           : face.vertices[index]?.jointId === face.vertices[nextIndex]?.jointId;
@@ -305,40 +748,108 @@ export function renderSvgEditor(
         if (viewState.hideSameJointEdges && sameJoint) return "";
         return `M ${point.x} ${point.y} L ${nextPoint.x} ${nextPoint.y}`;
       }).filter(Boolean).join(" ");
-      const legGapOutline = legGapEdgeIndex !== null
-        ? `M ${points[legGapEdgeIndex].x} ${points[legGapEdgeIndex].y} L ${points[legGapEdgeIndex + 1].x} ${points[legGapEdgeIndex + 1].y}`
-        : "";
-      if (legGapEdgeIndex !== null) {
-        const start = points[legGapEdgeIndex];
-        const end = points[legGapEdgeIndex + 1];
-        const key = [`${start.x.toFixed(6)},${start.y.toFixed(6)}`, `${end.x.toFixed(6)},${end.y.toFixed(6)}`]
-          .sort().join("|");
-        const jointIds = face.cameraFacingLimb
-          ? [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId] : [];
-        // A tiny camera-depth offset places the exposed contour after its own
-        // coplanar fills without letting it jump over genuinely nearer parts.
-        const depth = jointIds.reduce((sum, jointId) => sum + renderedDepthOf(jointId), 0)
-          / Math.max(1, jointIds.length) + 1e-5;
-        const item = {
-          id: `leg-gap:${face.id}`,
-          groupId: face.groupId,
-          order: getFaceOrder(rig, face),
-          depth,
-          markup: `<path class="body-face-outline leg-gap-outline" data-leg-gap-outline data-face-id="${escapeXml(face.id)}" d="${legGapOutline}" />`,
-        };
-        const existing = legGapItems.get(key);
-        if (!existing || item.depth >= existing.depth) legGapItems.set(key, item);
-      }
+      const outlineMarkup = `<path class="body-face-outline" data-face-outline-id="${escapeXml(face.id)}" d="${outlinePath}"${connectedSphereOutlineMaskIds.has(face.id) ? ` mask="url(#${connectedSphereOutlineMaskIds.get(face.id)})"` : ""} />`;
+      const connectedOutline = face.id === "neck"
+        ? `<g mask="url(#${torsoConnectionOutlineMaskId("neck")})">${outlineMarkup}</g>`
+        : outlineMarkup;
       return {
         id: `face:${face.id}`,
         groupId: face.groupId,
         order: getFaceOrder(rig, face),
-        markup: `<g class="body-face-item">
-          <polygon class="body-face${viewState.selectedTarget === "face" && face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(resolveColor(rig, face.color, face.paletteId))}" />
-          <path class="body-face-outline" d="${outlinePath}" />
+        markup: `<g class="body-face-item"${surfaceOcclusionMaskIds.has(face.id) ? ` mask="url(#${surfaceOcclusionMaskIds.get(face.id)})"` : ""}>
+          <g${tubeOcclusionMaskIds.has(face.id) ? ` mask="url(#${tubeOcclusionMaskIds.get(face.id)})"` : ""}>
+            <polygon class="body-face${viewState.selectedTarget === "face" && face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(resolveColor(rig, face.color, face.paletteId))}" />
+            ${connectedOutline}
+          </g>
         </g>`,
       };
     });
+
+  const cameraBasis = getCameraBasis(rig);
+  const cross3 = (first: Point3, second: Point3): Point3 => ({
+    x: first.y * second.z - first.z * second.y,
+    y: first.z * second.x - first.x * second.z,
+    z: first.x * second.y - first.y * second.x,
+  });
+  const normalize3 = (vector: Point3): Point3 | null => {
+    const length = Math.hypot(vector.x, vector.y, vector.z);
+    return length > 1e-8 ? { x: vector.x / length, y: vector.y / length, z: vector.z / length } : null;
+  };
+  const tubeSectionJointIds = new Set<string>();
+  const tubeSectionItems = visibleFaces.flatMap(({ face }) => {
+    if (!face.cameraFacingLimb) return [];
+    const { startJointId, endJointId } = face.cameraFacingLimb;
+    const outgoing = visibleFaces.some(({ face: candidate }) => candidate !== face
+      && candidate.cameraFacingLimb?.startJointId === endJointId);
+    if (outgoing) return [];
+    const startJoint = rig.joints.find((joint) => joint.id === startJointId);
+    const endJoint = rig.joints.find((joint) => joint.id === endJointId);
+    if (!startJoint || !endJoint) return [];
+    // A visible endpoint joint is a closed sphere/capsule in front of the
+    // section plane. Its exposed joint arc already owns the terminal contour.
+    if (showJointLayer && endJoint.bodyVisible && isGroupVisible(rig, endJoint.groupId)) return [];
+    const startWorld = getJointWorldTransform(rig, startJointId);
+    const endWorld = getJointWorldTransform(rig, endJointId);
+    const axis = normalize3({
+      x: endWorld.x - startWorld.x,
+      y: endWorld.y - startWorld.y,
+      z: endJoint.z - startJoint.z,
+    });
+    if (!axis) return [];
+    const facing = axis.x * cameraBasis.forward.x + axis.y * cameraBasis.forward.y + axis.z * cameraBasis.forward.z;
+    if (facing < -0.02) return [];
+    const basisU = normalize3(cross3(axis, cameraBasis.forward))
+      ?? normalize3(cross3(axis, cameraBasis.up));
+    if (!basisU) return [];
+    const basisV = normalize3(cross3(axis, basisU));
+    if (!basisV) return [];
+    const radius = bodyRadiusOf(endJointId);
+    const center: Point3 = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
+    const sectionPoints = Array.from({ length: 32 }, (_, index) => {
+      const angle = Math.PI * 2 * index / 32;
+      const cosine = Math.cos(angle) * radius;
+      const sine = Math.sin(angle) * radius;
+      const point = {
+        x: center.x + basisU.x * cosine + basisV.x * sine,
+        y: center.y + basisU.y * cosine + basisV.y * sine,
+        z: center.z + basisU.z * cosine + basisV.z * sine,
+      };
+      return project(point, point.z);
+    });
+    const pointList = sectionPoints.map((point) => `${point.x},${point.y}`).join(" ");
+    const color = escapeXml(resolveColor(rig, face.color, face.paletteId));
+    const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
+    const edgeOn = Math.abs(facing) < 0.06;
+    // The existing hidden-joint bridge already supplies the stable straight
+    // edge-on end line. Reusing it avoids drawing the same boundary twice.
+    if (edgeOn) return [];
+    const sectionMarkup = `<polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-tube-section-cap points="${pointList}" fill="${color}" />
+      <polygon class="body-face-outline tube-section-outline" points="${pointList}" />`;
+    tubeSectionJointIds.add(endJointId);
+    return [{
+      id: `tube-section:${face.id}`,
+      groupId: face.groupId,
+      order: getFaceOrder(rig, face) + 0.01,
+      depth: renderedDepthOf(endJointId) + Math.max(0, facing) * radius,
+      markup: `<g class="body-tube-section-item" data-tube-section-face-id="${escapeXml(face.id)}"${tubeOcclusionMaskIds.has(face.id) ? ` mask="url(#${tubeOcclusionMaskIds.get(face.id)})"` : ""}>${sectionMarkup}</g>`,
+    }];
+  });
+  const surfaceIntersectionItems = visibleFaces.flatMap(({ face }) => {
+    const path = surfaceIntersectionPaths.get(face.id);
+    if (!path || !face.cameraFacingLimb) return [];
+    const { startJointId, endJointId } = face.cameraFacingLimb;
+    const depth = Math.max(
+      renderedDepthOf(startJointId) + bodyRadiusOf(startJointId),
+      renderedDepthOf(endJointId) + bodyRadiusOf(endJointId),
+    ) + 1e-4;
+    return [{
+      id: `surface-intersection:${face.id}`,
+      groupId: face.groupId,
+      order: getFaceOrder(rig, face) + 0.02,
+      depth,
+      markup: `<path class="body-face-outline surface-intersection-curve" data-surface-intersection-face-id="${escapeXml(face.id)}" d="${path}"${tubeOcclusionMaskIds.has(face.id) ? ` mask="url(#${tubeOcclusionMaskIds.get(face.id)})"` : ""} />`,
+    }];
+  });
 
   const peerCapsuleItems = showFaceLayer ? rig.peerGroups.flatMap((group) => {
     if (!group.virtualCapsule || group.jointIds.length !== 2) return [];
@@ -364,7 +875,11 @@ export function renderSvgEditor(
       ? " is-selected" : "";
     const color = resolveColor(rig, sourceFace?.color ?? startJoint.color, sourceFace?.paletteId ?? startJoint.paletteId);
     const depth = (renderedDepthOf(startJointId) + renderedDepthOf(endJointId)) / 2;
-    connectionSurfaceOccluders.push(points);
+    connectionSurfaceOccluders.push({
+      points, jointIds: [startJointId, endJointId], groupId,
+      order: sourceFace ? getFaceOrder(rig, sourceFace) : 20,
+      depth, id: `peer-capsule:${group.id}`,
+    });
     if (groupId === "torso") torsoConnectionSurfaces.push({ id: group.id, points });
     const outlinePath = group.id === "hip-band" ? "" : connectionOutlinePath(points, "limb");
     return [{
@@ -415,7 +930,7 @@ export function renderSvgEditor(
       const inset = Math.min(bodyRadiusOf(joint.id), shoulderDistance / 2);
       const center = index === 0 ? leftCenter : rightCenter;
       const depth = joint.z + shoulderDz / shoulderDistance * inset * direction;
-      return projectedSphereCircle({
+      return projectSphereCircle(rig, {
         x: center.x + shoulderDx / shoulderDistance * inset * direction,
         y: center.y + shoulderDy / shoulderDistance * inset * direction,
       }, depth, bodyRadiusOf(joint.id));
@@ -427,7 +942,10 @@ export function renderSvgEditor(
     const color = escapeXml(resolveColor(rig, torsoFace.color, torsoFace.paletteId));
     const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === torsoFace.id ? " is-selected" : "";
     const depth = (renderedDepthOf(left.id) + renderedDepthOf(right.id) + renderedDepthOf(waist.id)) / 3;
-    connectionSurfaceOccluders.push(points);
+    connectionSurfaceOccluders.push({
+      points, jointIds: [left.id, right.id, waist.id],
+      groupId: "torso", order: 20, depth, id: "torso-surface",
+    });
     torsoConnectionSurfaces.push({ id: "torso", points });
     return [{
       id: "torso-surface", groupId: "torso", order: 20,
@@ -455,8 +973,8 @@ export function renderSvgEditor(
       { center: { x: leftCenter.x, y: leftCenter.y, z: leftHip.z }, radius: bodyRadiusOf(leftHip.id) },
       { center: { x: rightCenter.x, y: rightCenter.y, z: rightHip.z }, radius: bodyRadiusOf(rightHip.id) },
     ];
-    const waistCircles = waistSpheres.map(({ center, radius }) => projectedSphereCircle(center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
-    const hipCircles = hipSpheres.map(({ center, radius }) => projectedSphereCircle(center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
+    const waistCircles = waistSpheres.map(({ center, radius }) => projectSphereCircle(rig, center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
+    const hipCircles = hipSpheres.map(({ center, radius }) => projectSphereCircle(rig, center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
     const sectionStart = {
       x: (waistCircles[0].center.x + waistCircles[1].center.x) / 2,
       y: (waistCircles[0].center.y + waistCircles[1].center.y) / 2,
@@ -499,13 +1017,22 @@ export function renderSvgEditor(
     ];
     const color = escapeXml(resolveColor(rig, face.color, face.paletteId));
     const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
-    connectionSurfaceOccluders.push(centerTrapezoid, ...connections.map((connection) => connection.points));
+    const frontDepth = [...waistSpheres, ...hipSpheres].reduce((sum, sphere) =>
+      sum + getCameraZ(rig, sphere.center, sphere.center.z) + sphere.radius, 0) / 4;
+    connectionSurfaceOccluders.push(
+      { points: centerTrapezoid, jointIds: [waist.id, leftHip.id, rightHip.id],
+        groupId: face.groupId, order: getFaceOrder(rig, face), depth: frontDepth,
+        id: "waist-hip-center" },
+      ...connections.map((connection, index) => ({
+        points: connection.points, jointIds: [waist.id, index === 0 ? leftHip.id : rightHip.id],
+        groupId: face.groupId, order: getFaceOrder(rig, face), depth: frontDepth,
+        id: `waist-hip-tube:${index}`,
+      })),
+    );
     torsoConnectionSurfaces.push({ id: "waist-hip", points: outerHull });
     const outlinePath = connections.map(({ outerEdge }) =>
       `M ${outerEdge[0].x} ${outerEdge[0].y} L ${outerEdge[1].x} ${outerEdge[1].y}`).join(" ");
     const polygonPoints = (surface: readonly Point[]) => surface.map((point) => `${point.x},${point.y}`).join(" ");
-    const frontDepth = [...waistSpheres, ...hipSpheres].reduce((sum, sphere) =>
-      sum + getCameraZ(rig, sphere.center, sphere.center.z) + sphere.radius, 0) / 4;
     return [{
       id: "waist-hip-surface", groupId: face.groupId, order: getFaceOrder(rig, face),
       depth: frontDepth,
@@ -517,11 +1044,6 @@ export function renderSvgEditor(
     }];
   })() : [];
 
-  const vertexDepth = (vertex: ArtShapeVertex) => {
-      const jointId = vertex.source === "axis-point" ? vertex.jointId
-      : vertex.source === "root" ? vertex.rootJointId : vertex.source === "joint-center" ? vertex.jointId : null;
-    return jointId ? zOf(jointId) : 0;
-  };
   const shapeRecords = (rig.artShapes ?? []).filter((shape) => showShapeLayer && isGroupVisible(rig, shape.groupId)).map((shape) => ({
     shape,
     points: shape.vertices.map((vertex) => project(getArtShapeVertexPoint(rig, vertex), vertexDepth(vertex))),
@@ -658,17 +1180,87 @@ export function renderSvgEditor(
   }).join("");
 
   const jointOutlineMasks = visibleJoints.map((joint, index) => {
+    const jointStack = {
+      groupId: joint.groupId,
+      order: joint.renderOrder,
+      depth: renderedDepthOf(joint.id),
+    };
     const otherJoints = visibleJoints
       .filter((candidate) => candidate.id !== joint.id)
+      .filter((candidate) => compareItemStackOrder(rig, jointStack, {
+        groupId: candidate.groupId,
+        order: candidate.renderOrder,
+        depth: renderedDepthOf(candidate.id),
+      }) < 0)
+      .map((candidate) => `<g data-mask-joint-id="${escapeXml(candidate.id)}">${jointMaskGeometry.get(candidate.id) ?? ""}</g>`)
+      .join("");
+    const faces = visibleFaces
+      .filter(({ face }) => {
+        const jointIds = face.cameraFacingLimb
+          ? [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]
+          : [...new Set(face.vertices.map((vertex) => vertex.jointId))];
+        // A tube joined to this sphere owns their shared interior boundary.
+        // It must erase the overlapping joint arc even when its averaged
+        // camera depth or authored layer places the fill behind the centre.
+        if (jointIds.includes(joint.id)) return true;
+        const depth = jointIds.reduce((sum, jointId) => sum + renderedDepthOf(jointId), 0)
+          / Math.max(1, jointIds.length);
+        return compareItemStackOrder(rig, jointStack, {
+          groupId: face.groupId,
+          order: getFaceOrder(rig, face),
+          depth,
+        }) < 0;
+      })
+      .map(({ face, points }) => `<polygon data-mask-face-id="${escapeXml(face.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" stroke="#000" stroke-width="3" />`)
+      .join("");
+    const connections = connectionSurfaceOccluders
+      .filter((candidate) => candidate.jointIds.includes(joint.id)
+        || compareItemStackOrder(rig, jointStack, candidate) < 0)
+      .map((candidate) => `<polygon data-mask-surface-id="${escapeXml(candidate.id)}" points="${candidate.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" stroke="#000" stroke-width="3" />`)
+      .join("");
+    return `<mask id="joint-outline-mask-${index}" data-outline-mask-joint-id="${escapeXml(joint.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${otherJoints}${faces}${connections}
+    </mask>`;
+  }).join("");
+  const jointBendMasks = visibleJoints.map((joint, index) => {
+    if (!bendCreasePaths.has(joint.id)) return "";
+    const jointStack = {
+      groupId: joint.groupId,
+      order: joint.renderOrder,
+      depth: renderedDepthOf(joint.id),
+    };
+    const otherJoints = visibleJoints
+      .filter((candidate) => candidate.id !== joint.id)
+      .filter((candidate) => compareItemStackOrder(rig, jointStack, {
+        groupId: candidate.groupId,
+        order: candidate.renderOrder,
+        depth: renderedDepthOf(candidate.id),
+      }) < 0)
       .map((candidate) => jointMaskGeometry.get(candidate.id) ?? "")
       .join("");
     const faces = visibleFaces
+      .filter(({ face }) => {
+        const jointIds = face.cameraFacingLimb
+          ? [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]
+          : [...new Set(face.vertices.map((vertex) => vertex.jointId))];
+        if (jointIds.includes(joint.id)) return false;
+        const depth = jointIds.reduce((sum, jointId) => sum + renderedDepthOf(jointId), 0)
+          / Math.max(1, jointIds.length);
+        return compareItemStackOrder(rig, jointStack, {
+          groupId: face.groupId,
+          order: getFaceOrder(rig, face),
+          depth,
+        }) < 0;
+      })
       .map(({ points }) => `<polygon points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" stroke="#000" stroke-width="3" />`)
       .join("");
     const connections = connectionSurfaceOccluders
-      .map((points) => `<polygon points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" stroke="#000" stroke-width="3" />`)
+      .filter((candidate) => !candidate.jointIds.includes(joint.id)
+        && compareItemStackOrder(rig, jointStack, candidate) < 0)
+      .map((candidate) => `<polygon points="${candidate.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" stroke="#000" stroke-width="3" />`)
       .join("");
-    return `<mask id="joint-outline-mask-${index}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+    return `<mask id="joint-bend-mask-${index}" data-bend-mask-joint-id="${escapeXml(joint.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
       <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
       ${otherJoints}${faces}${connections}
     </mask>`;
@@ -678,6 +1270,7 @@ export function renderSvgEditor(
   // referenced by visible faces. The convex hull avoids self-intersections.
   const bridgeItems = rig.joints.flatMap((joint) => {
     if (joint.isVirtual || joint.bodyVisible
+      || tubeSectionJointIds.has(joint.id)
       || !isGroupVisible(rig, joint.groupId)) return [];
     const connected = visibleFaces.filter(({ face }) => face.cameraFacingLimb
       ? face.cameraFacingLimb.startJointId === joint.id || face.cameraFacingLimb.endJointId === joint.id
@@ -707,7 +1300,7 @@ export function renderSvgEditor(
       : [...new Set(face.vertices.map((vertex) => vertex.jointId))];
     return { ...item, depth: jointIds.reduce((sum, jointId) => sum + renderedDepthOf(jointId), 0) / Math.max(1, jointIds.length) };
   }), ...peerCapsuleItems, ...torsoStripItems, ...waistHipStripItems,
-  ...legGapItems.values(), ...shapeItems, ...bridgeItems];
+  ...tubeSectionItems, ...surfaceIntersectionItems, ...shapeItems, ...bridgeItems];
   const renderedBody = bodyItems
     .sort((a, b) => compareItemStackOrder(rig, a, b) || a.id.localeCompare(b.id))
     .map((item) => item.markup)
@@ -931,7 +1524,7 @@ export function renderSvgEditor(
     </g>` : "";
 
   host.innerHTML = `
-    <defs data-export-defs>${jointOutlineMasks}${torsoConnectionOutlineMasks}${compositeMaskDefs.join("")}</defs>
+    <defs data-export-defs>${jointOutlineMasks}${jointBendMasks}${torsoConnectionOutlineMasks}${surfaceOcclusionMaskDefs.join("")}${connectedSphereOutlineMaskDefs.join("")}${tubeOcclusionMaskDefs.join("")}${jointSurfaceOcclusionMaskDefs.join("")}${compositeMaskDefs.join("")}</defs>
     <g data-layer="grid">
       ${[80, 200, 320, 440, 560, 680].map((y) => `<line x1="60" y1="${y}" x2="540" y2="${y}" />`).join("")}
       <line x1="300" y1="40" x2="300" y2="740" />
