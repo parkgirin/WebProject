@@ -38,7 +38,7 @@ test("procedural torso surface does not require a waist endpoint bridge", () => 
   assert.doesNotMatch(host.innerHTML, /data-bridge-joint-id="waist"/);
 });
 
-test("hidden elbow joins distinct visible axis endpoints and hidden wrist gets a straight end line", () => {
+test("hidden elbow joins distinct visible axis endpoints and hidden wrist gets a curved end", () => {
   const rig = createDefaultRig();
   const elbow = rig.joints.find((joint) => joint.id === "left-elbow")!;
   elbow.bodyVisible = false;
@@ -47,10 +47,10 @@ test("hidden elbow joins distinct visible axis endpoints and hidden wrist gets a
   const host = { innerHTML: "" } as SVGSVGElement;
   renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
   const elbowBridge = host.innerHTML.match(/<g class="joint-bridge" data-bridge-joint-id="left-elbow">[\s\S]*?<\/g>/)?.[0];
-  const wristBridge = host.innerHTML.match(/<g class="joint-bridge" data-bridge-joint-id="left-wrist">[\s\S]*?<\/g>/)?.[0];
-  assert.ok(elbowBridge && wristBridge);
+  assert.ok(elbowBridge);
   assert.match(elbowBridge, /class="body-face-outline"/);
-  assert.match(wristBridge, /class="body-face-outline"/);
+  assert.doesNotMatch(host.innerHTML, /data-bridge-joint-id="left-wrist"/);
+  assert.match(host.innerHTML, /data-tube-section-face-id="left-lower-arm" data-tube-end-curvature/);
   assert.ok(host.innerHTML.indexOf('data-bridge-joint-id="left-elbow"') < host.innerHTML.indexOf('data-face-id="left-upper-arm"'));
 });
 

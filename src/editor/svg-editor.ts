@@ -1,5 +1,6 @@
 import type { ArtCompositeMode, ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
 import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraBasis, getCameraFacingFaceSurface, getCameraZ, getFacePoints, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedCircleConnectionSurface, getProjectionScale, projectPoint, projectSphereCircle, type Point, type Point3, type ProjectedCircle } from "../rig/geometry.ts";
+import { boundsOf, boundsOverlap, sphereDepthAt, surfaceDepthRange, tubeCoordinatesAt, type RenderSurface, type SphereRenderSurface, type TubeRenderSurface } from "../rig/surface-geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -204,6 +205,59 @@ export function renderSvgEditor(
   });
   const neckSurface = visibleFaces.find(({ face }) => face.id === "neck");
   if (neckSurface) torsoConnectionSurfaces.push({ id: "neck", points: neckSurface.points });
+  const sphereSurfaces: SphereRenderSurface[] = [
+    ...visibleJoints.map((joint): SphereRenderSurface => {
+      const circle = projectedJointCircle(joint.id);
+      const radius = bodyRadiusOf(joint.id);
+      return {
+        kind: "sphere",
+        id: `joint:${joint.id}`,
+        source: "joint",
+        sourceId: joint.id,
+        attachedJointId: joint.id,
+        center: circle.center,
+        projectedRadius: circle.radius,
+        centerDepth: renderedDepthOf(joint.id),
+        radius,
+        groupId: joint.groupId,
+        order: joint.renderOrder,
+        bounds: {
+          minX: circle.center.x - circle.radius,
+          minY: circle.center.y - circle.radius,
+          maxX: circle.center.x + circle.radius,
+          maxY: circle.center.y + circle.radius,
+        },
+      };
+    }),
+    ...(rig.artShapes ?? []).flatMap((shape): SphereRenderSurface[] => {
+      const vertex = shape.vertices[0];
+      if (!showShapeLayer || shape.kind !== "sphere" || !vertex
+        || (shape.compositeMode ?? "paint") !== "paint" || !isGroupVisible(rig, shape.groupId)) return [];
+      const center = getArtShapeVertexPoint(rig, vertex);
+      const depth = vertexDepth(vertex);
+      const radius = shape.radius ?? 1;
+      const circle = projectSphereCircle(rig, center, depth, radius);
+      return [{
+        kind: "sphere",
+        id: `shape:${shape.id}`,
+        source: "shape",
+        sourceId: shape.id,
+        attachedJointId: vertex.source === "joint-center" ? vertex.jointId : undefined,
+        center: circle.center,
+        projectedRadius: circle.radius,
+        centerDepth: getCameraZ(rig, center, depth),
+        radius,
+        groupId: shape.groupId,
+        order: shape.layerOrder,
+        bounds: {
+          minX: circle.center.x - circle.radius,
+          minY: circle.center.y - circle.radius,
+          maxX: circle.center.x + circle.radius,
+          maxY: circle.center.y + circle.radius,
+        },
+      }];
+    }),
+  ];
   const surfaceOcclusionMaskIds = new Map<string, string>();
   const surfaceOcclusionMaskDefs: string[] = [];
   const surfaceIntersectionPaths = new Map<string, string>();
@@ -213,32 +267,18 @@ export function renderSvgEditor(
     x: start.x + (end.x - start.x) * amount,
     y: start.y + (end.y - start.y) * amount,
   });
-  const connectedSphereShapes = (jointIds: readonly string[]) => (rig.artShapes ?? []).filter((shape) => (
-    showShapeLayer
-    && shape.kind === "sphere"
-    && (shape.compositeMode ?? "paint") === "paint"
-    && isGroupVisible(rig, shape.groupId)
-    && shape.vertices[0]?.source === "joint-center"
-    && jointIds.includes(shape.vertices[0].jointId)
-  ));
+  const connectedSphereShapes = (jointIds: readonly string[]) => sphereSurfaces.filter((surface) =>
+    surface.source === "shape" && surface.attachedJointId && jointIds.includes(surface.attachedJointId));
   for (const { face, points } of visibleFaces) {
     if (!face.cameraFacingLimb || points.length !== 4) continue;
     const { startJointId, endJointId } = face.cameraFacingLimb;
-    const sphereShapes = connectedSphereShapes([startJointId, endJointId]);
-    if (!sphereShapes.length) continue;
-    const sphereSurfaces = sphereShapes.map((shape) => {
-      const vertex = shape.vertices[0];
-      const center = getArtShapeVertexPoint(rig, vertex);
-      const depth = vertexDepth(vertex);
-      const radius = shape.radius ?? 1;
-      return { circle: projectSphereCircle(rig, center, depth, radius),
-        centerDepth: getCameraZ(rig, center, depth), radius };
-    });
+    const connectedSpheres = connectedSphereShapes([startJointId, endJointId]);
+    if (!connectedSpheres.length) continue;
     const outlineMaskId = `connected-sphere-outline-mask-${face.id}`;
     connectedSphereOutlineMaskIds.set(face.id, outlineMaskId);
     connectedSphereOutlineMaskDefs.push(`<mask id="${escapeXml(outlineMaskId)}" data-connected-sphere-outline-face-id="${escapeXml(face.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
       <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
-      ${sphereSurfaces.map(({ circle }) => `<circle cx="${circle.center.x}" cy="${circle.center.y}" r="${circle.radius}" fill="#000" />`).join("")}
+      ${connectedSpheres.map((surface) => `<circle cx="${surface.center.x}" cy="${surface.center.y}" r="${surface.projectedRadius}" fill="#000" />`).join("")}
     </mask>`);
     const startDepth = renderedDepthOf(startJointId);
     const endDepth = renderedDepthOf(endJointId);
@@ -252,12 +292,8 @@ export function renderSvgEditor(
       const radial = Math.abs(cross * 2 - 1);
       const tubeDepth = startDepth + (endDepth - startDepth) * t
         + tubeRadius * Math.sqrt(Math.max(0, 1 - radial * radial));
-      return sphereSurfaces.some(({ circle, centerDepth, radius }) => {
-        const normalized = Math.hypot(point.x - circle.center.x, point.y - circle.center.y) / circle.radius;
-        if (normalized > 1) return false;
-        const sphereDepth = centerDepth + radius * Math.sqrt(Math.max(0, 1 - normalized * normalized));
-        return sphereDepth > tubeDepth + 1e-5;
-      });
+      return connectedSpheres.some((surface) => (sphereDepthAt(surface, point) ?? Number.NEGATIVE_INFINITY)
+        > tubeDepth + 1e-5);
     };
     for (let step = 0; step <= longitudinalSteps; step += 1) {
       const t = step / longitudinalSteps;
@@ -290,8 +326,7 @@ export function renderSvgEditor(
       const right = last === crossSteps ? samples[last].point : refineBoundary(last + 1, last);
       slices.push({ left, right });
     }
-    const preferEnd = sphereShapes.some((shape) => shape.vertices[0]?.source === "joint-center"
-      && shape.vertices[0].jointId === endJointId);
+    const preferEnd = connectedSpheres.some((surface) => surface.attachedJointId === endJointId);
     const intersectionPoints: Point[] = [];
     for (let crossStep = 0; crossStep <= crossSteps; crossStep += 1) {
       const cross = crossStep / crossSteps;
@@ -355,79 +390,33 @@ export function renderSvgEditor(
       ${polygons.map((polygon) => `<polygon data-surface-depth-occluder points="${polygon.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
     </mask>`);
   }
-  type LimbSurfaceInfo = {
-    face: (typeof visibleFaces)[number]["face"];
-    points: Point[];
-    jointIds: [string, string];
-    startDepth: number;
-    endDepth: number;
-    startRadius: number;
-    endRadius: number;
-    bounds: { minX: number; minY: number; maxX: number; maxY: number };
-  };
-  const limbSurfaces: LimbSurfaceInfo[] = visibleFaces.flatMap(({ face, points }) => {
+  type FaceTubeSurface = TubeRenderSurface & { face: (typeof visibleFaces)[number]["face"] };
+  const limbSurfaces: FaceTubeSurface[] = visibleFaces.flatMap(({ face, points }) => {
     if (!face.cameraFacingLimb || points.length !== 4) return [];
     const jointIds: [string, string] = [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId];
     return [{
-      face, points, jointIds,
+      kind: "tube" as const,
+      id: `face:${face.id}`,
+      face, points: points as [Point, Point, Point, Point], jointIds,
+      groupId: face.groupId,
+      order: getFaceOrder(rig, face),
       startDepth: renderedDepthOf(jointIds[0]),
       endDepth: renderedDepthOf(jointIds[1]),
       startRadius: bodyRadiusOf(jointIds[0]),
       endRadius: bodyRadiusOf(jointIds[1]),
-      bounds: {
-        minX: Math.min(...points.map((point) => point.x)),
-        minY: Math.min(...points.map((point) => point.y)),
-        maxX: Math.max(...points.map((point) => point.x)),
-        maxY: Math.max(...points.map((point) => point.y)),
-      },
+      bounds: boundsOf(points),
     }];
   });
-  const tubeCoordinatesAt = (surface: LimbSurfaceInfo, point: Point) => {
-    const startCenter = lerpPoint(surface.points[0], surface.points[3], 0.5);
-    const endCenter = lerpPoint(surface.points[1], surface.points[2], 0.5);
-    const centerDx = endCenter.x - startCenter.x;
-    const centerDy = endCenter.y - startCenter.y;
-    const centerLengthSquared = centerDx * centerDx + centerDy * centerDy;
-    let t = centerLengthSquared > 1e-9
-      ? ((point.x - startCenter.x) * centerDx + (point.y - startCenter.y) * centerDy) / centerLengthSquared
-      : 0.5;
-    let cross = 0.5;
-    for (let iteration = 0; iteration < 7; iteration += 1) {
-      const edgeA = lerpPoint(surface.points[0], surface.points[1], t);
-      const edgeB = lerpPoint(surface.points[3], surface.points[2], t);
-      const current = lerpPoint(edgeA, edgeB, cross);
-      const errorX = point.x - current.x;
-      const errorY = point.y - current.y;
-      const tangentA = { x: surface.points[1].x - surface.points[0].x, y: surface.points[1].y - surface.points[0].y };
-      const tangentB = { x: surface.points[2].x - surface.points[3].x, y: surface.points[2].y - surface.points[3].y };
-      const derivativeT = lerpPoint(tangentA, tangentB, cross);
-      const derivativeCross = { x: edgeB.x - edgeA.x, y: edgeB.y - edgeA.y };
-      const determinant = derivativeT.x * derivativeCross.y - derivativeT.y * derivativeCross.x;
-      if (Math.abs(determinant) < 1e-9) break;
-      t += (errorX * derivativeCross.y - errorY * derivativeCross.x) / determinant;
-      cross += (derivativeT.x * errorY - derivativeT.y * errorX) / determinant;
-    }
-    if (t < -1e-5 || t > 1 + 1e-5 || cross < -1e-5 || cross > 1 + 1e-5) return null;
-    t = Math.min(1, Math.max(0, t));
-    cross = Math.min(1, Math.max(0, cross));
-    const radius = surface.startRadius + (surface.endRadius - surface.startRadius) * t;
-    const radial = Math.abs(cross * 2 - 1);
-    return {
-      t, cross,
-      depth: surface.startDepth + (surface.endDepth - surface.startDepth) * t
-        + radius * Math.sqrt(Math.max(0, 1 - radial * radial)),
-    };
-  };
+  const canOcclude = (target: RenderSurface, candidate: RenderSurface) => (
+    boundsOverlap(target.bounds, candidate.bounds)
+    && surfaceDepthRange(candidate).max > surfaceDepthRange(target).min + 1e-5
+  );
   const tubeOcclusionMaskIds = new Map<string, string>();
   const tubeOcclusionMaskDefs: string[] = [];
-  const boundsOverlap = (first: LimbSurfaceInfo["bounds"], second: LimbSurfaceInfo["bounds"]) => (
-    first.minX < second.maxX && first.maxX > second.minX
-    && first.minY < second.maxY && first.maxY > second.minY
-  );
   for (const target of limbSurfaces) {
     const occlusionPolygons: Array<{ faceId: string; points: Point[] }> = [];
     const tubeCandidates = limbSurfaces.filter((candidate) => candidate !== target
-      && boundsOverlap(target.bounds, candidate.bounds)
+      && canOcclude(target, candidate)
       && !candidate.jointIds.some((jointId) => target.jointIds.includes(jointId)))
       .map((candidate) => ({
         id: candidate.face.id,
@@ -435,27 +424,16 @@ export function renderSvgEditor(
         order: getFaceOrder(rig, candidate.face),
         depthAt: (point: Point) => tubeCoordinatesAt(candidate, point)?.depth ?? null,
       }));
-    const jointCandidates = visibleJoints.filter((joint) => !target.jointIds.includes(joint.id)).flatMap((joint) => {
-      const circle = projectedJointCircle(joint.id);
-      const bounds = {
-        minX: circle.center.x - circle.radius, minY: circle.center.y - circle.radius,
-        maxX: circle.center.x + circle.radius, maxY: circle.center.y + circle.radius,
-      };
-      if (!boundsOverlap(target.bounds, bounds)) return [];
-      const centerDepth = renderedDepthOf(joint.id);
-      const radius = bodyRadiusOf(joint.id);
-      return [{
-        id: `joint:${joint.id}`,
-        groupId: joint.groupId,
-        order: joint.renderOrder,
-        depthAt: (point: Point) => {
-          const normalized = Math.hypot(point.x - circle.center.x, point.y - circle.center.y) / circle.radius;
-          return normalized <= 1
-            ? centerDepth + radius * Math.sqrt(Math.max(0, 1 - normalized * normalized)) : null;
-        },
-      }];
-    });
-    const candidates = [...tubeCandidates, ...jointCandidates];
+    const sphereCandidates = sphereSurfaces
+      .filter((surface) => !surface.attachedJointId || !target.jointIds.includes(surface.attachedJointId))
+      .filter((surface) => canOcclude(target, surface))
+      .map((surface) => ({
+        id: surface.id,
+        groupId: surface.groupId,
+        order: surface.order,
+        depthAt: (point: Point) => sphereDepthAt(surface, point),
+      }));
+    const candidates = [...tubeCandidates, ...sphereCandidates];
     for (const candidate of candidates) {
       const slices: Array<{ left: Point; right: Point } | null> = [];
       const isCandidateInFront = (point: Point, t: number, cross: number) => {
@@ -528,37 +506,29 @@ export function renderSvgEditor(
       ${occlusionPolygons.map((polygon) => `<polygon data-tube-depth-occluder="${escapeXml(polygon.faceId)}" points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
     </mask>`);
   }
-  const jointSurfaceOcclusionMaskIds = new Map<string, string>();
-  const jointSurfaceOcclusionMaskDefs: string[] = [];
-  for (const joint of visibleJoints) {
-    const circle = projectedJointCircle(joint.id);
-    const jointBounds = {
-      minX: circle.center.x - circle.radius, minY: circle.center.y - circle.radius,
-      maxX: circle.center.x + circle.radius, maxY: circle.center.y + circle.radius,
-    };
-    const candidates = limbSurfaces.filter((surface) => !surface.jointIds.includes(joint.id)
-      && boundsOverlap(jointBounds, surface.bounds));
+  const sphereSurfaceOcclusionMaskIds = new Map<string, string>();
+  const sphereSurfaceOcclusionMaskDefs: string[] = [];
+  for (const sphere of sphereSurfaces) {
+    const candidates = limbSurfaces.filter((surface) =>
+      (!sphere.attachedJointId || !surface.jointIds.includes(sphere.attachedJointId))
+      && canOcclude(sphere, surface));
     const polygons: Array<{ id: string; points: Point[] }> = [];
     for (const candidate of candidates) {
       const slices: Array<{ left: Point; right: Point } | null> = [];
-      const centerDepth = renderedDepthOf(joint.id);
-      const radius = bodyRadiusOf(joint.id);
       const isTubeInFront = (point: Point) => {
         const tube = tubeCoordinatesAt(candidate, point);
         if (!tube) return false;
-        const normalized = Math.hypot(point.x - circle.center.x, point.y - circle.center.y) / circle.radius;
-        if (normalized > 1) return false;
-        const sphereDepth = centerDepth + radius * Math.sqrt(Math.max(0, 1 - normalized * normalized));
-        return tube.depth > sphereDepth + 1e-5;
+        const depth = sphereDepthAt(sphere, point);
+        return depth !== null && tube.depth > depth + 1e-5;
       };
       const steps = 24;
       for (let yStep = 0; yStep <= steps; yStep += 1) {
         const normalizedY = yStep / steps * 2 - 1;
-        const y = circle.center.y + normalizedY * circle.radius;
-        const halfWidth = Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY)) * circle.radius;
+        const y = sphere.center.y + normalizedY * sphere.projectedRadius;
+        const halfWidth = Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY)) * sphere.projectedRadius;
         const samples = Array.from({ length: steps + 1 }, (_, index) => {
           const amount = index / steps;
-          const point = { x: circle.center.x - halfWidth + halfWidth * 2 * amount, y };
+          const point = { x: sphere.center.x - halfWidth + halfWidth * 2 * amount, y };
           return { amount, point, hidden: isTubeInFront(point) };
         });
         const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
@@ -571,11 +541,11 @@ export function renderSvgEditor(
           let insideAmount = samples[inside].amount;
           for (let iteration = 0; iteration < 7; iteration += 1) {
             const middle = (outsideAmount + insideAmount) / 2;
-            const point = { x: circle.center.x - halfWidth + halfWidth * 2 * middle, y };
+            const point = { x: sphere.center.x - halfWidth + halfWidth * 2 * middle, y };
             if (isTubeInFront(point)) insideAmount = middle;
             else outsideAmount = middle;
           }
-          return { x: circle.center.x - halfWidth + halfWidth * 2 * insideAmount, y };
+          return { x: sphere.center.x - halfWidth + halfWidth * 2 * insideAmount, y };
         };
         const first = hiddenIndexes[0];
         const last = hiddenIndexes[hiddenIndexes.length - 1];
@@ -598,11 +568,11 @@ export function renderSvgEditor(
       }
     }
     if (!polygons.length) continue;
-    const maskId = `joint-surface-occlusion-mask-${joint.id}`;
-    jointSurfaceOcclusionMaskIds.set(joint.id, maskId);
-    jointSurfaceOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-joint-surface-occlusion-id="${escapeXml(joint.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+    const maskId = `sphere-surface-occlusion-mask-${sphere.sourceId}`;
+    sphereSurfaceOcclusionMaskIds.set(sphere.id, maskId);
+    sphereSurfaceOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-sphere-surface-occlusion-id="${escapeXml(sphere.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
       <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
-      ${polygons.map((polygon) => `<polygon data-joint-tube-occluder="${escapeXml(polygon.id)}" points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
+      ${polygons.map((polygon) => `<polygon data-sphere-tube-occluder="${escapeXml(polygon.id)}" points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
     </mask>`);
   }
   const bendCreasePaths = new Map<string, string>();
@@ -722,7 +692,7 @@ export function renderSvgEditor(
         id: `joint:${joint.id}`,
         groupId: joint.groupId,
         order: joint.renderOrder,
-        markup: `<g class="body-joint-item"${jointSurfaceOcclusionMaskIds.has(joint.id) ? ` mask="url(#${jointSurfaceOcclusionMaskIds.get(joint.id)})"` : ""}>
+        markup: `<g class="body-joint-item"${sphereSurfaceOcclusionMaskIds.has(`joint:${joint.id}`) ? ` mask="url(#${sphereSurfaceOcclusionMaskIds.get(`joint:${joint.id}`)})"` : ""}>
           ${profileMarkup}
           ${joint.outlineVisible !== false && !profile ? `<circle class="body-joint-outline" cx="${world.x}" cy="${world.y}" r="${radius}" mask="url(#joint-outline-mask-${index})" />` : ""}
           ${joint.outlineVisible !== false && bendCreasePaths.has(joint.id) ? `<path class="body-joint-outline body-bend-crease" data-bend-crease-joint-id="${escapeXml(joint.id)}" d="${bendCreasePaths.get(joint.id)}" mask="url(#joint-bend-mask-${index})" />` : ""}
@@ -797,13 +767,14 @@ export function renderSvgEditor(
     });
     if (!axis) return [];
     const facing = axis.x * cameraBasis.forward.x + axis.y * cameraBasis.forward.y + axis.z * cameraBasis.forward.z;
-    if (facing < -0.02) return [];
+    const radius = bodyRadiusOf(endJointId);
+    const color = escapeXml(resolveColor(rig, face.color, face.paletteId));
+    const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
     const basisU = normalize3(cross3(axis, cameraBasis.forward))
       ?? normalize3(cross3(axis, cameraBasis.up));
     if (!basisU) return [];
     const basisV = normalize3(cross3(axis, basisU));
     if (!basisV) return [];
-    const radius = bodyRadiusOf(endJointId);
     const center: Point3 = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
     const sectionPoints = Array.from({ length: 32 }, (_, index) => {
       const angle = Math.PI * 2 * index / 32;
@@ -817,12 +788,26 @@ export function renderSvgEditor(
       return project(point, point.z);
     });
     const pointList = sectionPoints.map((point) => `${point.x},${point.y}`).join(" ");
-    const color = escapeXml(resolveColor(rig, face.color, face.paletteId));
-    const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
-    const edgeOn = Math.abs(facing) < 0.06;
-    // The existing hidden-joint bridge already supplies the stable straight
-    // edge-on end line. Reusing it avoids drawing the same boundary twice.
-    if (edgeOn) return [];
+    if (facing <= 0.06) {
+      const basisVFacing = basisV.x * cameraBasis.forward.x
+        + basisV.y * cameraBasis.forward.y + basisV.z * cameraBasis.forward.z;
+      const startIndex = basisVFacing >= 0 ? 0 : 16;
+      const curve = Array.from({ length: 17 }, (_, index) =>
+        sectionPoints[(startIndex + index) % sectionPoints.length]);
+      const arcPath = curve.map((point, index) =>
+        `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+      tubeSectionJointIds.add(endJointId);
+      return [{
+        id: `tube-side-end:${face.id}`,
+        groupId: face.groupId,
+        order: getFaceOrder(rig, face) + 0.01,
+        depth: renderedDepthOf(endJointId) + radius,
+        markup: `<g class="body-tube-section-item body-tube-side-end" data-tube-section-face-id="${escapeXml(face.id)}" data-tube-end-curvature data-tube-side-end${tubeOcclusionMaskIds.has(face.id) ? ` mask="url(#${tubeOcclusionMaskIds.get(face.id)})"` : ""}>
+          <path class="body-face${selected}" data-face-id="${escapeXml(face.id)}" d="${arcPath} Z" fill="${color}" />
+          <path class="body-face-outline tube-end-curvature-outline" d="${arcPath}" />
+        </g>`,
+      }];
+    }
     const sectionMarkup = `<polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-tube-section-cap points="${pointList}" fill="${color}" />
       <polygon class="body-face-outline tube-section-outline" points="${pointList}" />`;
     tubeSectionJointIds.add(endJointId);
@@ -1073,7 +1058,7 @@ export function renderSvgEditor(
       : shape.kind === "circle"
         ? `<g class="body-art-shape-item"><ellipse class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${color}" /><ellipse class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" rx="${shape.radiusX}" ry="${shape.radiusY}" /></g>`
         : shape.kind === "sphere"
-          ? `<g class="body-art-shape-item"><circle class="body-art-shape body-art-sphere${selectedClass}" data-shape-id="${escapeXml(shape.id)}" data-art-sphere cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" fill="${color}" /><circle class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" /></g>`
+          ? `<g class="body-art-shape-item"${sphereSurfaceOcclusionMaskIds.has(`shape:${shape.id}`) ? ` mask="url(#${sphereSurfaceOcclusionMaskIds.get(`shape:${shape.id}`)})"` : ""}><circle class="body-art-shape body-art-sphere${selectedClass}" data-shape-id="${escapeXml(shape.id)}" data-art-sphere cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" fill="${color}" /><circle class="body-art-shape-outline" cx="${points[0].x}" cy="${points[0].y}" r="${sphereRadius}" /></g>`
         : `<g class="body-art-shape-item"><polygon class="body-art-shape${selectedClass}" data-shape-id="${escapeXml(shape.id)}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" /><polygon class="body-art-shape-outline" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" /></g>`;
   };
   const shapeDepth = (record: (typeof shapeRecords)[number]) => {
@@ -1524,7 +1509,7 @@ export function renderSvgEditor(
     </g>` : "";
 
   host.innerHTML = `
-    <defs data-export-defs>${jointOutlineMasks}${jointBendMasks}${torsoConnectionOutlineMasks}${surfaceOcclusionMaskDefs.join("")}${connectedSphereOutlineMaskDefs.join("")}${tubeOcclusionMaskDefs.join("")}${jointSurfaceOcclusionMaskDefs.join("")}${compositeMaskDefs.join("")}</defs>
+    <defs data-export-defs>${jointOutlineMasks}${jointBendMasks}${torsoConnectionOutlineMasks}${surfaceOcclusionMaskDefs.join("")}${connectedSphereOutlineMaskDefs.join("")}${tubeOcclusionMaskDefs.join("")}${sphereSurfaceOcclusionMaskDefs.join("")}${compositeMaskDefs.join("")}</defs>
     <g data-layer="grid">
       ${[80, 200, 320, 440, 560, 680].map((y) => `<line x1="60" y1="${y}" x2="540" y2="${y}" />`).join("")}
       <line x1="300" y1="40" x2="300" y2="740" />

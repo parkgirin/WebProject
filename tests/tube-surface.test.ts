@@ -312,6 +312,37 @@ test("head sphere clips only the neck surface that passes behind it", () => {
   assert.doesNotMatch(host.innerHTML, /data-surface-occlusion-face-id="left-upper-arm"/);
 });
 
+test("head sphere and an unrelated arm use the shared surface-depth rule", () => {
+  const render = (armDepth: number) => {
+    const rig = createDefaultRig();
+    const head = rig.joints.find((joint) => joint.id === "head")!;
+    const shoulder = rig.joints.find((joint) => joint.id === "left-shoulder")!;
+    const elbow = rig.joints.find((joint) => joint.id === "left-elbow")!;
+    shoulder.x = -90;
+    shoulder.y = head.y;
+    shoulder.z = armDepth;
+    elbow.x = 180;
+    elbow.y = 0;
+    elbow.z = armDepth;
+    const host = { innerHTML: "" } as SVGSVGElement;
+    const viewState: EditorViewState = {
+      outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+      inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+      paintPaletteId: null,
+    };
+    renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+    return host.innerHTML;
+  };
+
+  const armBehind = render(-45);
+  const armMask = armBehind.match(/<mask[^>]*data-tube-occlusion-face-id="left-upper-arm"[^>]*>([\s\S]*?)<\/mask>/)?.[1] ?? "";
+  assert.match(armMask, /data-tube-depth-occluder="shape:head-base"/);
+
+  const armInFront = render(45);
+  const headMask = armInFront.match(/<mask[^>]*data-sphere-surface-occlusion-id="shape:head-base"[^>]*>([\s\S]*?)<\/mask>/)?.[1] ?? "";
+  assert.match(headMask, /data-sphere-tube-occluder="left-upper-arm"/);
+});
+
 test("terminal tube sections render a projected cap or a stable edge line", () => {
   const viewState: EditorViewState = {
     outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
@@ -325,8 +356,10 @@ test("terminal tube sections render a projected cap or a stable edge line", () =
 
   edgeOnRig.joints.find((joint) => joint.id === "left-wrist")!.bodyVisible = false;
   renderSvgEditor(edgeOnHost, edgeOnRig, { jointId: null, axisId: null, jointIds: [] }, viewState);
-  assert.doesNotMatch(edgeOnHost.innerHTML, /data-tube-section-face-id="left-lower-arm"/);
-  assert.match(edgeOnHost.innerHTML, /data-bridge-joint-id="left-wrist"/);
+  assert.match(edgeOnHost.innerHTML, /data-tube-section-face-id="left-lower-arm" data-tube-end-curvature/);
+  assert.match(edgeOnHost.innerHTML, /data-tube-side-end/);
+  assert.match(edgeOnHost.innerHTML, /tube-end-curvature-outline/);
+  assert.doesNotMatch(edgeOnHost.innerHTML, /data-bridge-joint-id="left-wrist"/);
 
   const facingRig = createDefaultRig();
   const facingWrist = facingRig.joints.find((joint) => joint.id === "left-wrist")!;
@@ -336,6 +369,16 @@ test("terminal tube sections render a projected cap or a stable edge line", () =
   renderSvgEditor(facingHost, facingRig, { jointId: null, axisId: null, jointIds: [] }, viewState);
   assert.match(facingHost.innerHTML, /data-tube-section-face-id="left-lower-arm"[\s\S]*?data-tube-section-cap/);
   assert.match(facingHost.innerHTML, /tube-section-outline/);
+
+  const awayRig = createDefaultRig();
+  const awayWrist = awayRig.joints.find((joint) => joint.id === "left-wrist")!;
+  awayWrist.z = -45;
+  awayWrist.bodyVisible = false;
+  const awayHost = { innerHTML: "" } as SVGSVGElement;
+  renderSvgEditor(awayHost, awayRig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  assert.match(awayHost.innerHTML, /data-tube-end-curvature/);
+  assert.match(awayHost.innerHTML, /data-tube-side-end/);
+  assert.doesNotMatch(awayHost.innerHTML, /data-tube-section-cap/);
 });
 
 test("overlapping legs resolve visibility from local tube surface depth", () => {
@@ -412,8 +455,8 @@ test("leg tubes and unrelated leg joints occlude each other by surface depth", (
   assert.match(tubeMask, /data-tube-depth-occluder="joint:right-knee"/);
 
   const jointBehind = render(-50);
-  const jointMask = jointBehind.match(/<mask[^>]*data-joint-surface-occlusion-id="right-knee"[^>]*>([\s\S]*?)<\/mask>/)?.[1] ?? "";
-  assert.match(jointMask, /data-joint-tube-occluder="left-upper-leg"/);
+  const jointMask = jointBehind.match(/<mask[^>]*data-sphere-surface-occlusion-id="joint:right-knee"[^>]*>([\s\S]*?)<\/mask>/)?.[1] ?? "";
+  assert.match(jointMask, /data-sphere-tube-occluder="left-upper-leg"/);
 });
 
 test("virtual peer capsule replaces the authored shoulder band with a camera-facing bridge", () => {
