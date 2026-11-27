@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   boundsOverlap,
+  polygonDepthAt,
   sphereDepthAt,
   surfaceDepthAt,
   surfaceDepthRange,
   tubeCoordinatesAt,
+  tubeDepthAt,
+  tubeEndCapDepthAt,
+  type PolygonRenderSurface,
   type SphereRenderSurface,
   type TubeRenderSurface,
 } from "../src/rig/surface-geometry.ts";
@@ -58,4 +62,45 @@ test("tube surface depth is evaluated only inside its projected side", () => {
   assert.equal(tubeCoordinatesAt(tube, { x: 5, y: 3 }), null);
   assert.equal(surfaceDepthAt(tube, { x: 5, y: 0 }), center.depth);
   assert.deepEqual(surfaceDepthRange(tube), { min: 0, max: 6 });
+});
+
+test("tube depth includes an exposed terminal section beyond the side quad", () => {
+  const terminalTube: TubeRenderSurface = {
+    ...tube,
+    bounds: { minX: 0, minY: -2, maxX: 12, maxY: 2 },
+    endCap: {
+      center: { x: 10, y: 0 },
+      centerDepth: 4,
+      points: [{ x: 8, y: 0 }, { x: 10, y: -2 }, { x: 12, y: 0 }, { x: 10, y: 2 }],
+      depths: [4, 4, 4, 4],
+      bounds: { minX: 8, minY: -2, maxX: 12, maxY: 2 },
+    },
+  };
+
+  assert.equal(tubeCoordinatesAt(terminalTube, { x: 11, y: 0 }), null);
+  assert.equal(tubeEndCapDepthAt(terminalTube, { x: 11, y: 0 }), 4);
+  assert.equal(tubeDepthAt(terminalTube, { x: 11, y: 0 }), 4);
+  assert.equal(tubeEndCapDepthAt(terminalTube, { x: 13, y: 0 }), null);
+});
+
+test("multi-joint polygons separate their outer boundary from depth patches", () => {
+  const polygon: PolygonRenderSurface = {
+    kind: "polygon",
+    id: "waist-hip",
+    points: [{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 10, y: 10 }, { x: 2, y: 10 }],
+    patches: [
+      { id: "center", points: [{ x: 2, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 2, y: 10 }], depth: 3 },
+      { id: "left", points: [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 10 }, { x: 2, y: 10 }], depth: 5 },
+    ],
+    bounds: { minX: 0, minY: 0, maxX: 12, maxY: 10 },
+    jointIds: ["waist", "left-hip", "right-hip"],
+    order: 0,
+  };
+
+  assert.equal(polygonDepthAt(polygon, { x: 1, y: 2 }), 5);
+  assert.equal(polygonDepthAt(polygon, { x: 4, y: 2 }), 5);
+  assert.equal(polygonDepthAt(polygon, { x: 9, y: 2 }), 3);
+  assert.equal(polygonDepthAt(polygon, { x: 11, y: 9 }), null);
+  assert.deepEqual(surfaceDepthRange(polygon), { min: 3, max: 5 });
+  assert.equal(surfaceDepthAt(polygon, { x: 9, y: 2 }), 3);
 });

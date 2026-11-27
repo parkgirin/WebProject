@@ -1011,6 +1011,16 @@ function renderPoseNavigator(
       connectedJointIds.add(face.cameraFacingLimb.startJointId);
       connectedJointIds.add(face.cameraFacingLimb.endJointId);
     }
+    if (face.proceduralConnection) {
+      for (const section of [face.proceduralConnection.start, face.proceduralConnection.end]) {
+        if (section.type === "joint") {
+          connectedJointIds.add(section.jointId);
+        } else {
+          const group = state.rig.peerGroups.find((candidate) => candidate.id === section.peerGroupId);
+          for (const jointId of group?.jointIds ?? []) connectedJointIds.add(jointId);
+        }
+      }
+    }
     const rotationTarget = face.rotationTarget;
     if (rotationTarget.type === "child") {
       const child = state.rig.joints.find((joint) => joint.id === rotationTarget.childJointId);
@@ -1021,11 +1031,11 @@ function renderPoseNavigator(
       for (const jointId of group?.jointIds ?? []) connectedJointIds.add(jointId);
       if (group?.centerJointId) connectedJointIds.add(group.centerJointId);
     }
-    if (face.proceduralSurface === "torso") {
+    if (!face.proceduralConnection && face.proceduralSurface === "torso") {
       for (const jointId of ["waist", "left-shoulder", "right-shoulder"]) {
         if (state.rig.joints.some((joint) => joint.id === jointId)) connectedJointIds.add(jointId);
       }
-    } else if (face.proceduralSurface === "waist-hip") {
+    } else if (!face.proceduralConnection && face.proceduralSurface === "waist-hip") {
       for (const jointId of ["waist", "left-hip", "right-hip"]) {
         if (state.rig.joints.some((joint) => joint.id === jointId)) connectedJointIds.add(jointId);
       }

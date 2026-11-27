@@ -1,83 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="720" height="760" viewBox="0 0 720 760" role="img" aria-labelledby="title desc">
-  <title id="title">흉통 관절을 추가한 인체 측면 구조</title>
-  <desc id="desc">어깨 단면과 허리 단면 사이에 흉통 관절 단면을 두고 각 단면을 직선으로 연결한 측면 인체 구조도</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="680" viewBox="0 0 760 680" role="img" aria-labelledby="title desc">
+  <title id="title">어깨 밴드를 한쪽 방향으로 확장한 측면 삼각형 몸통</title>
+  <desc id="desc">기존 어깨 밴드를 한 변으로 유지하고 가슴 방향으로 평행한 변을 추가한 사각 표면이 90도 측면에서 어깨점, 가슴점, 허리점의 삼각형으로 보이는 구조</desc>
   <defs>
     <style>
-      .body { fill: #dca27b; stroke: #533c31; stroke-width: 3; stroke-linejoin: round; }
-      .limb { fill: none; stroke: #dca27b; stroke-width: 44; stroke-linecap: round; stroke-linejoin: round; }
-      .limb-outline { fill: none; stroke: #533c31; stroke-width: 50; stroke-linecap: round; stroke-linejoin: round; }
-      .section { fill: rgba(255,255,255,.18); stroke: #9c3d33; stroke-width: 2.5; stroke-dasharray: 7 6; }
-      .axis { stroke: #9c3d33; stroke-width: 2; stroke-dasharray: 5 5; }
-      .joint { fill: #fff7f0; stroke: #9c3d33; stroke-width: 3; }
-      .label { font: 600 20px system-ui, sans-serif; fill: #382b26; }
+      .fill { fill: #dca27b; }
+      .outline { fill: none; stroke: #44332c; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .hidden { fill: none; stroke: #80695f; stroke-width: 2; stroke-dasharray: 6 5; }
+      .surface { fill: #dca27b; fill-opacity: .28; stroke: #a9443c; stroke-width: 2.5; }
+      .axis { fill: none; stroke: #a9443c; stroke-width: 2.2; marker-end: url(#arrow-red); }
+      .joint { fill: #fffaf5; stroke: #a9443c; stroke-width: 3; }
+      .core { fill: #a9443c; }
+      .leader { fill: none; stroke: #756058; stroke-width: 1.8; }
+      .title { font: 700 27px system-ui, sans-serif; fill: #302521; }
+      .label { font: 650 18px system-ui, sans-serif; fill: #382b26; }
       .sub { font: 15px system-ui, sans-serif; fill: #6d5950; }
-      .note { font: 16px system-ui, sans-serif; fill: #9c3d33; }
-      .leader { fill: none; stroke: #6d5950; stroke-width: 1.8; }
+      .small { font: 13px system-ui, sans-serif; fill: #6d5950; }
+      .accent { font: 650 14px system-ui, sans-serif; fill: #a83f38; }
     </style>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#a9443c"/>
+    </marker>
   </defs>
 
-  <rect width="720" height="760" rx="28" fill="#fbf7f2"/>
-  <text x="36" y="48" class="label" style="font-size:26px">흉통 단면을 추가한 측면</text>
-  <text x="36" y="75" class="sub">관절 단면은 둥글고, 단면 사이는 기존 방식대로 직선으로 연결</text>
+  <rect width="760" height="680" rx="28" fill="#fbf7f2"/>
+  <text x="36" y="48" class="title">어깨 밴드의 한쪽 방향 사각 확장</text>
+  <text x="36" y="76" class="sub">Y축 90°에서는 폭 축이 겹쳐 어깨–가슴–허리 삼각형으로 보임</text>
 
-  <!-- far limbs -->
-  <path class="limb-outline" d="M326 207 L262 278 L132 296"/>
-  <path class="limb" d="M326 207 L262 278 L132 296"/>
-  <path class="limb-outline" d="M347 428 L258 529 L252 685"/>
-  <path class="limb" d="M347 428 L258 529 L252 685"/>
+  <!-- 머리와 목 -->
+  <circle class="fill" cx="332" cy="126" r="74"/>
+  <circle class="outline" cx="332" cy="126" r="74"/>
+  <polygon class="fill" points="316,187 357,187 361,223 321,223"/>
+  <path class="outline" d="M 316 187 L 321 223 M 357 187 L 361 223"/>
 
-  <!-- head and neck -->
-  <path class="limb-outline" style="stroke-width:34" d="M346 155 L351 195"/>
-  <path class="limb" style="stroke-width:29" d="M346 155 L351 195"/>
-  <circle class="body" cx="342" cy="126" r="70"/>
+  <!-- 측면 삼각형: 기존 어깨점, 파생 가슴점, 허리점 -->
+  <polygon class="fill" points="361,223 325,310 329,458"/>
+  <path class="outline" d="M 361 223 L 325 310 L 329 458 Z"/>
 
-  <!-- torso: shoulder -> ribcage -> waist, all straight edges -->
-  <polygon class="body" points="318,198 377,198 393,286 373,365 329,365 315,286"/>
+  <!-- 허리 구가 삼각형의 아래 꼭짓점을 덮음 -->
+  <circle class="fill" cx="329" cy="458" r="31"/>
+  <circle class="outline" cx="329" cy="458" r="31"/>
 
-  <!-- pelvis and near leg -->
-  <polygon class="body" points="329,365 373,365 397,445 352,461 319,425"/>
-  <path class="limb-outline" d="M376 432 L405 558 L538 684"/>
-  <path class="limb" d="M376 432 L405 558 L538 684"/>
+  <!-- 세 기준점과 축 -->
+  <circle class="joint" cx="361" cy="223" r="10"/>
+  <circle class="core" cx="361" cy="223" r="3"/>
+  <circle class="joint" cx="325" cy="310" r="10"/>
+  <circle class="core" cx="325" cy="310" r="3"/>
+  <circle class="joint" cx="329" cy="458" r="8"/>
+  <circle class="core" cx="329" cy="458" r="3"/>
+  <path class="axis" d="M 361 223 L 328 303"/>
+  <text x="343" y="255" class="accent" transform="rotate(-68 343 255)">가슴 확장 축</text>
 
-  <!-- near arm -->
-  <path class="limb-outline" d="M374 209 L424 266 L451 365"/>
-  <path class="limb" d="M374 209 L424 266 L451 365"/>
+  <!-- 라벨 -->
+  <path class="leader" d="M 370 218 C 432 184 470 178 512 178"/>
+  <text x="528" y="173" class="label">기존 어깨점</text>
+  <text x="528" y="194" class="small">원래 shoulder band 변 유지</text>
 
-  <!-- structural section overlay -->
-  <line class="axis" x1="354" y1="188" x2="354" y2="380"/>
-  <ellipse class="section" cx="347.5" cy="198" rx="29.5" ry="16"/>
-  <ellipse class="section" cx="354" cy="286" rx="39" ry="22"/>
-  <ellipse class="section" cx="351" cy="365" rx="22" ry="15"/>
+  <path class="leader" d="M 315 310 C 230 286 184 278 132 278"/>
+  <text x="54" y="273" class="label">파생 가슴점</text>
+  <text x="54" y="294" class="small">아래로 길고, 앞쪽 성분은 작음</text>
 
-  <circle class="joint" cx="347.5" cy="198" r="7"/>
-  <circle class="joint" cx="354" cy="286" r="8"/>
-  <circle class="joint" cx="351" cy="365" r="7"/>
+  <path class="leader" d="M 361 350 H 512"/>
+  <text x="528" y="345" class="label">몸통 직선 면</text>
+  <text x="528" y="367" class="small">어깨점과 가슴점을 허리에 연결</text>
 
-  <!-- labels -->
-  <path class="leader" d="M383 198 H520"/>
-  <text x="536" y="193" class="label">어깨 단면</text>
-  <text x="536" y="216" class="sub">기존 shoulder band</text>
+  <path class="leader" d="M 360 458 H 512"/>
+  <text x="528" y="453" class="label">허리 관절</text>
+  <text x="528" y="475" class="small">삼각형 아래 꼭짓점을 덮음</text>
 
-  <path class="leader" d="M395 286 H520"/>
-  <text x="536" y="281" class="label">흉통 단면</text>
-  <text x="536" y="304" class="sub">새 ribcage 관절</text>
+  <path class="leader" d="M 326 372 H 132"/>
+  <text x="54" y="357" class="accent">측면 삼각형</text>
+  <text x="54" y="379" class="small">어깨–가슴–허리의 세 점</text>
 
-  <path class="leader" d="M375 365 H520"/>
-  <text x="536" y="360" class="label">허리 단면</text>
-  <text x="536" y="383" class="sub">기존 waist 관절</text>
+  <!-- 정면/위쪽 구조 설명 -->
+  <g transform="translate(54 514)">
+    <rect width="652" height="126" rx="18" fill="#fff" stroke="#dfd1c7"/>
+    <text x="20" y="28" class="label" style="font-size:16px">사각 어깨 밴드의 실제 네 모서리</text>
 
-  <!-- optional breast attachment cue -->
-  <circle cx="397" cy="272" r="5" fill="#b65b7a"/>
-  <path d="M402 272 C438 253 466 252 503 259" fill="none" stroke="#b65b7a" stroke-width="2" stroke-dasharray="5 5"/>
-  <text x="510" y="263" class="note">가슴 부착 기준점</text>
+    <!-- 기존 어깨 밴드 변 -->
+    <line x1="232" y1="55" x2="404" y2="55" stroke="#44332c" stroke-width="5" stroke-linecap="round"/>
+    <circle class="joint" cx="232" cy="55" r="7"/>
+    <circle class="joint" cx="404" cy="55" r="7"/>
 
-  <g transform="translate(505 473)">
-    <rect width="176" height="118" rx="16" fill="#fff" stroke="#e4d8ce"/>
-    <text x="18" y="30" class="label" style="font-size:17px">직선 연결</text>
-    <path d="M25 52 L80 72 L142 48" fill="none" stroke="#533c31" stroke-width="4"/>
-    <circle cx="25" cy="52" r="8" fill="#dca27b" stroke="#533c31" stroke-width="2"/>
-    <circle cx="80" cy="72" r="11" fill="#dca27b" stroke="#533c31" stroke-width="2"/>
-    <circle cx="142" cy="48" r="8" fill="#dca27b" stroke="#533c31" stroke-width="2"/>
-    <text x="18" y="103" class="sub">자유 곡선은 사용하지 않음</text>
+    <!-- 가슴 방향으로만 확장한 평행 변 -->
+    <line x1="232" y1="101" x2="404" y2="101" stroke="#a9443c" stroke-width="4" stroke-linecap="round"/>
+    <circle class="joint" cx="232" cy="101" r="7"/>
+    <circle class="joint" cx="404" cy="101" r="7"/>
+    <line x1="232" y1="55" x2="232" y2="101" class="construction"/>
+    <line x1="404" y1="55" x2="404" y2="101" class="construction"/>
+    <rect class="surface" x="232" y="55" width="172" height="46"/>
+
+    <text x="20" y="59" class="sub">어깨 변 유지</text>
+    <text x="20" y="104" class="sub">가슴 변 추가</text>
+    <text x="430" y="61" class="small">폭 축: 좌우</text>
+    <text x="430" y="85" class="small">확장 축: 아래 중심 + 작은 앞 회전</text>
+    <text x="430" y="109" class="small">대형 남성체는 앞 성분 확대</text>
   </g>
 </svg>

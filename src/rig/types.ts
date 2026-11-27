@@ -126,11 +126,22 @@ export type FaceRotationTarget =
   | { type: "child"; childJointId: string }
   | { type: "peer"; peerGroupId: string; referenceJointId: string };
 
+export type ProceduralSectionRef =
+  | { type: "joint"; jointId: string }
+  | { type: "peer-group"; peerGroupId: string };
+
+export interface ProceduralConnection {
+  start: ProceduralSectionRef;
+  end: ProceduralSectionRef;
+}
+
 export interface Face {
   id: string;
   vertices: JointPointRef[];
   /** Procedural surfaces retain face styling/selection without authored axis endpoints. */
   proceduralSurface?: "torso" | "peer-capsule" | "waist-hip";
+  /** Sections joined by a procedural torso connection, independent of anatomical ids. */
+  proceduralConnection?: ProceduralConnection;
   /**
    * Renders this face from the camera-facing great circles of the two joint
    * spheres. The authored axis points remain available for editing and for

@@ -99,9 +99,35 @@ export function normalizePeerGroupCapsules(rig: Rig): void {
   if (!rig.faces.some((face) => face.id === "waist-hip")) {
     rig.faces.push({
       id: "waist-hip", proceduralSurface: "waist-hip",
+      proceduralConnection: {
+        start: { type: "joint", jointId: "waist" },
+        end: { type: "peer-group", peerGroupId: hipGroup.id },
+      },
       rotationTarget: { type: "peer", peerGroupId: hipGroup.id, referenceJointId: "left-hip" },
       groupId: "torso", layerOrder: 19, vertices: [], orderOffset: 0,
     });
+  }
+}
+
+/** Adds section references to stock procedural connections saved before they were data-driven. */
+export function normalizeProceduralConnections(rig: Rig): void {
+  const jointIds = new Set(rig.joints.map((joint) => joint.id));
+  const peerGroupIds = new Set(rig.peerGroups.map((group) => group.id));
+  for (const face of rig.faces) {
+    if (face.proceduralConnection) continue;
+    if (face.proceduralSurface === "torso"
+      && jointIds.has("waist") && peerGroupIds.has("shoulder-band")) {
+      face.proceduralConnection = {
+        start: { type: "peer-group", peerGroupId: "shoulder-band" },
+        end: { type: "joint", jointId: "waist" },
+      };
+    } else if (face.proceduralSurface === "waist-hip"
+      && jointIds.has("waist") && peerGroupIds.has("hip-band")) {
+      face.proceduralConnection = {
+        start: { type: "joint", jointId: "waist" },
+        end: { type: "peer-group", peerGroupId: "hip-band" },
+      };
+    }
   }
 }
 
@@ -487,6 +513,17 @@ export function validateRig(
       && face.proceduralSurface !== "waist-hip") {
       errors.push(`Invalid procedural face surface: ${face.id}`);
     }
+    if (face.proceduralConnection) {
+      for (const section of [face.proceduralConnection.start, face.proceduralConnection.end]) {
+        if (section.type === "joint") {
+          if (!rig.joints.some((joint) => joint.id === section.jointId)) {
+            errors.push(`Unknown procedural section joint: ${face.id}.${section.jointId}`);
+          }
+        } else if (!rig.peerGroups.some((group) => group.id === section.peerGroupId)) {
+          errors.push(`Unknown procedural section peer group: ${face.id}.${section.peerGroupId}`);
+        }
+      }
+    }
     if (face.cameraFacingLimb) {
       for (const jointId of [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]) {
         if (!rig.joints.some((joint) => joint.id === jointId)) {
@@ -616,6 +653,7 @@ export class RigState {
     normalizeBodyViewProfiles(rig);
     normalizeCameraFacingLimbFaces(rig);
     normalizePeerGroupCapsules(rig);
+    normalizeProceduralConnections(rig);
     normalizeConnectionControlAxes(rig);
     normalizeSurfaceProfiles(rig);
     normalizeArtShapeSpheres(rig);
@@ -2410,9 +2448,15 @@ export class RigState {
         ?.points.map(({ x, y }) => ({ x, y })) ?? null;
     }
     if (face.proceduralSurface === "waist-hip") {
-      const waist = this.getJoint("waist");
-      const left = this.getJoint("left-hip");
-      const right = this.getJoint("right-hip");
+      const connection = face.proceduralConnection;
+      if (connection?.start.type !== "joint" || connection.end.type !== "peer-group") return null;
+      const waistJointId = connection.start.jointId;
+      const hipPeerGroupId = connection.end.peerGroupId;
+      const waist = this.rig.joints.find((joint) => joint.id === waistJointId);
+      const hipGroup = this.rig.peerGroups.find((group) => group.id === hipPeerGroupId);
+      const left = hipGroup && this.rig.joints.find((joint) => joint.id === hipGroup.jointIds[0]);
+      const right = hipGroup && this.rig.joints.find((joint) => joint.id === hipGroup.jointIds[1]);
+      if (!waist || !left || !right || hipGroup?.jointIds.length !== 2) return null;
       const waistCenter = getJointWorldTransform(this.rig, waist.id);
       const leftCenter = getJointWorldTransform(this.rig, left.id);
       const rightCenter = getJointWorldTransform(this.rig, right.id);
@@ -2433,9 +2477,15 @@ export class RigState {
       ];
     }
     if (face.proceduralSurface !== "torso") return null;
-    const waist = this.getJoint("waist");
-    const left = this.getJoint("left-shoulder");
-    const right = this.getJoint("right-shoulder");
+    const connection = face.proceduralConnection;
+    if (connection?.start.type !== "peer-group" || connection.end.type !== "joint") return null;
+    const shoulderPeerGroupId = connection.start.peerGroupId;
+    const waistJointId = connection.end.jointId;
+    const shoulderGroup = this.rig.peerGroups.find((group) => group.id === shoulderPeerGroupId);
+    const waist = this.rig.joints.find((joint) => joint.id === waistJointId);
+    const left = shoulderGroup && this.rig.joints.find((joint) => joint.id === shoulderGroup.jointIds[0]);
+    const right = shoulderGroup && this.rig.joints.find((joint) => joint.id === shoulderGroup.jointIds[1]);
+    if (!waist || !left || !right || shoulderGroup?.jointIds.length !== 2) return null;
     const waistCenter = getJointWorldTransform(this.rig, waist.id);
     const leftCenter = getJointWorldTransform(this.rig, left.id);
     const rightCenter = getJointWorldTransform(this.rig, right.id);
@@ -2757,9 +2807,24 @@ function getFaceJointIds(rig: Rig, face: Rig["faces"][number]): string[] {
     const peerGroupId = face.rotationTarget.peerGroupId;
     return [...(rig.peerGroups.find((group) => group.id === peerGroupId)?.jointIds ?? [])];
   }
+  if (face.proceduralConnection) {
+    return [...new Set([
+      ...getProceduralSectionJointIds(rig, face.proceduralConnection.start),
+      ...getProceduralSectionJointIds(rig, face.proceduralConnection.end),
+    ])];
+  }
   if (face.proceduralSurface === "torso") return ["left-shoulder", "right-shoulder", "waist"];
   if (face.proceduralSurface === "waist-hip") return ["waist", "left-hip", "right-hip"];
   return [...new Set(face.vertices.map((vertex) => vertex.jointId))];
+}
+
+function getProceduralSectionJointIds(
+  rig: Rig,
+  section: NonNullable<Rig["faces"][number]["proceduralConnection"]>["start"],
+): string[] {
+  return section.type === "joint"
+    ? [section.jointId]
+    : [...(rig.peerGroups.find((group) => group.id === section.peerGroupId)?.jointIds ?? [])];
 }
 
 function isHexColor(value: string): boolean {

@@ -530,6 +530,10 @@ test("hip peer group uses one virtual capsule and keeps only upper-leg axes", ()
   assert.deepEqual(state.getJoint("waist").axes.map((axis) => axis.id), ["upper-torso"]);
   assert.equal(state.rig.faces.some((face) => ["pelvis", "left-pelvis-triangle", "right-pelvis-triangle"].includes(face.id)), false);
   assert.equal(state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralSurface, "waist-hip");
+  assert.deepEqual(state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralConnection, {
+    start: { type: "joint", jointId: "waist" },
+    end: { type: "peer-group", peerGroupId: "hip-band" },
+  });
 
   const before = state.getPeerGroupDistance("hip-band")!;
   state.setPeerGroupDistance("hip-band", before + 20);
@@ -559,6 +563,10 @@ test("legacy pelvis faces and helper axes migrate to the hip capsule", () => {
   assert.equal(group.virtualCapsule, true);
   assert.equal(state.rig.faces.some((face) => face.id === "pelvis"), false);
   assert.equal(state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralSurface, "waist-hip");
+  assert.deepEqual(state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralConnection, {
+    start: { type: "joint", jointId: "waist" },
+    end: { type: "peer-group", peerGroupId: "hip-band" },
+  });
   assert.deepEqual(state.getJoint("waist").axes.map((axis) => axis.id), ["upper-torso"]);
   assert.deepEqual(state.getJoint("left-hip").axes.map((axis) => axis.id), ["upper-leg"]);
 });

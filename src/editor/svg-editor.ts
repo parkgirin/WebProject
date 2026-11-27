@@ -1,6 +1,6 @@
 import type { ArtCompositeMode, ArtShape, ArtShapeVertex, Rig } from "../rig/types.ts";
-import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraBasis, getCameraFacingFaceSurface, getCameraZ, getFacePoints, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedCircleConnectionSurface, getProjectionScale, projectPoint, projectSphereCircle, type Point, type Point3, type ProjectedCircle } from "../rig/geometry.ts";
-import { boundsOf, boundsOverlap, sphereDepthAt, surfaceDepthRange, tubeCoordinatesAt, type RenderSurface, type SphereRenderSurface, type TubeRenderSurface } from "../rig/surface-geometry.ts";
+import { getArtShapeVertexPoint, getAxisPoint, getAxisWorldAngle, getCameraBasis, getCameraFacingFaceSurface, getCameraZ, getFacePoints, getJointParentWorldTransform, getJointViewRadius, getJointWorldTransform, getPeerGroupPivot, getProjectedCircleConnectionSurface, getProjectedTubeGeometry, getProjectionScale, projectPoint, projectSphereCircle, type Point, type Point3, type ProjectedCircle, type ProjectedTubeGeometry } from "../rig/geometry.ts";
+import { boundsOf, boundsOverlap, polygonDepthAt, sphereDepthAt, surfaceDepthRange, tubeCoordinatesAt, tubeDepthAt, tubeEndCapDepthAt, type PolygonRenderSurface, type RenderSurface, type SphereRenderSurface, type TubeRenderSurface } from "../rig/surface-geometry.ts";
 import type { EditorSelection, EditorViewState } from "./types.ts";
 
 export function renderSvgEditor(
@@ -94,24 +94,28 @@ export function renderSvgEditor(
     if (!joint) throw new Error(`Unknown joint: ${jointId}`);
     return projectSphereCircle(rig, getJointWorldTransform(rig, jointId), joint.z, bodyRadiusOf(jointId));
   };
-  const projectedJointConnectionSurface = (startJointId: string, endJointId: string): Point[] | null => {
+  const projectedJointTubeGeometry = (startJointId: string, endJointId: string): ProjectedTubeGeometry | null => {
     const startJoint = rig.joints.find((joint) => joint.id === startJointId);
     const endJoint = rig.joints.find((joint) => joint.id === endJointId);
     if (!startJoint || !endJoint) return null;
-    let startCircle = projectedJointCircle(startJoint.id);
+    const startWorld = getJointWorldTransform(rig, startJoint.id);
+    let startCenter: Point3 = { x: startWorld.x, y: startWorld.y, z: startJoint.z };
+    let startRadius = bodyRadiusOf(startJoint.id);
     if (endJoint.parentJointId === startJoint.id && endJoint.parentAnchor?.type === "capsule-end") {
       const spheres = jointCapsuleSpheres(startJoint.id);
       const anchoredSphere = spheres?.[1];
       if (anchoredSphere) {
-        startCircle = projectSphereCircle(rig, anchoredSphere.center, anchoredSphere.center.z, anchoredSphere.radius);
+        startCenter = anchoredSphere.center;
+        startRadius = anchoredSphere.radius;
       }
     }
-    const endCircle = projectedJointCircle(endJoint.id);
-    return getProjectedCircleConnectionSurface(
-      startCircle.center,
-      endCircle.center,
-      startCircle.radius,
-      endCircle.radius,
+    const endWorld = getJointWorldTransform(rig, endJoint.id);
+    return getProjectedTubeGeometry(
+      rig,
+      startCenter,
+      { x: endWorld.x, y: endWorld.y, z: endJoint.z },
+      startRadius,
+      bodyRadiusOf(endJoint.id),
     );
   };
   const sampleCircle = (circle: ProjectedCircle, sides = 24): Point[] => Array.from({ length: sides }, (_, index) => {
@@ -127,6 +131,69 @@ export function renderSvgEditor(
     // longitudinal silhouette edges; the vertex winding differs by source.
     const edges = layout === "limb" ? [[0, 1], [2, 3]] : [[1, 2], [3, 0]];
     return edges.map(([start, end]) => `M ${points[start].x} ${points[start].y} L ${points[end].x} ${points[end].y}`).join(" ");
+  };
+  const exposedSegmentPath = (start: Point, end: Point, occluders: readonly Point[][]): string => {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared < 1e-9) return "";
+    const pointAt = (amount: number): Point => ({ x: start.x + dx * amount, y: start.y + dy * amount });
+    const pointOnSegment = (point: Point, first: Point, second: Point) => {
+      const edgeX = second.x - first.x;
+      const edgeY = second.y - first.y;
+      const cross = edgeX * (point.y - first.y) - edgeY * (point.x - first.x);
+      if (Math.abs(cross) > 1e-6) return false;
+      const dot = (point.x - first.x) * edgeX + (point.y - first.y) * edgeY;
+      return dot >= -1e-6 && dot <= edgeX * edgeX + edgeY * edgeY + 1e-6;
+    };
+    const inside = (point: Point, polygon: readonly Point[]) => {
+      for (let index = 0; index < polygon.length; index += 1) {
+        if (pointOnSegment(point, polygon[index], polygon[(index + 1) % polygon.length])) return true;
+      }
+      let result = false;
+      for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+        const first = polygon[index];
+        const second = polygon[previous];
+        if ((first.y > point.y) !== (second.y > point.y)
+          && point.x < (second.x - first.x) * (point.y - first.y) / (second.y - first.y) + first.x) result = !result;
+      }
+      return result;
+    };
+    const boundaries = [0, 1];
+    for (const polygon of occluders) {
+      for (let index = 0; index < polygon.length; index += 1) {
+        const first = polygon[index];
+        const second = polygon[(index + 1) % polygon.length];
+        const edgeX = second.x - first.x;
+        const edgeY = second.y - first.y;
+        const denominator = dx * edgeY - dy * edgeX;
+        if (Math.abs(denominator) > 1e-9) {
+          const offsetX = first.x - start.x;
+          const offsetY = first.y - start.y;
+          const amount = (offsetX * edgeY - offsetY * edgeX) / denominator;
+          const edgeAmount = (offsetX * dy - offsetY * dx) / denominator;
+          if (amount > 1e-7 && amount < 1 - 1e-7 && edgeAmount >= -1e-7 && edgeAmount <= 1 + 1e-7) {
+            boundaries.push(amount);
+          }
+        } else {
+          for (const point of [first, second]) {
+            const amount = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared;
+            if (amount > 1e-7 && amount < 1 - 1e-7 && pointOnSegment(point, start, end)) boundaries.push(amount);
+          }
+        }
+      }
+    }
+    const sorted = [...new Set(boundaries.map((amount) => Math.round(amount * 1e9) / 1e9))].sort((a, b) => a - b);
+    const visible: string[] = [];
+    for (let index = 0; index < sorted.length - 1; index += 1) {
+      const first = sorted[index];
+      const second = sorted[index + 1];
+      if (second - first < 1e-7 || occluders.some((polygon) => inside(pointAt((first + second) / 2), polygon))) continue;
+      const firstPoint = pointAt(first);
+      const secondPoint = pointAt(second);
+      visible.push(`M ${firstPoint.x} ${firstPoint.y} L ${secondPoint.x} ${secondPoint.y}`);
+    }
+    return visible.join(" ");
   };
   const outerConnectionEdge = (
     points: readonly Point[],
@@ -193,18 +260,34 @@ export function renderSvgEditor(
     && face.proceduralSurface !== "waist-hip"
     && !virtualCapsuleFaceIds.has(face.id)
     && showFaceLayer && isGroupVisible(rig, face.groupId));
+  const tubeGeometries = new Map<string, ProjectedTubeGeometry>();
   const visibleFaces = faceDefinitions.flatMap((face) => {
     if (face.cameraFacingLimb) {
-      const points = projectedJointConnectionSurface(
+      const geometry = projectedJointTubeGeometry(
         face.cameraFacingLimb.startJointId,
         face.cameraFacingLimb.endJointId,
       );
-      return points ? [{ face, points }] : [];
+      if (!geometry) return [];
+      tubeGeometries.set(face.id, geometry);
+      return [{ face, points: geometry.side }];
     }
     return [{ face, points: getCameraFacingFaceSurface(rig, face).map((point) => project(point, point.z)) }];
   });
-  const neckSurface = visibleFaces.find(({ face }) => face.id === "neck");
-  if (neckSurface) torsoConnectionSurfaces.push({ id: "neck", points: neckSurface.points });
+  const terminalTubeFaceIds = new Set(visibleFaces.flatMap(({ face }) => {
+    if (!face.cameraFacingLimb) return [];
+    const { endJointId } = face.cameraFacingLimb;
+    const outgoing = visibleFaces.some(({ face: candidate }) => candidate !== face
+      && candidate.cameraFacingLimb?.startJointId === endJointId);
+    if (outgoing) return [];
+    const endJoint = rig.joints.find((joint) => joint.id === endJointId);
+    const attachedSphereVisible = (rig.artShapes ?? []).some((shape) => shape.kind === "sphere"
+      && (shape.compositeMode ?? "paint") === "paint"
+      && showShapeLayer && isGroupVisible(rig, shape.groupId)
+      && shape.vertices[0]?.source === "joint-center" && shape.vertices[0].jointId === endJointId);
+    if (!endJoint || attachedSphereVisible
+      || (showJointLayer && endJoint.bodyVisible && isGroupVisible(rig, endJoint.groupId))) return [];
+    return [face.id];
+  }));
   const sphereSurfaces: SphereRenderSurface[] = [
     ...visibleJoints.map((joint): SphereRenderSurface => {
       const circle = projectedJointCircle(joint.id);
@@ -394,6 +477,14 @@ export function renderSvgEditor(
   const limbSurfaces: FaceTubeSurface[] = visibleFaces.flatMap(({ face, points }) => {
     if (!face.cameraFacingLimb || points.length !== 4) return [];
     const jointIds: [string, string] = [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId];
+    const geometry = tubeGeometries.get(face.id);
+    const endCap = terminalTubeFaceIds.has(face.id) && geometry ? {
+      center: geometry.endCenter,
+      centerDepth: geometry.endCenterDepth,
+      points: geometry.endSection,
+      depths: geometry.endSectionDepths,
+      bounds: boundsOf(geometry.endSection),
+    } : undefined;
     return [{
       kind: "tube" as const,
       id: `face:${face.id}`,
@@ -404,7 +495,8 @@ export function renderSvgEditor(
       endDepth: renderedDepthOf(jointIds[1]),
       startRadius: bodyRadiusOf(jointIds[0]),
       endRadius: bodyRadiusOf(jointIds[1]),
-      bounds: boundsOf(points),
+      bounds: boundsOf(endCap ? [...points, ...endCap.points] : points),
+      endCap,
     }];
   });
   const canOcclude = (target: RenderSurface, candidate: RenderSurface) => (
@@ -414,7 +506,7 @@ export function renderSvgEditor(
   const tubeOcclusionMaskIds = new Map<string, string>();
   const tubeOcclusionMaskDefs: string[] = [];
   for (const target of limbSurfaces) {
-    const occlusionPolygons: Array<{ faceId: string; points: Point[] }> = [];
+    const occlusionPolygons: Array<{ faceId: string; points: Point[]; region?: "end-cap" }> = [];
     const tubeCandidates = limbSurfaces.filter((candidate) => candidate !== target
       && canOcclude(target, candidate)
       && !candidate.jointIds.some((jointId) => target.jointIds.includes(jointId)))
@@ -422,7 +514,7 @@ export function renderSvgEditor(
         id: candidate.face.id,
         groupId: candidate.face.groupId,
         order: getFaceOrder(rig, candidate.face),
-        depthAt: (point: Point) => tubeCoordinatesAt(candidate, point)?.depth ?? null,
+        depthAt: (point: Point) => tubeDepthAt(candidate, point),
       }));
     const sphereCandidates = sphereSurfaces
       .filter((surface) => !surface.attachedJointId || !target.jointIds.includes(surface.attachedJointId))
@@ -436,13 +528,9 @@ export function renderSvgEditor(
     const candidates = [...tubeCandidates, ...sphereCandidates];
     for (const candidate of candidates) {
       const slices: Array<{ left: Point; right: Point } | null> = [];
-      const isCandidateInFront = (point: Point, t: number, cross: number) => {
+      const isCandidateDepthInFront = (point: Point, targetDepth: number) => {
         const candidateDepth = candidate.depthAt(point);
         if (candidateDepth === null) return false;
-        const targetRadius = target.startRadius + (target.endRadius - target.startRadius) * t;
-        const radial = Math.abs(cross * 2 - 1);
-        const targetDepth = target.startDepth + (target.endDepth - target.startDepth) * t
-          + targetRadius * Math.sqrt(Math.max(0, 1 - radial * radial));
         const difference = candidateDepth - targetDepth;
         if (Math.abs(difference) > 1e-5) return difference > 0;
         return compareItemStackOrder(rig, {
@@ -450,6 +538,13 @@ export function renderSvgEditor(
         }, {
           groupId: candidate.groupId, order: candidate.order, depth: candidateDepth,
         }) < 0;
+      };
+      const isCandidateInFront = (point: Point, t: number, cross: number) => {
+        const targetRadius = target.startRadius + (target.endRadius - target.startRadius) * t;
+        const radial = Math.abs(cross * 2 - 1);
+        const targetDepth = target.startDepth + (target.endDepth - target.startDepth) * t
+          + targetRadius * Math.sqrt(Math.max(0, 1 - radial * radial));
+        return isCandidateDepthInFront(point, targetDepth);
       };
       const longitudinalSteps = 28;
       const crossSteps = 20;
@@ -497,13 +592,65 @@ export function renderSvgEditor(
         });
         segment = [];
       }
+      if (target.endCap) {
+        const capSlices: Array<{ left: Point; right: Point } | null> = [];
+        const steps = 24;
+        const { bounds } = target.endCap;
+        const isCapHidden = (point: Point) => {
+          const targetDepth = tubeEndCapDepthAt(target, point);
+          return targetDepth !== null && isCandidateDepthInFront(point, targetDepth);
+        };
+        for (let yStep = 0; yStep <= steps; yStep += 1) {
+          const y = bounds.minY + (bounds.maxY - bounds.minY) * yStep / steps;
+          const samples = Array.from({ length: steps + 1 }, (_, index) => {
+            const amount = index / steps;
+            const point = { x: bounds.minX + (bounds.maxX - bounds.minX) * amount, y };
+            return { amount, point, hidden: isCapHidden(point) };
+          });
+          const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
+          if (!hiddenIndexes.length) {
+            capSlices.push(null);
+            continue;
+          }
+          const boundary = (outside: number, inside: number) => {
+            let outsideAmount = samples[outside]?.amount ?? samples[inside].amount;
+            let insideAmount = samples[inside].amount;
+            for (let iteration = 0; iteration < 7; iteration += 1) {
+              const middle = (outsideAmount + insideAmount) / 2;
+              const point = { x: bounds.minX + (bounds.maxX - bounds.minX) * middle, y };
+              if (isCapHidden(point)) insideAmount = middle;
+              else outsideAmount = middle;
+            }
+            return { x: bounds.minX + (bounds.maxX - bounds.minX) * insideAmount, y };
+          };
+          const first = hiddenIndexes[0];
+          const last = hiddenIndexes[hiddenIndexes.length - 1];
+          capSlices.push({
+            left: first === 0 ? samples[first].point : boundary(first - 1, first),
+            right: last === steps ? samples[last].point : boundary(last + 1, last),
+          });
+        }
+        let capSegment: Array<{ left: Point; right: Point }> = [];
+        for (const slice of [...capSlices, null]) {
+          if (slice) {
+            capSegment.push(slice);
+            continue;
+          }
+          if (capSegment.length >= 2) occlusionPolygons.push({
+            faceId: candidate.id,
+            region: "end-cap",
+            points: [...capSegment.map(({ left }) => left), ...capSegment.map(({ right }) => right).reverse()],
+          });
+          capSegment = [];
+        }
+      }
     }
     if (!occlusionPolygons.length) continue;
     const maskId = `tube-surface-occlusion-mask-${target.face.id}`;
     tubeOcclusionMaskIds.set(target.face.id, maskId);
     tubeOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-tube-occlusion-face-id="${escapeXml(target.face.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
       <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
-      ${occlusionPolygons.map((polygon) => `<polygon data-tube-depth-occluder="${escapeXml(polygon.faceId)}" points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
+      ${occlusionPolygons.map((polygon) => `<polygon data-tube-depth-occluder="${escapeXml(polygon.faceId)}"${polygon.region === "end-cap" ? " data-tube-end-cap-occluder" : ""} points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
     </mask>`);
   }
   const sphereSurfaceOcclusionMaskIds = new Map<string, string>();
@@ -516,10 +663,10 @@ export function renderSvgEditor(
     for (const candidate of candidates) {
       const slices: Array<{ left: Point; right: Point } | null> = [];
       const isTubeInFront = (point: Point) => {
-        const tube = tubeCoordinatesAt(candidate, point);
-        if (!tube) return false;
+        const tubeDepth = tubeDepthAt(candidate, point);
+        if (tubeDepth === null) return false;
         const depth = sphereDepthAt(sphere, point);
-        return depth !== null && tube.depth > depth + 1e-5;
+        return depth !== null && tubeDepth > depth + 1e-5;
       };
       const steps = 24;
       for (let yStep = 0; yStep <= steps; yStep += 1) {
@@ -700,95 +847,24 @@ export function renderSvgEditor(
       };
     });
 
-  const faceItems = visibleFaces
-    .map(({ face, points }) => {
-      const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
-      const outlinePath = points.map((point, index) => {
-        const nextIndex = (index + 1) % points.length;
-        const nextPoint = points[nextIndex];
-        const sameJoint = face.cameraFacingLimb
-          ? index === 1 || index === 3
-          : face.vertices[index]?.jointId === face.vertices[nextIndex]?.jointId;
-        const sharedGroupEdge = face.vertices.length === points.length && visibleFaces.some(({ face: candidate }) => (
-          candidate.id !== face.id
-          && candidate.groupId === face.groupId
-          && hasMatchingEdge(candidate, face.vertices[index], face.vertices[nextIndex])
-        ));
-        if (sharedGroupEdge) return "";
-        if (viewState.hideSameJointEdges && sameJoint) return "";
-        return `M ${point.x} ${point.y} L ${nextPoint.x} ${nextPoint.y}`;
-      }).filter(Boolean).join(" ");
-      const outlineMarkup = `<path class="body-face-outline" data-face-outline-id="${escapeXml(face.id)}" d="${outlinePath}"${connectedSphereOutlineMaskIds.has(face.id) ? ` mask="url(#${connectedSphereOutlineMaskIds.get(face.id)})"` : ""} />`;
-      const connectedOutline = face.id === "neck"
-        ? `<g mask="url(#${torsoConnectionOutlineMaskId("neck")})">${outlineMarkup}</g>`
-        : outlineMarkup;
-      return {
-        id: `face:${face.id}`,
-        groupId: face.groupId,
-        order: getFaceOrder(rig, face),
-        markup: `<g class="body-face-item"${surfaceOcclusionMaskIds.has(face.id) ? ` mask="url(#${surfaceOcclusionMaskIds.get(face.id)})"` : ""}>
-          <g${tubeOcclusionMaskIds.has(face.id) ? ` mask="url(#${tubeOcclusionMaskIds.get(face.id)})"` : ""}>
-            <polygon class="body-face${viewState.selectedTarget === "face" && face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(resolveColor(rig, face.color, face.paletteId))}" />
-            ${connectedOutline}
-          </g>
-        </g>`,
-      };
-    });
-
   const cameraBasis = getCameraBasis(rig);
-  const cross3 = (first: Point3, second: Point3): Point3 => ({
-    x: first.y * second.z - first.z * second.y,
-    y: first.z * second.x - first.x * second.z,
-    z: first.x * second.y - first.y * second.x,
-  });
-  const normalize3 = (vector: Point3): Point3 | null => {
-    const length = Math.hypot(vector.x, vector.y, vector.z);
-    return length > 1e-8 ? { x: vector.x / length, y: vector.y / length, z: vector.z / length } : null;
-  };
   const tubeSectionJointIds = new Set<string>();
   const tubeSectionItems = visibleFaces.flatMap(({ face }) => {
     if (!face.cameraFacingLimb) return [];
     const { startJointId, endJointId } = face.cameraFacingLimb;
-    const outgoing = visibleFaces.some(({ face: candidate }) => candidate !== face
-      && candidate.cameraFacingLimb?.startJointId === endJointId);
-    if (outgoing) return [];
+    if (!terminalTubeFaceIds.has(face.id)) return [];
     const startJoint = rig.joints.find((joint) => joint.id === startJointId);
     const endJoint = rig.joints.find((joint) => joint.id === endJointId);
     if (!startJoint || !endJoint) return [];
-    // A visible endpoint joint is a closed sphere/capsule in front of the
-    // section plane. Its exposed joint arc already owns the terminal contour.
-    if (showJointLayer && endJoint.bodyVisible && isGroupVisible(rig, endJoint.groupId)) return [];
-    const startWorld = getJointWorldTransform(rig, startJointId);
-    const endWorld = getJointWorldTransform(rig, endJointId);
-    const axis = normalize3({
-      x: endWorld.x - startWorld.x,
-      y: endWorld.y - startWorld.y,
-      z: endJoint.z - startJoint.z,
-    });
-    if (!axis) return [];
+    const geometry = tubeGeometries.get(face.id);
+    if (!geometry) return [];
+    const { axis, basisV, endSection: sectionPoints } = geometry;
     const facing = axis.x * cameraBasis.forward.x + axis.y * cameraBasis.forward.y + axis.z * cameraBasis.forward.z;
     const radius = bodyRadiusOf(endJointId);
     const color = escapeXml(resolveColor(rig, face.color, face.paletteId));
     const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
-    const basisU = normalize3(cross3(axis, cameraBasis.forward))
-      ?? normalize3(cross3(axis, cameraBasis.up));
-    if (!basisU) return [];
-    const basisV = normalize3(cross3(axis, basisU));
-    if (!basisV) return [];
-    const center: Point3 = { x: endWorld.x, y: endWorld.y, z: endJoint.z };
-    const sectionPoints = Array.from({ length: 32 }, (_, index) => {
-      const angle = Math.PI * 2 * index / 32;
-      const cosine = Math.cos(angle) * radius;
-      const sine = Math.sin(angle) * radius;
-      const point = {
-        x: center.x + basisU.x * cosine + basisV.x * sine,
-        y: center.y + basisU.y * cosine + basisV.y * sine,
-        z: center.z + basisU.z * cosine + basisV.z * sine,
-      };
-      return project(point, point.z);
-    });
     const pointList = sectionPoints.map((point) => `${point.x},${point.y}`).join(" ");
-    if (facing <= 0.06) {
+    if (facing <= 1e-4) {
       const basisVFacing = basisV.x * cameraBasis.forward.x
         + basisV.y * cameraBasis.forward.y + basisV.z * cameraBasis.forward.z;
       const startIndex = basisVFacing >= 0 ? 0 : 16;
@@ -836,6 +912,13 @@ export function renderSvgEditor(
     }];
   });
 
+  const peerCapsuleOutlineRecords: Array<{
+    id: string;
+    groupId?: string;
+    order: number;
+    depth: number;
+    path: string;
+  }> = [];
   const peerCapsuleItems = showFaceLayer ? rig.peerGroups.flatMap((group) => {
     if (!group.virtualCapsule || group.jointIds.length !== 2) return [];
     const [startJointId, endJointId] = group.jointIds;
@@ -860,13 +943,29 @@ export function renderSvgEditor(
       ? " is-selected" : "";
     const color = resolveColor(rig, sourceFace?.color ?? startJoint.color, sourceFace?.paletteId ?? startJoint.paletteId);
     const depth = (renderedDepthOf(startJointId) + renderedDepthOf(endJointId)) / 2;
+    const surfaceDepth = (renderedDepthOf(startJointId) + bodyRadiusOf(startJointId)
+      + renderedDepthOf(endJointId) + bodyRadiusOf(endJointId)) / 2;
     connectionSurfaceOccluders.push({
       points, jointIds: [startJointId, endJointId], groupId,
       order: sourceFace ? getFaceOrder(rig, sourceFace) : 20,
-      depth, id: `peer-capsule:${group.id}`,
+      depth: surfaceDepth, id: `peer-capsule:${group.id}`,
     });
     if (groupId === "torso") torsoConnectionSurfaces.push({ id: group.id, points });
-    const outlinePath = group.id === "hip-band" ? "" : connectionOutlinePath(points, "limb");
+    const connectedTubeSurfaces = visibleFaces
+      .filter(({ face }) => face.cameraFacingLimb
+        && group.jointIds.includes(face.cameraFacingLimb.startJointId))
+      .map(({ points: surfacePoints }) => surfacePoints);
+    const outlinePath = ([[points[0], points[1]], [points[3], points[2]]] as Array<[Point, Point]>)
+      .map(([start, end]) => exposedSegmentPath(start, end, connectedTubeSurfaces))
+      .filter(Boolean)
+      .join(" ");
+    if (outlinePath) peerCapsuleOutlineRecords.push({
+      id: group.id,
+      groupId,
+      order: (sourceFace ? getFaceOrder(rig, sourceFace) : 20) + 0.01,
+      depth,
+      path: outlinePath,
+    });
     return [{
       id: `peer-capsule:${group.id}`,
       groupId,
@@ -874,17 +973,23 @@ export function renderSvgEditor(
       depth,
       markup: `<g class="body-face-item peer-capsule-item">
         <polygon class="body-face${selected}" data-peer-capsule data-peer-group-id="${escapeXml(group.id)}"${sourceFace ? ` data-face-id="${escapeXml(sourceFace.id)}"` : ""} points="${pointList}" fill="${escapeXml(color)}" />
-        ${outlinePath ? `<path class="body-face-outline" data-face-outline data-peer-group-id="${escapeXml(group.id)}" d="${outlinePath}"${groupId === "torso" ? ` mask="url(#${torsoConnectionOutlineMaskId(group.id)})"` : ""} />` : ""}
       </g>`,
     }];
   }) : [];
 
-  const torsoStripItems = showFaceLayer && isGroupVisible(rig, "torso") ? (() => {
-    const waist = rig.joints.find((joint) => joint.id === "waist");
-    const left = rig.joints.find((joint) => joint.id === "left-shoulder");
-    const right = rig.joints.find((joint) => joint.id === "right-shoulder");
-    const torsoFace = rig.faces.find((face) => face.id === "torso");
-    if (!waist || !left || !right || !torsoFace) return [];
+  const torsoStripItems = showFaceLayer ? (() => {
+    const torsoFace = rig.faces.find((face) => face.proceduralSurface === "torso");
+    if (!torsoFace || !isGroupVisible(rig, torsoFace.groupId)) return [];
+    const connection = torsoFace.proceduralConnection;
+    if (connection?.start.type !== "peer-group" || connection.end.type !== "joint") return [];
+    const shoulderPeerGroupId = connection.start.peerGroupId;
+    const waistJointId = connection.end.jointId;
+    const shoulderGroup = rig.peerGroups.find((group) => group.id === shoulderPeerGroupId);
+    const waist = rig.joints.find((joint) => joint.id === waistJointId);
+    if (!waist || !shoulderGroup || shoulderGroup.jointIds.length !== 2) return [];
+    const left = rig.joints.find((joint) => joint.id === shoulderGroup.jointIds[0]);
+    const right = rig.joints.find((joint) => joint.id === shoulderGroup.jointIds[1]);
+    if (!left || !right) return [];
     const waistCenter = getJointWorldTransform(rig, waist.id);
     const leftCenter = getJointWorldTransform(rig, left.id);
     const rightCenter = getJointWorldTransform(rig, right.id);
@@ -927,36 +1032,44 @@ export function renderSvgEditor(
     const color = escapeXml(resolveColor(rig, torsoFace.color, torsoFace.paletteId));
     const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === torsoFace.id ? " is-selected" : "";
     const depth = (renderedDepthOf(left.id) + renderedDepthOf(right.id) + renderedDepthOf(waist.id)) / 3;
+    const surfaceDepth = (renderedDepthOf(left.id) + bodyRadiusOf(left.id)
+      + renderedDepthOf(right.id) + bodyRadiusOf(right.id)
+      + renderedDepthOf(waist.id) + bodyRadiusOf(waist.id)) / 3;
     connectionSurfaceOccluders.push({
       points, jointIds: [left.id, right.id, waist.id],
-      groupId: "torso", order: 20, depth, id: "torso-surface",
+      groupId: torsoFace.groupId, order: getFaceOrder(rig, torsoFace), depth: surfaceDepth, id: "torso-surface",
     });
     torsoConnectionSurfaces.push({ id: "torso", points });
     return [{
-      id: "torso-surface", groupId: "torso", order: 20,
+      id: "torso-surface", groupId: torsoFace.groupId, order: getFaceOrder(rig, torsoFace),
       depth,
       markup: `<g class="body-face-item procedural-surface-item">
-        <polygon class="body-face${selected}" data-face-id="torso" data-torso-surface points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />
-        <path class="body-face-outline" data-face-outline data-face-id="torso" d="${connectionOutlinePath(points, "strip")}" mask="url(#${torsoConnectionOutlineMaskId("torso")})" />
+        <polygon class="body-face${selected}" data-face-id="${escapeXml(torsoFace.id)}" data-torso-surface points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />
+        <path class="body-face-outline" data-face-outline data-face-id="${escapeXml(torsoFace.id)}" d="${connectionOutlinePath(points, "strip")}" mask="url(#${torsoConnectionOutlineMaskId("torso")})" />
       </g>`,
     }];
   })() : [];
 
-  const waistHipStripItems = showFaceLayer && isGroupVisible(rig, "torso") ? (() => {
+  const waistHipStripItems = showFaceLayer ? (() => {
     const face = rig.faces.find((candidate) => candidate.proceduralSurface === "waist-hip");
-    const waist = rig.joints.find((joint) => joint.id === "waist");
-    const hipGroup = rig.peerGroups.find((group) => group.id === "hip-band" && group.virtualCapsule);
-    const leftHip = rig.joints.find((joint) => joint.id === "left-hip");
-    const rightHip = rig.joints.find((joint) => joint.id === "right-hip");
-    if (!face || !waist || !hipGroup || !leftHip || !rightHip
-      || !hipGroup.jointIds.includes(leftHip.id) || !hipGroup.jointIds.includes(rightHip.id)) return [];
-    const leftCenter = getJointWorldTransform(rig, leftHip.id);
-    const rightCenter = getJointWorldTransform(rig, rightHip.id);
+    if (!face || !isGroupVisible(rig, face.groupId)) return [];
+    const connection = face?.proceduralConnection;
+    if (connection?.start.type !== "joint" || connection.end.type !== "peer-group") return [];
+    const waistJointId = connection.start.jointId;
+    const hipPeerGroupId = connection.end.peerGroupId;
+    const waist = rig.joints.find((joint) => joint.id === waistJointId);
+    const hipGroup = rig.peerGroups.find((group) => group.id === hipPeerGroupId && group.virtualCapsule);
+    if (!waist || !hipGroup || hipGroup.jointIds.length !== 2) return [];
+    const firstHip = rig.joints.find((joint) => joint.id === hipGroup.jointIds[0]);
+    const secondHip = rig.joints.find((joint) => joint.id === hipGroup.jointIds[1]);
+    if (!firstHip || !secondHip) return [];
+    const firstCenter = getJointWorldTransform(rig, firstHip.id);
+    const secondCenter = getJointWorldTransform(rig, secondHip.id);
     const waistSpheres = jointCapsuleSpheres(waist.id);
     if (!waistSpheres) return [];
     const hipSpheres: [CapsuleSphere, CapsuleSphere] = [
-      { center: { x: leftCenter.x, y: leftCenter.y, z: leftHip.z }, radius: bodyRadiusOf(leftHip.id) },
-      { center: { x: rightCenter.x, y: rightCenter.y, z: rightHip.z }, radius: bodyRadiusOf(rightHip.id) },
+      { center: { x: firstCenter.x, y: firstCenter.y, z: firstHip.z }, radius: bodyRadiusOf(firstHip.id) },
+      { center: { x: secondCenter.x, y: secondCenter.y, z: secondHip.z }, radius: bodyRadiusOf(secondHip.id) },
     ];
     const waistCircles = waistSpheres.map(({ center, radius }) => projectSphereCircle(rig, center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
     const hipCircles = hipSpheres.map(({ center, radius }) => projectSphereCircle(rig, center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
@@ -969,7 +1082,7 @@ export function renderSvgEditor(
       y: (hipCircles[0].center.y + hipCircles[1].center.y) / 2,
     };
     const connections = waistSpheres.flatMap((waistSphere, index) => {
-      // Endpoint -X/+X roles remain paired with left/right hips. Re-evaluating
+      // Endpoint -X/+X roles remain paired with peer-group order. Re-evaluating
       // the shortest pair every frame would flip topology near a side view.
       const hipSphere = hipSpheres[index];
       const waistCircle = waistCircles[index];
@@ -1004,30 +1117,224 @@ export function renderSvgEditor(
     const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === face.id ? " is-selected" : "";
     const frontDepth = [...waistSpheres, ...hipSpheres].reduce((sum, sphere) =>
       sum + getCameraZ(rig, sphere.center, sphere.center.z) + sphere.radius, 0) / 4;
-    connectionSurfaceOccluders.push(
-      { points: centerTrapezoid, jointIds: [waist.id, leftHip.id, rightHip.id],
-        groupId: face.groupId, order: getFaceOrder(rig, face), depth: frontDepth,
-        id: "waist-hip-center" },
-      ...connections.map((connection, index) => ({
-        points: connection.points, jointIds: [waist.id, index === 0 ? leftHip.id : rightHip.id],
-        groupId: face.groupId, order: getFaceOrder(rig, face), depth: frontDepth,
-        id: `waist-hip-tube:${index}`,
-      })),
-    );
-    torsoConnectionSurfaces.push({ id: "waist-hip", points: outerHull });
+    const waistHipSurface: PolygonRenderSurface = {
+      kind: "polygon",
+      id: "waist-hip-surface",
+      points: outerHull,
+      patches: [
+        { id: "waist-hip-center", points: centerTrapezoid, depth: frontDepth },
+        ...connections.map((connection, index) => ({
+          id: `waist-hip-tube:${index}`,
+          points: connection.points,
+          depth: frontDepth,
+        })),
+      ],
+      bounds: boundsOf(outerHull),
+      jointIds: [waist.id, firstHip.id, secondHip.id],
+      groupId: face.groupId,
+      order: getFaceOrder(rig, face),
+    };
+    connectionSurfaceOccluders.push(...waistHipSurface.patches.map((patch, index) => ({
+      points: patch.points,
+      jointIds: index === 0
+        ? waistHipSurface.jointIds
+        : [waist.id, index === 1 ? firstHip.id : secondHip.id],
+      groupId: face.groupId,
+      order: waistHipSurface.order,
+      depth: patch.depth,
+      id: patch.id,
+    })));
+    torsoConnectionSurfaces.push({ id: "waist-hip", points: waistHipSurface.points });
     const outlinePath = connections.map(({ outerEdge }) =>
       `M ${outerEdge[0].x} ${outerEdge[0].y} L ${outerEdge[1].x} ${outerEdge[1].y}`).join(" ");
     const polygonPoints = (surface: readonly Point[]) => surface.map((point) => `${point.x},${point.y}`).join(" ");
+    const [centerPatch, ...sidePatches] = waistHipSurface.patches;
     return [{
       id: "waist-hip-surface", groupId: face.groupId, order: getFaceOrder(rig, face),
       depth: frontDepth,
       markup: `<g class="body-face-item procedural-surface-item">
-        <polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-waist-hip-surface data-waist-hip-center points="${polygonPoints(centerTrapezoid)}" fill="${color}" />
-        ${connections.map(({ points }, index) => `<polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-waist-hip-tube="${index}" points="${polygonPoints(points)}" fill="${color}" />`).join("")}
+        <polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-waist-hip-surface data-waist-hip-center points="${polygonPoints(centerPatch.points)}" fill="${color}" />
+        ${sidePatches.map((patch, index) => `<polygon class="body-face${selected}" data-face-id="${escapeXml(face.id)}" data-waist-hip-tube="${index}" points="${polygonPoints(patch.points)}" fill="${color}" />`).join("")}
         <path class="body-face-outline" data-face-outline data-face-id="${escapeXml(face.id)}" data-waist-hip-outline d="${outlinePath}" mask="url(#${torsoConnectionOutlineMaskId("waist-hip")})" />
       </g>`,
     }];
   })() : [];
+
+  // Procedural polygon patches participate in the same local-depth rule as
+  // spheres and tubes. This removes the former neck-only 2D outline mask and
+  // also lets arms or legs pass correctly in front of or behind the torso.
+  const polygonTubeOcclusionMaskIds = new Map<string, string>();
+  const polygonTubeOcclusionMaskDefs: string[] = [];
+  for (const target of limbSurfaces) {
+    const occlusionPolygons: Array<{ id: string; points: Point[]; region?: "end-cap" }> = [];
+    for (const candidate of connectionSurfaceOccluders) {
+      const polygon: PolygonRenderSurface = {
+        kind: "polygon",
+        id: candidate.id,
+        points: candidate.points,
+        patches: [{ id: candidate.id, points: candidate.points, depth: candidate.depth }],
+        jointIds: candidate.jointIds,
+        groupId: candidate.groupId,
+        order: candidate.order,
+        bounds: boundsOf(candidate.points),
+      };
+      if (!canOcclude(target, polygon)) continue;
+      const candidateIsInFront = (point: Point, targetDepth: number) => {
+        const candidateDepth = polygonDepthAt(polygon, point);
+        if (candidateDepth === null) return false;
+        const difference = candidateDepth - targetDepth;
+        if (Math.abs(difference) > 1e-5) return difference > 0;
+        return compareItemStackOrder(rig, {
+          groupId: target.face.groupId, order: getFaceOrder(rig, target.face), depth: targetDepth,
+        }, {
+          groupId: candidate.groupId, order: candidate.order, depth: candidateDepth,
+        }) < 0;
+      };
+      const sideSlices: Array<{ left: Point; right: Point } | null> = [];
+      const longitudinalSteps = 28;
+      const crossSteps = 20;
+      const sideHidden = (point: Point, amount: number, cross: number) => {
+        const radius = target.startRadius + (target.endRadius - target.startRadius) * amount;
+        const radial = Math.abs(cross * 2 - 1);
+        const depth = target.startDepth + (target.endDepth - target.startDepth) * amount
+          + radius * Math.sqrt(Math.max(0, 1 - radial * radial));
+        return candidateIsInFront(point, depth);
+      };
+      for (let step = 0; step <= longitudinalSteps; step += 1) {
+        const amount = step / longitudinalSteps;
+        const edgeA = lerpPoint(target.points[0], target.points[1], amount);
+        const edgeB = lerpPoint(target.points[3], target.points[2], amount);
+        const samples = Array.from({ length: crossSteps + 1 }, (_, index) => {
+          const cross = index / crossSteps;
+          const point = lerpPoint(edgeA, edgeB, cross);
+          return { cross, point, hidden: sideHidden(point, amount, cross) };
+        });
+        const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
+        if (!hiddenIndexes.length) {
+          sideSlices.push(null);
+          continue;
+        }
+        const boundary = (outside: number, inside: number) => {
+          let outsideCross = samples[outside]?.cross ?? samples[inside].cross;
+          let insideCross = samples[inside].cross;
+          for (let iteration = 0; iteration < 7; iteration += 1) {
+            const middle = (outsideCross + insideCross) / 2;
+            const point = lerpPoint(edgeA, edgeB, middle);
+            if (sideHidden(point, amount, middle)) insideCross = middle;
+            else outsideCross = middle;
+          }
+          return lerpPoint(edgeA, edgeB, insideCross);
+        };
+        const first = hiddenIndexes[0];
+        const last = hiddenIndexes[hiddenIndexes.length - 1];
+        sideSlices.push({
+          left: first === 0 ? samples[first].point : boundary(first - 1, first),
+          right: last === crossSteps ? samples[last].point : boundary(last + 1, last),
+        });
+      }
+      let sideSegment: Array<{ left: Point; right: Point }> = [];
+      for (const slice of [...sideSlices, null]) {
+        if (slice) {
+          sideSegment.push(slice);
+          continue;
+        }
+        if (sideSegment.length >= 2) occlusionPolygons.push({
+          id: candidate.id,
+          points: [...sideSegment.map(({ left }) => left), ...sideSegment.map(({ right }) => right).reverse()],
+        });
+        sideSegment = [];
+      }
+      if (!target.endCap) continue;
+      const capSlices: Array<{ left: Point; right: Point } | null> = [];
+      const capSteps = 24;
+      const capHidden = (point: Point) => {
+        const depth = tubeEndCapDepthAt(target, point);
+        return depth !== null && candidateIsInFront(point, depth);
+      };
+      for (let yStep = 0; yStep <= capSteps; yStep += 1) {
+        const y = target.endCap.bounds.minY
+          + (target.endCap.bounds.maxY - target.endCap.bounds.minY) * yStep / capSteps;
+        const samples = Array.from({ length: capSteps + 1 }, (_, index) => {
+          const amount = index / capSteps;
+          const point = {
+            x: target.endCap!.bounds.minX
+              + (target.endCap!.bounds.maxX - target.endCap!.bounds.minX) * amount,
+            y,
+          };
+          return { amount, point, hidden: capHidden(point) };
+        });
+        const hiddenIndexes = samples.flatMap((sample, index) => sample.hidden ? [index] : []);
+        if (!hiddenIndexes.length) {
+          capSlices.push(null);
+          continue;
+        }
+        const first = hiddenIndexes[0];
+        const last = hiddenIndexes[hiddenIndexes.length - 1];
+        capSlices.push({ left: samples[first].point, right: samples[last].point });
+      }
+      let capSegment: Array<{ left: Point; right: Point }> = [];
+      for (const slice of [...capSlices, null]) {
+        if (slice) {
+          capSegment.push(slice);
+          continue;
+        }
+        if (capSegment.length >= 2) occlusionPolygons.push({
+          id: candidate.id,
+          region: "end-cap",
+          points: [...capSegment.map(({ left }) => left), ...capSegment.map(({ right }) => right).reverse()],
+        });
+        capSegment = [];
+      }
+    }
+    if (!occlusionPolygons.length) continue;
+    const maskId = `polygon-tube-occlusion-mask-${target.face.id}`;
+    polygonTubeOcclusionMaskIds.set(target.face.id, maskId);
+    polygonTubeOcclusionMaskDefs.push(`<mask id="${escapeXml(maskId)}" data-polygon-tube-occlusion-face-id="${escapeXml(target.face.id)}" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="4600" height="4780" mask-type="luminance">
+      <rect x="-2000" y="-2000" width="4600" height="4780" fill="#fff" />
+      ${occlusionPolygons.map((polygon) => `<polygon data-polygon-depth-occluder="${escapeXml(polygon.id)}"${polygon.region === "end-cap" ? " data-tube-end-cap-occluder" : ""} points="${polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="#000" />`).join("")}
+    </mask>`);
+  }
+
+  const faceItems = visibleFaces.map(({ face, points }) => {
+    const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
+    const outlinePath = points.map((point, index) => {
+      const nextIndex = (index + 1) % points.length;
+      const nextPoint = points[nextIndex];
+      const sameJoint = face.cameraFacingLimb
+        ? index === 1 || index === 3
+        : face.vertices[index]?.jointId === face.vertices[nextIndex]?.jointId;
+      const sharedGroupEdge = face.vertices.length === points.length && visibleFaces.some(({ face: candidate }) => (
+        candidate.id !== face.id
+        && candidate.groupId === face.groupId
+        && hasMatchingEdge(candidate, face.vertices[index], face.vertices[nextIndex])
+      ));
+      if (sharedGroupEdge) return "";
+      if (viewState.hideSameJointEdges && sameJoint) return "";
+      return `M ${point.x} ${point.y} L ${nextPoint.x} ${nextPoint.y}`;
+    }).filter(Boolean).join(" ");
+    const outlineMarkup = `<path class="body-face-outline" data-face-outline-id="${escapeXml(face.id)}" d="${outlinePath}"${connectedSphereOutlineMaskIds.has(face.id) ? ` mask="url(#${connectedSphereOutlineMaskIds.get(face.id)})"` : ""} />`;
+    const polygonMask = polygonTubeOcclusionMaskIds.get(face.id);
+    const tubeMarkup = `<g${tubeOcclusionMaskIds.has(face.id) ? ` mask="url(#${tubeOcclusionMaskIds.get(face.id)})"` : ""}>
+      <polygon class="body-face${viewState.selectedTarget === "face" && face.id === viewState.selectedFaceId ? " is-selected" : ""}" data-face-id="${escapeXml(face.id)}" points="${pointList}" fill="${escapeXml(resolveColor(rig, face.color, face.paletteId))}" />
+      ${outlineMarkup}
+    </g>`;
+    return {
+      id: `face:${face.id}`,
+      groupId: face.groupId,
+      order: getFaceOrder(rig, face),
+      markup: `<g class="body-face-item"${surfaceOcclusionMaskIds.has(face.id) ? ` mask="url(#${surfaceOcclusionMaskIds.get(face.id)})"` : ""}>
+        ${polygonMask ? `<g mask="url(#${polygonMask})">${tubeMarkup}</g>` : tubeMarkup}
+      </g>`,
+    };
+  });
+
+  const peerCapsuleOutlineItems = peerCapsuleOutlineRecords.map((record) => ({
+    id: `peer-capsule-outline:${record.id}`,
+    groupId: record.groupId,
+    order: record.order,
+    depth: record.depth,
+    markup: `<path class="body-face-outline" data-face-outline data-peer-group-id="${escapeXml(record.id)}" data-peer-capsule-outline="${escapeXml(record.id)}" d="${record.path}"${record.groupId === "torso" ? ` mask="url(#${torsoConnectionOutlineMaskId(record.id)})"` : ""} />`,
+  }));
 
   const shapeRecords = (rig.artShapes ?? []).filter((shape) => showShapeLayer && isGroupVisible(rig, shape.groupId)).map((shape) => ({
     shape,
@@ -1278,14 +1585,21 @@ export function renderSvgEditor(
       markup: `<g class="joint-bridge" data-bridge-joint-id="${escapeXml(joint.id)}">${fill}${outline}</g>` }];
   });
 
+  const applyPolygonTubeMask = <T extends { id: string; markup: string }>(item: T): T => {
+    const faceId = item.id.slice(item.id.indexOf(":") + 1);
+    const maskId = polygonTubeOcclusionMaskIds.get(faceId);
+    return maskId ? { ...item, markup: `<g mask="url(#${maskId})">${item.markup}</g>` } : item;
+  };
+  const maskedTubeSectionItems = tubeSectionItems.map(applyPolygonTubeMask);
+  const maskedSurfaceIntersectionItems = surfaceIntersectionItems.map(applyPolygonTubeMask);
   const bodyItems = [...jointItems.map((item) => ({ ...item, depth: renderedDepthOf(item.id.slice(6)) })), ...faceItems.map((item) => {
     const face = rig.faces.find((candidate) => `face:${candidate.id}` === item.id)!;
     const jointIds = face.cameraFacingLimb
       ? [face.cameraFacingLimb.startJointId, face.cameraFacingLimb.endJointId]
       : [...new Set(face.vertices.map((vertex) => vertex.jointId))];
     return { ...item, depth: jointIds.reduce((sum, jointId) => sum + renderedDepthOf(jointId), 0) / Math.max(1, jointIds.length) };
-  }), ...peerCapsuleItems, ...torsoStripItems, ...waistHipStripItems,
-  ...tubeSectionItems, ...surfaceIntersectionItems, ...shapeItems, ...bridgeItems];
+  }), ...peerCapsuleItems, ...torsoStripItems, ...waistHipStripItems, ...peerCapsuleOutlineItems,
+  ...maskedTubeSectionItems, ...maskedSurfaceIntersectionItems, ...shapeItems, ...bridgeItems];
   const renderedBody = bodyItems
     .sort((a, b) => compareItemStackOrder(rig, a, b) || a.id.localeCompare(b.id))
     .map((item) => item.markup)
@@ -1509,7 +1823,7 @@ export function renderSvgEditor(
     </g>` : "";
 
   host.innerHTML = `
-    <defs data-export-defs>${jointOutlineMasks}${jointBendMasks}${torsoConnectionOutlineMasks}${surfaceOcclusionMaskDefs.join("")}${connectedSphereOutlineMaskDefs.join("")}${tubeOcclusionMaskDefs.join("")}${sphereSurfaceOcclusionMaskDefs.join("")}${compositeMaskDefs.join("")}</defs>
+    <defs data-export-defs>${jointOutlineMasks}${jointBendMasks}${torsoConnectionOutlineMasks}${surfaceOcclusionMaskDefs.join("")}${connectedSphereOutlineMaskDefs.join("")}${tubeOcclusionMaskDefs.join("")}${polygonTubeOcclusionMaskDefs.join("")}${sphereSurfaceOcclusionMaskDefs.join("")}${compositeMaskDefs.join("")}</defs>
     <g data-layer="grid">
       ${[80, 200, 320, 440, 560, 680].map((y) => `<line x1="60" y1="${y}" x2="540" y2="${y}" />`).join("")}
       <line x1="300" y1="40" x2="300" y2="740" />

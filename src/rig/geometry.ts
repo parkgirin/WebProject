@@ -40,6 +40,119 @@ export interface CameraFacingLimbSurface {
   points: [Point3, Point3, Point3, Point3];
 }
 
+export interface ProjectedTubeGeometry {
+  axis: Point3;
+  basisU: Point3;
+  basisV: Point3;
+  startSection: Point[];
+  endSection: Point[];
+  startSectionDepths: number[];
+  endSectionDepths: number[];
+  startCenter: Point;
+  endCenter: Point;
+  startCenterDepth: number;
+  endCenterDepth: number;
+  side: [Point, Point, Point, Point];
+}
+
+function getTubeSectionFrame(rig: Rig, start: Point3, end: Point3): {
+  axis: Point3;
+  basisU: Point3;
+  basisV: Point3;
+} | null {
+  const axis = normalizeVector3({ x: end.x - start.x, y: end.y - start.y, z: end.z - start.z });
+  if (!axis) return null;
+  const camera = getCameraBasis(rig);
+  const basisU = normalizeVector3(crossVector3(axis, camera.forward))
+    ?? normalizeVector3(crossVector3(axis, camera.up));
+  if (!basisU) return null;
+  const basisV = normalizeVector3(crossVector3(axis, basisU));
+  return basisV ? { axis, basisU, basisV } : null;
+}
+
+/**
+ * Project two real circular tube sections and derive the two longitudinal
+ * silhouette edges from their shared convex boundary. The returned side and
+ * terminal section therefore use the exact same 3D ring samples.
+ */
+export function getProjectedTubeGeometry(
+  rig: Rig,
+  start: Point3,
+  end: Point3,
+  startRadius: number,
+  endRadius: number,
+  sides = 32,
+): ProjectedTubeGeometry | null {
+  const frame = getTubeSectionFrame(rig, start, end);
+  if (!frame || sides < 8) return null;
+  const { axis, basisU, basisV } = frame;
+  const section = (center: Point3, radius: number) => {
+    const modelPoints = Array.from({ length: sides }, (_, index) => {
+      const angle = Math.PI * 2 * index / sides;
+      const cosine = Math.cos(angle) * radius;
+      const sine = Math.sin(angle) * radius;
+      return {
+        x: center.x + basisU.x * cosine + basisV.x * sine,
+        y: center.y + basisU.y * cosine + basisV.y * sine,
+        z: center.z + basisU.z * cosine + basisV.z * sine,
+      };
+    });
+    return {
+      points: modelPoints.map((point) => projectPoint(rig, point, point.z)),
+      depths: modelPoints.map((point) => getCameraZ(rig, point, point.z)),
+    };
+  };
+  const startRing = section(start, startRadius);
+  const endRing = section(end, endRadius);
+  const startSection = startRing.points;
+  const endSection = endRing.points;
+  type SectionPoint = { point: Point; section: 0 | 1 };
+  const candidates: SectionPoint[] = [
+    ...startSection.map((point): SectionPoint => ({ point, section: 0 })),
+    ...endSection.map((point): SectionPoint => ({ point, section: 1 })),
+  ].sort((first, second) => first.point.x - second.point.x || first.point.y - second.point.y);
+  const turn = (first: SectionPoint, second: SectionPoint, third: SectionPoint) =>
+    (second.point.x - first.point.x) * (third.point.y - first.point.y)
+    - (second.point.y - first.point.y) * (third.point.x - first.point.x);
+  const halfHull = (points: SectionPoint[]) => {
+    const result: SectionPoint[] = [];
+    for (const point of points) {
+      while (result.length >= 2 && turn(result[result.length - 2], result[result.length - 1], point) <= 1e-9) {
+        result.pop();
+      }
+      result.push(point);
+    }
+    return result;
+  };
+  const lower = halfHull(candidates);
+  const upper = halfHull([...candidates].reverse());
+  const hull = [...lower.slice(0, -1), ...upper.slice(0, -1)];
+  const connections: Array<{ start: Point; end: Point }> = [];
+  for (let index = 0; index < hull.length; index += 1) {
+    const current = hull[index];
+    const next = hull[(index + 1) % hull.length];
+    if (current.section === next.section) continue;
+    connections.push(current.section === 0
+      ? { start: current.point, end: next.point }
+      : { start: next.point, end: current.point });
+  }
+  if (connections.length !== 2) return null;
+  return {
+    axis,
+    basisU,
+    basisV,
+    startSection,
+    endSection,
+    startSectionDepths: startRing.depths,
+    endSectionDepths: endRing.depths,
+    startCenter: projectPoint(rig, start, start.z),
+    endCenter: projectPoint(rig, end, end.z),
+    startCenterDepth: getCameraZ(rig, start, start.z),
+    endCenterDepth: getCameraZ(rig, end, end.z),
+    side: [connections[0].start, connections[0].end, connections[1].end, connections[1].start],
+  };
+}
+
 /**
  * Join two already-projected circles along their common external tangents.
  * Equal radii reduce to points perpendicular to the centre line; unequal
@@ -88,26 +201,19 @@ export function getCameraFacingConnectionSurface(
   startRadius: number,
   endRadius: number,
 ): CameraFacingLimbSurface | null {
-  const start = worldRotate(rig, startModel, startModel.z);
-  const end = worldRotate(rig, endModel, endModel.z);
-  const tangent = normalizeVector3({ x: end.x - start.x, y: end.y - start.y, z: end.z - start.z });
-  if (!tangent) return null;
-  const yaw = rig.viewYRotation * Math.PI / 180;
-  const cameraForward: Point3 = { x: -Math.sin(yaw), y: 0, z: Math.cos(yaw) };
-  const radial = normalizeVector3(crossVector3(cameraForward, tangent))
-    ?? normalizeVector3(crossVector3({ x: 0, y: 1, z: 0 }, tangent))
-    ?? { x: 1, y: 0, z: 0 };
-  const ringPoint = (center: Point3, radius: number, side: 1 | -1): Point3 => worldUnrotate(rig, {
-    x: center.x + radial.x * radius * side,
-    y: center.y + radial.y * radius * side,
-    z: center.z + radial.z * radius * side,
+  const frame = getTubeSectionFrame(rig, startModel, endModel);
+  if (!frame) return null;
+  const ringPoint = (center: Point3, radius: number, side: 1 | -1): Point3 => ({
+    x: center.x + frame.basisU.x * radius * side,
+    y: center.y + frame.basisU.y * radius * side,
+    z: center.z + frame.basisU.z * radius * side,
   });
   return {
     points: [
-      ringPoint(start, startRadius, 1),
-      ringPoint(end, endRadius, 1),
-      ringPoint(end, endRadius, -1),
-      ringPoint(start, startRadius, -1),
+      ringPoint(startModel, startRadius, 1),
+      ringPoint(endModel, endRadius, 1),
+      ringPoint(endModel, endRadius, -1),
+      ringPoint(startModel, startRadius, -1),
     ],
   };
 }
@@ -188,17 +294,6 @@ function worldRotate(rig: Rig, point: Point, z: number): Point3 {
   [y, depth] = [y * Math.cos(rx) - depth * Math.sin(rx), y * Math.sin(rx) + depth * Math.cos(rx)];
   [x, depth] = [x * Math.cos(ry) + depth * Math.sin(ry), -x * Math.sin(ry) + depth * Math.cos(ry)];
   [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
-  return { x: PROJECTION_ORIGIN.x + x, y: PROJECTION_ORIGIN.y + y, z: depth };
-}
-
-/** Inverse of worldRotate, used to author camera-facing render points in model space. */
-function worldUnrotate(rig: Rig, point: Point3): Point3 {
-  const r = rig.worldRotation ?? { x: 0, y: 0, z: 0 };
-  let x = point.x - PROJECTION_ORIGIN.x, y = point.y - PROJECTION_ORIGIN.y, depth = point.z;
-  const rx = -r.x * Math.PI / 180, ry = -r.y * Math.PI / 180, rz = -r.z * Math.PI / 180;
-  [x, y] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)];
-  [x, depth] = [x * Math.cos(ry) + depth * Math.sin(ry), -x * Math.sin(ry) + depth * Math.cos(ry)];
-  [y, depth] = [y * Math.cos(rx) - depth * Math.sin(rx), y * Math.sin(rx) + depth * Math.cos(rx)];
   return { x: PROJECTION_ORIGIN.x + x, y: PROJECTION_ORIGIN.y + y, z: depth };
 }
 

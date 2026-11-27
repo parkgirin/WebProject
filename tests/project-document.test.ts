@@ -32,6 +32,10 @@ test("a legacy rig separates into structure, body, pose, appearance, and output 
   assert.equal(project.version, 3);
   assert.equal(project.rig.id, "human-v1");
   assert.equal(project.rig.family, "humanoid");
+  assert.deepEqual(project.rig.faces.find((face) => face.id === "waist-hip")?.proceduralConnection, {
+    start: { type: "joint", jointId: "waist" },
+    end: { type: "peer-group", peerGroupId: "hip-band" },
+  });
   assert.deepEqual(project.body.joints["right-elbow"].restOffset,
     [state.getJoint("right-elbow").baseOffset!.x, state.getJoint("right-elbow").baseOffset!.y,
       state.getJoint("right-elbow").baseOffset!.z]);
@@ -65,6 +69,10 @@ test("materializing a separated project preserves the legacy editor rig", () => 
   }
   close(restored.worldRotation!.y, 40);
   assert.deepEqual(restored.artShapes, state.rig.artShapes);
+  assert.deepEqual(
+    restored.faces.find((face) => face.id === "waist-hip")?.proceduralConnection,
+    state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralConnection,
+  );
   assert.deepEqual(restored.outputPivot, project.outputView.pivot);
 });
 

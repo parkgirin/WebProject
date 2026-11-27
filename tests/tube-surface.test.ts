@@ -4,7 +4,7 @@ import test from "node:test";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { renderSvgEditor } from "../src/editor/svg-editor.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
-import { getCameraFacingLimbSurface, getJointTubeSurface, getJointViewRadius, getJointWorldTransform, getProjectedCircleConnectionSurface, PROJECTION_ORIGIN, projectPoint, projectSphereCircle } from "../src/rig/geometry.ts";
+import { getCameraFacingLimbSurface, getJointTubeSurface, getJointViewRadius, getJointWorldTransform, getProjectedCircleConnectionSurface, getProjectedTubeGeometry, PROJECTION_ORIGIN, projectPoint, projectSphereCircle } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
 test("limb tube creates circular eight-sided surfaces from joint x/y/z coordinates", () => {
@@ -176,6 +176,28 @@ test("equal projected radii retain the perpendicular capsule rule", () => {
   );
 });
 
+test("tube side silhouettes and terminal caps share the same projected 3D rings", () => {
+  const rig = createDefaultRig();
+  rig.viewYRotation = 37;
+  rig.worldRotation = { x: 24, y: -31, z: 13 };
+  rig.projectionStrength = 48;
+  const geometry = getProjectedTubeGeometry(
+    rig,
+    { x: 120, y: 160, z: -18 },
+    { x: 245, y: 285, z: 52 },
+    18,
+    31,
+  );
+
+  assert.ok(geometry);
+  assert.ok(geometry.startSection.includes(geometry.side[0]));
+  assert.ok(geometry.endSection.includes(geometry.side[1]));
+  assert.ok(geometry.endSection.includes(geometry.side[2]));
+  assert.ok(geometry.startSection.includes(geometry.side[3]));
+  assert.notEqual(geometry.side[0], geometry.side[3]);
+  assert.notEqual(geometry.side[1], geometry.side[2]);
+});
+
 test("bent legs retain camera-exposed inner outlines on every limb segment", () => {
   const rig = createDefaultRig();
   const leftKnee = rig.joints.find((joint) => joint.id === "left-knee")!;
@@ -304,12 +326,54 @@ test("head sphere clips only the neck surface that passes behind it", () => {
   assert.match(host.innerHTML, /data-surface-depth-occluder/);
   assert.match(host.innerHTML, /data-connected-sphere-outline-face-id="neck"/);
   assert.match(host.innerHTML, /body-face-outline[^>]*mask="url\(#connected-sphere-outline-mask-neck\)"/);
-  assert.match(host.innerHTML, /<g mask="url\(#torso-connection-outline-mask-neck\)">[\s\S]*?data-face-outline-id="neck"/);
+  assert.match(host.innerHTML, /<mask[^>]*data-polygon-tube-occlusion-face-id="neck"/);
+  assert.match(host.innerHTML, /data-polygon-depth-occluder="(?:peer-capsule:shoulder-band|torso-surface)"/);
+  assert.match(host.innerHTML, /<g mask="url\(#polygon-tube-occlusion-mask-neck\)">[\s\S]*?data-face-outline-id="neck"/);
+  assert.doesNotMatch(host.innerHTML, /torso-connection-outline-mask-neck/);
   assert.match(host.innerHTML, /<g class="body-face-item" mask="url\(#surface-occlusion-mask-neck\)">[\s\S]*?data-face-id="neck"/);
   const intersection = host.innerHTML.match(/data-surface-intersection-face-id="neck" d="([^"]+)"/)?.[1] ?? "";
   assert.match(intersection, /^M [^Q]+ Q /);
   assert.doesNotMatch(intersection, / L /);
+  assert.doesNotMatch(host.innerHTML, /data-tube-section-face-id="neck"/);
   assert.doesNotMatch(host.innerHTML, /data-surface-occlusion-face-id="left-upper-arm"/);
+});
+
+test("polygon-to-tube occlusion is driven by surface references instead of the neck face id", () => {
+  const rig = createDefaultRig();
+  rig.faces.find((face) => face.id === "neck")!.id = "cervical-tube";
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  assert.match(host.innerHTML, /data-polygon-tube-occlusion-face-id="cervical-tube"/);
+  assert.match(host.innerHTML, /mask="url\(#polygon-tube-occlusion-mask-cervical-tube\)"/);
+  assert.doesNotMatch(host.innerHTML, /torso-connection-outline-mask-neck/);
+});
+
+test("a torso polygon behind the neck does not erase the nearer tube", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  for (const jointId of ["left-shoulder", "right-shoulder", "waist"]) {
+    rig.joints.find((joint) => joint.id === jointId)!.z = -200;
+  }
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  const neckMask = host.innerHTML.match(
+    /<mask[^>]*data-polygon-tube-occlusion-face-id="neck"[^>]*>([\s\S]*?)<\/mask>/,
+  )?.[1] ?? "";
+  assert.doesNotMatch(neckMask, /data-polygon-depth-occluder="(?:peer-capsule:shoulder-band|torso-surface)"/);
 });
 
 test("head sphere and an unrelated arm use the shared surface-depth rule", () => {
@@ -370,6 +434,19 @@ test("terminal tube sections render a projected cap or a stable edge line", () =
   assert.match(facingHost.innerHTML, /data-tube-section-face-id="left-lower-arm"[\s\S]*?data-tube-section-cap/);
   assert.match(facingHost.innerHTML, /tube-section-outline/);
 
+  const shallowFacingRig = createDefaultRig();
+  const shallowFacingWrist = shallowFacingRig.joints.find((joint) => joint.id === "left-wrist")!;
+  shallowFacingWrist.z = 2;
+  shallowFacingWrist.bodyVisible = false;
+  const shallowFacingHost = { innerHTML: "" } as SVGSVGElement;
+  renderSvgEditor(shallowFacingHost, shallowFacingRig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  const shallowFacingSection = shallowFacingHost.innerHTML.match(
+    /<g class="([^"]*)" data-tube-section-face-id="left-lower-arm"[^>]*>([\s\S]*?)<\/g>/,
+  );
+  assert.ok(shallowFacingSection);
+  assert.doesNotMatch(shallowFacingSection[1], /body-tube-side-end/);
+  assert.match(shallowFacingSection[2], /data-tube-section-cap/);
+
   const awayRig = createDefaultRig();
   const awayWrist = awayRig.joints.find((joint) => joint.id === "left-wrist")!;
   awayWrist.z = -45;
@@ -379,6 +456,29 @@ test("terminal tube sections render a projected cap or a stable edge line", () =
   assert.match(awayHost.innerHTML, /data-tube-end-curvature/);
   assert.match(awayHost.innerHTML, /data-tube-side-end/);
   assert.doesNotMatch(awayHost.innerHTML, /data-tube-section-cap/);
+});
+
+test("terminal tube caps receive local depth masks outside the side surface", () => {
+  const rig = createDefaultRig();
+  const wrist = rig.joints.find((joint) => joint.id === "left-wrist")!;
+  wrist.z = 45;
+  wrist.bodyVisible = false;
+  const wristWorld = getJointWorldTransform(rig, wrist.id);
+  const chestWorld = getJointWorldTransform(rig, "chest");
+  const head = rig.joints.find((joint) => joint.id === "head")!;
+  head.x = wristWorld.x - chestWorld.x;
+  head.y = wristWorld.y - chestWorld.y;
+  head.z = 120;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  const mask = host.innerHTML.match(/<mask[^>]*data-tube-occlusion-face-id="left-lower-arm"[^>]*>([\s\S]*?)<\/mask>/)?.[1] ?? "";
+  assert.match(mask, /data-tube-depth-occluder="shape:head-base" data-tube-end-cap-occluder/);
 });
 
 test("overlapping legs resolve visibility from local tube surface depth", () => {
@@ -470,10 +570,32 @@ test("virtual peer capsule replaces the authored shoulder band with a camera-fac
 
   renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
 
-  assert.equal(host.innerHTML.match(/data-peer-capsule/g)?.length, 2);
+  assert.equal(host.innerHTML.match(/<polygon[^>]*data-peer-capsule(?:\s|>)/g)?.length, 2);
   assert.match(host.innerHTML, /data-peer-group-id="shoulder-band" data-face-id="shoulder-band"/);
   assert.match(host.innerHTML, /data-peer-group-id="hip-band"/);
   assert.equal(host.innerHTML.match(/data-face-id="shoulder-band"/g)?.length, 1);
+});
+
+test("hip capsule exposes only the lower boundary left between separated legs", () => {
+  const render = (spread: number) => {
+    const rig = createDefaultRig();
+    rig.joints.find((joint) => joint.id === "left-hip")!.x -= spread;
+    rig.joints.find((joint) => joint.id === "right-hip")!.x += spread;
+    const host = { innerHTML: "" } as SVGSVGElement;
+    const viewState: EditorViewState = {
+      outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+      inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+      paintPaletteId: null,
+    };
+    renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+    return host.innerHTML;
+  };
+
+  const touchingPath = render(0).match(/data-peer-capsule-outline="hip-band" d="([^"]+)"/)?.[1] ?? "";
+  assert.equal((touchingPath.match(/M /g) ?? []).length, 1);
+  const separatedPath = render(18).match(/data-peer-capsule-outline="hip-band" d="([^"]+)"/)?.[1] ?? "";
+  assert.equal((separatedPath.match(/M /g) ?? []).length, 2);
+  assert.doesNotMatch(separatedPath, /(?:NaN|Infinity)/);
 });
 
 test("capsule guides show actual joints and faint virtual peer capsules together", () => {
@@ -552,8 +674,18 @@ test("torso surface connects the actual shoulder band to the rotated waist secti
   assert.doesNotMatch(host.innerHTML, /data-face-id="torso-strip"/);
 });
 
-test("waist-to-hip surface lofts the waist capsule into the virtual hip capsule", () => {
+test("waist-to-hip surface follows its referenced sections instead of anatomical group ids", () => {
   const rig = createDefaultRig();
+  const hipGroup = rig.peerGroups.find((group) => group.id === "hip-band")!;
+  hipGroup.id = "pelvis-section";
+  const waistHipFace = rig.faces.find((face) => face.id === "waist-hip")!;
+  waistHipFace.proceduralConnection = {
+    start: { type: "joint", jointId: "waist" },
+    end: { type: "peer-group", peerGroupId: hipGroup.id },
+  };
+  waistHipFace.rotationTarget = {
+    type: "peer", peerGroupId: hipGroup.id, referenceJointId: hipGroup.jointIds[0],
+  };
   const waist = rig.joints.find((joint) => joint.id === "waist")!;
   const leftHip = rig.joints.find((joint) => joint.id === "left-hip")!;
   const rightHip = rig.joints.find((joint) => joint.id === "right-hip")!;
@@ -575,7 +707,6 @@ test("waist-to-hip surface lofts the waist capsule into the virtual hip capsule"
   assert.equal(host.innerHTML.match(/data-waist-hip-tube=/g)?.length, 2);
   const waistHipOutline = host.innerHTML.match(/<path class="body-face-outline"[^>]*data-waist-hip-outline[^>]*>/)?.[0] ?? "";
   assert.equal((waistHipOutline.match(/M /g) ?? []).length, 2);
-  assert.doesNotMatch(host.innerHTML, /data-face-outline data-peer-group-id="hip-band"/);
   assert.doesNotMatch(host.innerHTML, /(?:NaN|Infinity)/);
 });
 

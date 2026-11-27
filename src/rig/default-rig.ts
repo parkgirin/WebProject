@@ -73,6 +73,10 @@ export function createDefaultRig(): Rig {
       {
         id: "torso",
         proceduralSurface: "torso",
+        proceduralConnection: {
+          start: { type: "peer-group", peerGroupId: "shoulder-band" },
+          end: { type: "joint", jointId: "waist" },
+        },
         rotationTarget: { type: "child", childJointId: "chest" },
         groupId: "torso",
         layerOrder: 20,
@@ -82,6 +86,10 @@ export function createDefaultRig(): Rig {
       {
         id: "waist-hip",
         proceduralSurface: "waist-hip",
+        proceduralConnection: {
+          start: { type: "joint", jointId: "waist" },
+          end: { type: "peer-group", peerGroupId: "hip-band" },
+        },
         rotationTarget: { type: "peer", peerGroupId: "hip-band", referenceJointId: "left-hip" },
         groupId: "torso",
         layerOrder: 19,

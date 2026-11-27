@@ -39,7 +39,7 @@ export interface RigJointDefinition {
 }
 
 export type RigFaceDefinition = Pick<Face,
-  "id" | "vertices" | "proceduralSurface" | "cameraFacingLimb" | "rotationTarget">;
+  "id" | "vertices" | "proceduralSurface" | "proceduralConnection" | "cameraFacingLimb" | "rotationTarget">;
 
 export interface BodyDefinition {
   id: string;
@@ -256,6 +256,7 @@ export function createRigDefinition(rig: Rig, id: string, family: string, versio
       id: face.id,
       vertices: structuredClone(face.vertices),
       ...(face.proceduralSurface ? { proceduralSurface: face.proceduralSurface } : {}),
+      ...(face.proceduralConnection ? { proceduralConnection: structuredClone(face.proceduralConnection) } : {}),
       ...(face.cameraFacingLimb ? { cameraFacingLimb: structuredClone(face.cameraFacingLimb) } : {}),
       rotationTarget: structuredClone(face.rotationTarget),
     })),

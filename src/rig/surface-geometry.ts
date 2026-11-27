@@ -35,9 +35,31 @@ export interface TubeRenderSurface extends SurfaceStack {
   endRadius: number;
   bounds: SurfaceBounds;
   jointIds: [string, string];
+  endCap?: {
+    center: Point;
+    centerDepth: number;
+    points: Point[];
+    depths: number[];
+    bounds: SurfaceBounds;
+  };
 }
 
-export type RenderSurface = SphereRenderSurface | TubeRenderSurface;
+export interface PolygonRenderPatch {
+  id: string;
+  points: Point[];
+  depth: number;
+}
+
+export interface PolygonRenderSurface extends SurfaceStack {
+  kind: "polygon";
+  id: string;
+  points: Point[];
+  patches: PolygonRenderPatch[];
+  bounds: SurfaceBounds;
+  jointIds: string[];
+}
+
+export type RenderSurface = SphereRenderSurface | TubeRenderSurface | PolygonRenderSurface;
 
 export function boundsOf(points: readonly Point[]): SurfaceBounds {
   return {
@@ -57,10 +79,14 @@ export function surfaceDepthRange(surface: RenderSurface): { min: number; max: n
   if (surface.kind === "sphere") {
     return { min: surface.centerDepth - surface.radius, max: surface.centerDepth + surface.radius };
   }
-  return {
-    min: Math.min(surface.startDepth - surface.startRadius, surface.endDepth - surface.endRadius),
-    max: Math.max(surface.startDepth + surface.startRadius, surface.endDepth + surface.endRadius),
-  };
+  if (surface.kind === "tube") {
+    return {
+      min: Math.min(surface.startDepth - surface.startRadius, surface.endDepth - surface.endRadius),
+      max: Math.max(surface.startDepth + surface.startRadius, surface.endDepth + surface.endRadius),
+    };
+  }
+  const depths = surface.patches.map((patch) => patch.depth);
+  return { min: Math.min(...depths), max: Math.max(...depths) };
 }
 
 export function sphereDepthAt(surface: SphereRenderSurface, point: Point): number | null {
@@ -117,6 +143,67 @@ export function tubeCoordinatesAt(surface: TubeRenderSurface, point: Point): {
   };
 }
 
+function triangleDepthAt(
+  point: Point,
+  vertices: [Point, Point, Point],
+  depths: [number, number, number],
+): number | null {
+  const [first, second, third] = vertices;
+  const denominator = (second.y - third.y) * (first.x - third.x)
+    + (third.x - second.x) * (first.y - third.y);
+  if (Math.abs(denominator) < 1e-9) return null;
+  const firstWeight = ((second.y - third.y) * (point.x - third.x)
+    + (third.x - second.x) * (point.y - third.y)) / denominator;
+  const secondWeight = ((third.y - first.y) * (point.x - third.x)
+    + (first.x - third.x) * (point.y - third.y)) / denominator;
+  const thirdWeight = 1 - firstWeight - secondWeight;
+  if (firstWeight < -1e-6 || secondWeight < -1e-6 || thirdWeight < -1e-6) return null;
+  return firstWeight * depths[0] + secondWeight * depths[1] + thirdWeight * depths[2];
+}
+
+export function tubeEndCapDepthAt(surface: TubeRenderSurface, point: Point): number | null {
+  const cap = surface.endCap;
+  if (!cap || point.x < cap.bounds.minX || point.x > cap.bounds.maxX
+    || point.y < cap.bounds.minY || point.y > cap.bounds.maxY) return null;
+  for (let index = 0; index < cap.points.length; index += 1) {
+    const next = (index + 1) % cap.points.length;
+    const depth = triangleDepthAt(
+      point,
+      [cap.center, cap.points[index], cap.points[next]],
+      [cap.centerDepth, cap.depths[index], cap.depths[next]],
+    );
+    if (depth !== null) return depth;
+  }
+  return null;
+}
+
+export function tubeDepthAt(surface: TubeRenderSurface, point: Point): number | null {
+  const sideDepth = tubeCoordinatesAt(surface, point)?.depth ?? null;
+  const capDepth = tubeEndCapDepthAt(surface, point);
+  if (sideDepth === null) return capDepth;
+  if (capDepth === null) return sideDepth;
+  return Math.max(sideDepth, capDepth);
+}
+
+export function polygonDepthAt(surface: PolygonRenderSurface, point: Point): number | null {
+  let depth: number | null = null;
+  for (const patch of surface.patches) {
+    if (patch.points.length < 3) continue;
+    for (let index = 1; index < patch.points.length - 1; index += 1) {
+      if (triangleDepthAt(
+        point,
+        [patch.points[0], patch.points[index], patch.points[index + 1]],
+        [patch.depth, patch.depth, patch.depth],
+      ) !== null) {
+        depth = depth === null ? patch.depth : Math.max(depth, patch.depth);
+        break;
+      }
+    }
+  }
+  return depth;
+}
+
 export function surfaceDepthAt(surface: RenderSurface, point: Point): number | null {
-  return surface.kind === "sphere" ? sphereDepthAt(surface, point) : tubeCoordinatesAt(surface, point)?.depth ?? null;
+  if (surface.kind === "sphere") return sphereDepthAt(surface, point);
+  return surface.kind === "tube" ? tubeDepthAt(surface, point) : polygonDepthAt(surface, point);
 }
