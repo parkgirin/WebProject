@@ -1,5 +1,14 @@
 export type AxisPointSide = -1 | 1;
 
+export type AxisExpansionMode = "centered" | "directional";
+
+/** Shared rule for extending geometry along any authored or derived axis. */
+export interface AxisExpansionRule {
+  mode: AxisExpansionMode;
+  /** Endpoint retained by directional expansion. Defaults to the negative endpoint. */
+  fixedSide?: AxisPointSide;
+}
+
 export interface JointAxis {
   id: string;
   angle: number;
@@ -13,6 +22,8 @@ export interface JointAxis {
   referenceAxisId?: string;
   referenceAxisSide?: AxisPointSide;
   alignedPointSide?: AxisPointSide;
+  /** Geometry attached to this axis can share the common expansion rule. */
+  expansionRule?: AxisExpansionRule;
 }
 
 export interface Joint {
@@ -40,6 +51,8 @@ export interface Joint {
   /** Up to two local axes can expose a flat capsule/rounded-rect span. */
   capsuleFlatAxes?: Array<"x" | "y" | "z">;
   capsuleFlatLengths?: Partial<Record<"x" | "y" | "z", number>>;
+  /** Expansion origin for each local capsule axis. */
+  capsuleAxisExpansionRules?: Partial<Record<"x" | "y" | "z", AxisExpansionRule>>;
   /**
    * A peer-aligned capsule keeps this joint at one sphere and derives the
    * other sphere toward or away from the paired joint. Omitted capsules
@@ -114,6 +127,8 @@ export interface PeerGroup {
   centerJointId?: string;
   /** Draw the two member spheres and their camera-facing bridge as one derived capsule. */
   virtualCapsule?: boolean;
+  /** Expansion origin for the derived first-to-second peer axis. */
+  axisExpansionRule?: AxisExpansionRule;
 }
 
 export interface JointPointRef {
@@ -135,6 +150,23 @@ export interface ProceduralConnection {
   end: ProceduralSectionRef;
 }
 
+export interface TorsoExpansion {
+  /** Legacy distance from the retained shoulder edge to the derived chest edge. */
+  length: number;
+  /** Small rotation toward the body's front, in degrees. */
+  forwardAngle: number;
+  /** Rectangle width axis. Centered mode keeps both side distances equal. */
+  widthAxis?: AxisExpansion;
+  /** Shoulder-to-chest axis. Directional mode allows each end to move independently. */
+  lengthAxis?: AxisExpansion;
+}
+
+/** Optional signed extents used by surfaces that author both axis endpoints. */
+export interface AxisExpansion extends AxisExpansionRule {
+  negativeDistance: number;
+  positiveDistance: number;
+}
+
 export interface Face {
   id: string;
   vertices: JointPointRef[];
@@ -142,6 +174,8 @@ export interface Face {
   proceduralSurface?: "torso" | "peer-capsule" | "waist-hip";
   /** Sections joined by a procedural torso connection, independent of anatomical ids. */
   proceduralConnection?: ProceduralConnection;
+  /** Optional intermediate chest edge used by the procedural torso surface. */
+  torsoExpansion?: TorsoExpansion;
   /**
    * Renders this face from the camera-facing great circles of the two joint
    * spheres. The authored axis points remain available for editing and for

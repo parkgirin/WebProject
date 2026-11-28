@@ -36,6 +36,8 @@ test("a legacy rig separates into structure, body, pose, appearance, and output 
     start: { type: "joint", jointId: "waist" },
     end: { type: "peer-group", peerGroupId: "hip-band" },
   });
+  assert.deepEqual(project.rig.faces.find((face) => face.id === "torso")?.torsoExpansion,
+    state.rig.faces.find((face) => face.id === "torso")?.torsoExpansion);
   assert.deepEqual(project.body.joints["right-elbow"].restOffset,
     [state.getJoint("right-elbow").baseOffset!.x, state.getJoint("right-elbow").baseOffset!.y,
       state.getJoint("right-elbow").baseOffset!.z]);
@@ -72,6 +74,10 @@ test("materializing a separated project preserves the legacy editor rig", () => 
   assert.deepEqual(
     restored.faces.find((face) => face.id === "waist-hip")?.proceduralConnection,
     state.rig.faces.find((face) => face.id === "waist-hip")?.proceduralConnection,
+  );
+  assert.deepEqual(
+    restored.faces.find((face) => face.id === "torso")?.torsoExpansion,
+    state.rig.faces.find((face) => face.id === "torso")?.torsoExpansion,
   );
   assert.deepEqual(restored.outputPivot, project.outputView.pivot);
 });

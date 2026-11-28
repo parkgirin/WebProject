@@ -41,6 +41,7 @@ export function renderSvgEditor(
       - Math.min(surfaceScale.x, surfaceScale.y, surfaceScale.z) > 1e-9) return null;
     const axis = flatAxes[0];
     const flatLength = joint.capsuleFlatLengths?.[axis] ?? 0;
+    const expansionRule = joint.capsuleAxisExpansionRules?.[axis] ?? { mode: "centered" as const };
     const center = getJointWorldTransform(rig, joint.id);
     const sphere = (world: Point, depth: number): CapsuleSphere => ({
       center: { x: world.x, y: world.y, z: depth },
@@ -59,11 +60,20 @@ export function renderSvgEditor(
         const distance = Math.hypot(dx, dy, dz);
         if (distance > 1e-9) {
           const direction = joint.capsuleFlatAlignment === "peer-inward" ? 1 : -1;
-          const inner = {
-            x: center.x + dx / distance * flatLength * direction,
-            y: center.y + dy / distance * flatLength * direction,
+          const axisVector = {
+            x: dx / distance * direction,
+            y: dy / distance * direction,
+            z: dz / distance * direction,
           };
-          return [sphere(center, joint.z), sphere(inner, joint.z + dz / distance * flatLength * direction)];
+          const negativeDistance = expansionRule.mode === "centered" ? -flatLength / 2
+            : (expansionRule.fixedSide ?? -1) === -1 ? 0 : -flatLength;
+          const positiveDistance = expansionRule.mode === "centered" ? flatLength / 2
+            : (expansionRule.fixedSide ?? -1) === -1 ? flatLength : 0;
+          const endpoint = (axisDistance: number) => sphere({
+            x: center.x + axisVector.x * axisDistance,
+            y: center.y + axisVector.y * axisDistance,
+          }, joint.z + axisVector.z * axisDistance);
+          return [endpoint(negativeDistance), endpoint(positiveDistance)];
         }
       }
     }
@@ -72,9 +82,12 @@ export function renderSvgEditor(
     const radiansY = (joint.localRotationY ?? 0) * Math.PI / 180;
     const radiansZ = center.rotation * Math.PI / 180;
     const endpoint = (side: -1 | 1): CapsuleSphere => {
-      let x = axis === "x" ? halfLength * side : 0;
-      let y = axis === "y" ? halfLength * side : 0;
-      let z = axis === "z" ? halfLength * side : 0;
+      const axisDistance = expansionRule.mode === "centered"
+        ? halfLength * side
+        : side === (expansionRule.fixedSide ?? -1) ? 0 : flatLength * side;
+      let x = axis === "x" ? axisDistance : 0;
+      let y = axis === "y" ? axisDistance : 0;
+      let z = axis === "z" ? axisDistance : 0;
       [y, z] = [y * Math.cos(radiansX) - z * Math.sin(radiansX), y * Math.sin(radiansX) + z * Math.cos(radiansX)];
       [x, z] = [x * Math.cos(radiansY) + z * Math.sin(radiansY), -x * Math.sin(radiansY) + z * Math.cos(radiansY)];
       [x, y] = [x * Math.cos(radiansZ) - y * Math.sin(radiansZ), x * Math.sin(radiansZ) + y * Math.cos(radiansZ)];
@@ -228,15 +241,26 @@ export function renderSvgEditor(
   // contour survives.
   const torsoConnectionSurfaces: Array<{ id: string; points: Point[] }> = [];
   const torsoConnectionOutlineMaskId = (id: string) => `torso-connection-outline-mask-${id}`;
-  const capsuleSupport = (circles: readonly ProjectedCircle[], normal: Point, direction: -1 | 1): Point => {
-    const circle = circles.reduce((selected, candidate) => {
+  let torsoRectangleGuide: {
+    faceId: string;
+    corners: [Point, Point, Point, Point];
+    shoulderCenter: Point;
+    chestCenter: Point;
+  } | null = null;
+  const capsuleSupportSample = (circles: readonly ProjectedCircle[], normal: Point, direction: -1 | 1) => {
+    const index = circles.reduce((selectedIndex, candidate, candidateIndex) => {
+      const selected = circles[selectedIndex];
       const selectedScore = direction * (selected.center.x * normal.x + selected.center.y * normal.y) + selected.radius;
       const candidateScore = direction * (candidate.center.x * normal.x + candidate.center.y * normal.y) + candidate.radius;
-      return candidateScore > selectedScore ? candidate : selected;
-    });
+      return candidateScore > selectedScore ? candidateIndex : selectedIndex;
+    }, 0);
+    const circle = circles[index];
     return {
-      x: circle.center.x + normal.x * circle.radius * direction,
-      y: circle.center.y + normal.y * circle.radius * direction,
+      index,
+      point: {
+        x: circle.center.x + normal.x * circle.radius * direction,
+        y: circle.center.y + normal.y * circle.radius * direction,
+      },
     };
   };
   const renderedDepthOf = (jointId: string) => {
@@ -784,6 +808,7 @@ export function renderSvgEditor(
   const jointMaskGeometry = new Map<string, string>();
   const connectionSurfaceOccluders: {
     points: Point[];
+    depths?: number[];
     jointIds: string[];
     groupId?: string;
     order: number;
@@ -810,14 +835,20 @@ export function renderSvgEditor(
           const surfaceScale = joint.surfaceScale ?? { x: 1, y: 1, z: 1 };
           const flatAxes = new Set(joint.capsuleFlatAxes ?? []);
           const flatLength = (axis: "x" | "y" | "z") => flatAxes.has(axis) ? joint.capsuleFlatLengths?.[axis] ?? 0 : 0;
+          const flatShift = (axis: "x" | "y" | "z") => {
+            const length = flatLength(axis);
+            const rule = joint.capsuleAxisExpansionRules?.[axis];
+            if (!rule || rule.mode === "centered") return 0;
+            return (rule.fixedSide ?? -1) === -1 ? length / 2 : -length / 2;
+          };
           const depth = bodyRadiusOf(joint.id) * profile.depthScale * surfaceScale.z + flatLength("z") / 2;
           const radiansX = (joint.localRotationX ?? 0) * Math.PI / 180;
           const radiansY = (joint.localRotationY ?? 0) * Math.PI / 180;
           const radiansZ = center.rotation * Math.PI / 180;
           const rotateProfilePoint = (vertex: { x: number; y: number }, side: number) => {
-            let x = vertex.x * bodyRadiusOf(joint.id) * surfaceScale.x + Math.sign(vertex.x) * flatLength("x") / 2;
-            let y = vertex.y * bodyRadiusOf(joint.id) * surfaceScale.y + Math.sign(vertex.y) * flatLength("y") / 2;
-            let z = side * depth;
+            let x = vertex.x * bodyRadiusOf(joint.id) * surfaceScale.x + Math.sign(vertex.x) * flatLength("x") / 2 + flatShift("x");
+            let y = vertex.y * bodyRadiusOf(joint.id) * surfaceScale.y + Math.sign(vertex.y) * flatLength("y") / 2 + flatShift("y");
+            let z = side * depth + flatShift("z");
             [y, z] = [y * Math.cos(radiansX) - z * Math.sin(radiansX), y * Math.sin(radiansX) + z * Math.cos(radiansX)];
             [x, z] = [x * Math.cos(radiansY) + z * Math.sin(radiansY), -x * Math.sin(radiansY) + z * Math.cos(radiansY)];
             [x, y] = [x * Math.cos(radiansZ) - y * Math.sin(radiansZ), x * Math.sin(radiansZ) + y * Math.cos(radiansZ)];
@@ -993,8 +1024,10 @@ export function renderSvgEditor(
     const waistCenter = getJointWorldTransform(rig, waist.id);
     const leftCenter = getJointWorldTransform(rig, left.id);
     const rightCenter = getJointWorldTransform(rig, right.id);
-    const waistCircles = projectedJointCapsuleCircles(waist.id);
-    if (!waistCircles) return [];
+    const waistSpheres = jointCapsuleSpheres(waist.id);
+    if (!waistSpheres) return [];
+    const waistCircles = waistSpheres.map(({ center, radius }) =>
+      projectSphereCircle(rig, center, center.z, radius)) as [ProjectedCircle, ProjectedCircle];
     const shoulderMidpoint = {
       x: (leftCenter.x + rightCenter.x) / 2,
       y: (leftCenter.y + rightCenter.y) / 2,
@@ -1015,36 +1048,123 @@ export function renderSvgEditor(
     const shoulderDz = right.z - left.z;
     const shoulderDistance = Math.hypot(shoulderDx, shoulderDy, shoulderDz);
     if (shoulderDistance < 1e-9) return [];
-    const shoulderCapsuleCircles = ([left, right] as const).map((joint, index) => {
-      const direction = index === 0 ? 1 : -1;
-      const inset = Math.min(bodyRadiusOf(joint.id), shoulderDistance / 2);
-      const center = index === 0 ? leftCenter : rightCenter;
-      const depth = joint.z + shoulderDz / shoulderDistance * inset * direction;
-      return projectSphereCircle(rig, {
-        x: center.x + shoulderDx / shoulderDistance * inset * direction,
-        y: center.y + shoulderDy / shoulderDistance * inset * direction,
-      }, depth, bodyRadiusOf(joint.id));
+    const torsoExpansion = torsoFace.torsoExpansion ?? { length: connectionLength / 2, forwardAngle: 7 };
+    const normalize3 = (vector: Point3): Point3 => {
+      const length = Math.hypot(vector.x, vector.y, vector.z);
+      return length > 1e-9
+        ? { x: vector.x / length, y: vector.y / length, z: vector.z / length }
+        : { x: 0, y: 0, z: 0 };
+    };
+    const down = normalize3({
+      x: waistCenter.x - shoulderMidpoint.x,
+      y: waistCenter.y - shoulderMidpoint.y,
+      z: waist.z - shoulderMidpoint.z,
     });
+    const width = normalize3({ x: shoulderDx, y: shoulderDy, z: shoulderDz });
+    let front = normalize3({
+      x: width.y * down.z - width.z * down.y,
+      y: width.z * down.x - width.x * down.z,
+      z: width.x * down.y - width.y * down.x,
+    });
+    if (Math.hypot(front.x, front.y, front.z) < 1e-9) front = { x: 0, y: 0, z: 1 };
+    if (front.z < 0) front = { x: -front.x, y: -front.y, z: -front.z };
+    const expansionRadians = torsoExpansion.forwardAngle * Math.PI / 180;
+    const lengthDirection = normalize3({
+      x: down.x * Math.cos(expansionRadians) + front.x * Math.sin(expansionRadians),
+      y: down.y * Math.cos(expansionRadians) + front.y * Math.sin(expansionRadians),
+      z: down.z * Math.cos(expansionRadians) + front.z * Math.sin(expansionRadians),
+    });
+    const widthAxis = torsoExpansion.widthAxis ?? {
+      mode: "centered" as const,
+      negativeDistance: shoulderDistance / 2,
+      positiveDistance: shoulderDistance / 2,
+    };
+    const lengthAxis = torsoExpansion.lengthAxis ?? {
+      mode: "directional" as const,
+      negativeDistance: 0,
+      positiveDistance: torsoExpansion.length,
+    };
+    const rectanglePoint = (widthDistance: number, lengthDistance: number): Point3 => ({
+      x: shoulderMidpoint.x + width.x * widthDistance + lengthDirection.x * lengthDistance,
+      y: shoulderMidpoint.y + width.y * widthDistance + lengthDirection.y * lengthDistance,
+      z: shoulderMidpoint.z + width.z * widthDistance + lengthDirection.z * lengthDistance,
+    });
+    const shoulderNegative3 = rectanglePoint(widthAxis.positiveDistance, -lengthAxis.negativeDistance);
+    const shoulderPositive3 = rectanglePoint(-widthAxis.negativeDistance, -lengthAxis.negativeDistance);
+    const chestPositive3 = rectanglePoint(-widthAxis.negativeDistance, lengthAxis.positiveDistance);
+    const chestNegative3 = rectanglePoint(widthAxis.positiveDistance, lengthAxis.positiveDistance);
+    const shoulderNegative = project(shoulderNegative3, shoulderNegative3.z);
+    const shoulderPositive = project(shoulderPositive3, shoulderPositive3.z);
+    const chestPositive = project(chestPositive3, chestPositive3.z);
+    const chestNegative = project(chestNegative3, chestNegative3.z);
+    const waistPositive = capsuleSupportSample(waistCircles, screenNormal, 1);
+    const waistNegative = capsuleSupportSample(waistCircles, screenNormal, -1);
     const points = [
-      capsuleSupport(shoulderCapsuleCircles, screenNormal, -1), capsuleSupport(shoulderCapsuleCircles, screenNormal, 1),
-      capsuleSupport(waistCircles, screenNormal, 1), capsuleSupport(waistCircles, screenNormal, -1),
+      shoulderNegative, shoulderPositive, chestPositive,
+      waistPositive.point, waistNegative.point, chestNegative,
     ];
+    const shoulderRectangleMidpoint = {
+      x: (shoulderNegative3.x + shoulderPositive3.x) / 2,
+      y: (shoulderNegative3.y + shoulderPositive3.y) / 2,
+      z: (shoulderNegative3.z + shoulderPositive3.z) / 2,
+    };
+    const chestMidpoint = {
+      x: (chestNegative3.x + chestPositive3.x) / 2,
+      y: (chestNegative3.y + chestPositive3.y) / 2,
+      z: (chestNegative3.z + chestPositive3.z) / 2,
+    };
+    const shoulderRectangleProjected = project(shoulderRectangleMidpoint, shoulderRectangleMidpoint.z);
+    const chestProjected = project(chestMidpoint, chestMidpoint.z);
+    torsoRectangleGuide = {
+      faceId: torsoFace.id,
+      corners: [shoulderNegative, shoulderPositive, chestPositive, chestNegative],
+      shoulderCenter: shoulderRectangleProjected,
+      chestCenter: chestProjected,
+    };
+    const sectionDepth = (spheres: readonly CapsuleSphere[]) => spheres.reduce((sum, sphere) =>
+      sum + getCameraZ(rig, sphere.center, sphere.center.z) + sphere.radius, 0) / spheres.length;
+    const supportDepth = (spheres: readonly CapsuleSphere[], index: number) => {
+      const sphere = spheres[index];
+      return getCameraZ(rig, sphere.center, sphere.center.z);
+    };
+    const cornerDepth = (point: Point3) => getCameraZ(rig, point, point.z);
+    const shoulderFrontDepth = cornerDepth(shoulderRectangleMidpoint);
+    const chestFrontDepth = cornerDepth(chestMidpoint);
+    const waistFrontDepth = sectionDepth(waistSpheres);
+    const torsoPatches = [
+      {
+        id: "torso-surface",
+        points: [shoulderNegative, shoulderRectangleProjected, chestProjected, waistProjected,
+          waistNegative.point, chestNegative],
+        depths: [cornerDepth(shoulderNegative3), shoulderFrontDepth,
+          chestFrontDepth, waistFrontDepth, supportDepth(waistSpheres, waistNegative.index),
+          cornerDepth(chestNegative3)],
+      },
+      {
+        id: "torso-surface:opposite",
+        points: [shoulderRectangleProjected, shoulderPositive, chestPositive, waistPositive.point,
+          waistProjected, chestProjected],
+        depths: [shoulderFrontDepth, cornerDepth(shoulderPositive3),
+          cornerDepth(chestPositive3), supportDepth(waistSpheres, waistPositive.index),
+          waistFrontDepth, chestFrontDepth],
+      },
+    ].map((patch) => ({
+      ...patch,
+      depth: patch.depths.reduce((sum, depth) => sum + depth, 0) / patch.depths.length,
+    }));
     const color = escapeXml(resolveColor(rig, torsoFace.color, torsoFace.paletteId));
     const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === torsoFace.id ? " is-selected" : "";
     const depth = (renderedDepthOf(left.id) + renderedDepthOf(right.id) + renderedDepthOf(waist.id)) / 3;
-    const surfaceDepth = (renderedDepthOf(left.id) + bodyRadiusOf(left.id)
-      + renderedDepthOf(right.id) + bodyRadiusOf(right.id)
-      + renderedDepthOf(waist.id) + bodyRadiusOf(waist.id)) / 3;
-    connectionSurfaceOccluders.push({
-      points, jointIds: [left.id, right.id, waist.id],
-      groupId: torsoFace.groupId, order: getFaceOrder(rig, torsoFace), depth: surfaceDepth, id: "torso-surface",
-    });
+    connectionSurfaceOccluders.push(...torsoPatches.map((patch) => ({
+      ...patch, jointIds: [left.id, right.id, waist.id],
+      groupId: torsoFace.groupId, order: getFaceOrder(rig, torsoFace),
+    })));
     torsoConnectionSurfaces.push({ id: "torso", points });
     return [{
       id: "torso-surface", groupId: torsoFace.groupId, order: getFaceOrder(rig, torsoFace),
       depth,
       markup: `<g class="body-face-item procedural-surface-item">
-        <polygon class="body-face${selected}" data-face-id="${escapeXml(torsoFace.id)}" data-torso-surface points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />
+        <polygon class="body-face${selected}" data-face-id="${escapeXml(torsoFace.id)}" data-torso-surface data-torso-depth-patches="2" data-torso-expansion="${torsoExpansion.length},${torsoExpansion.forwardAngle}" data-torso-width-axis="${widthAxis.mode},${widthAxis.negativeDistance},${widthAxis.positiveDistance}" data-torso-length-axis="${lengthAxis.mode},${lengthAxis.negativeDistance},${lengthAxis.positiveDistance}" points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="${color}" />
         <path class="body-face-outline" data-face-outline data-face-id="${escapeXml(torsoFace.id)}" d="${connectionOutlinePath(points, "strip")}" mask="url(#${torsoConnectionOutlineMaskId("torso")})" />
       </g>`,
     }];
@@ -1172,7 +1292,10 @@ export function renderSvgEditor(
         kind: "polygon",
         id: candidate.id,
         points: candidate.points,
-        patches: [{ id: candidate.id, points: candidate.points, depth: candidate.depth }],
+        patches: [{
+          id: candidate.id, points: candidate.points, depth: candidate.depth,
+          ...(candidate.depths ? { depths: candidate.depths } : {}),
+        }],
         jointIds: candidate.jointIds,
         groupId: candidate.groupId,
         order: candidate.order,
@@ -1656,6 +1779,18 @@ export function renderSvgEditor(
       data-peer-group-id="${escapeXml(group.id)}" points="${points}" />`];
   }).join("") : "";
 
+  const torsoRectangleGuides = showJointLayer && torsoRectangleGuide ? (() => {
+    const guide = torsoRectangleGuide;
+    const selected = viewState.selectedTarget === "face" && viewState.selectedFaceId === guide.faceId;
+    const points = guide.corners.map((point) => `${point.x},${point.y}`).join(" ");
+    return `<g class="torso-rectangle-guide${selected ? " is-selected" : ""}" data-torso-rectangle-guide data-face-id="${escapeXml(guide.faceId)}">
+      <polygon class="torso-rectangle-outline" points="${points}" />
+      <line class="torso-rectangle-axis" x1="${guide.shoulderCenter.x}" y1="${guide.shoulderCenter.y}" x2="${guide.chestCenter.x}" y2="${guide.chestCenter.y}" />
+      <circle class="torso-virtual-joint" data-torso-virtual-joint="shoulder" cx="${guide.shoulderCenter.x}" cy="${guide.shoulderCenter.y}" r="5" />
+      <circle class="torso-virtual-joint" data-torso-virtual-joint="chest" cx="${guide.chestCenter.x}" cy="${guide.chestCenter.y}" r="5" />
+    </g>`;
+  })() : "";
+
   const selectedPeerCapsule = viewState.selectedTarget === "joint"
     ? visiblePeerGroups.find((group) => group.virtualCapsule
       && group.jointIds.length === selection.jointIds.length
@@ -1831,7 +1966,7 @@ export function renderSvgEditor(
     <g data-layer="body" class="${viewState.outlinesVisible ? "show-outlines" : ""}">
       ${renderedBody}
     </g>
-    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${virtualCapsuleGuides}${guides}${selectedCapsuleInternals}${rotationHandle}${selectionTransform}${peerHandles}${shapeGuides}${polygonDraft}${lineDraft}${outputPivotGuide}</g>`;
+    <g data-layer="editor-guides">${relationshipGuides}${peerLines}${virtualCapsuleGuides}${torsoRectangleGuides}${guides}${selectedCapsuleInternals}${rotationHandle}${selectionTransform}${peerHandles}${shapeGuides}${polygonDraft}${lineDraft}${outputPivotGuide}</g>`;
 }
 
 function getOuterPoints(points: Point[]): Point[] {

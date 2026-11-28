@@ -449,6 +449,12 @@ button, input { font: inherit; }
 .joint-guide.is-selected .joint-outline { stroke: #282622; stroke-width: 2.5; stroke-dasharray: none; }
 .joint-center { fill: #37342f; pointer-events: none; }
 .virtual-capsule-guide { fill: rgba(130, 99, 168, .035); stroke: #8263a8; stroke-width: 1.25; stroke-opacity: .42; stroke-dasharray: 6 5; stroke-linejoin: round; pointer-events: none; }
+.torso-rectangle-guide { pointer-events: none; color: #2c8ca2; opacity: .58; }
+.torso-rectangle-guide.is-selected { opacity: 1; }
+.torso-rectangle-outline { fill: rgba(44, 140, 162, .035); stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 6 4; stroke-linejoin: round; }
+.torso-rectangle-axis { stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 3 3; }
+.torso-virtual-joint { fill: #fff; stroke: currentColor; stroke-width: 2; }
+.torso-rectangle-guide.is-selected .torso-virtual-joint { fill: #2c8ca2; stroke: #fff; stroke-width: 1.5; }
 .capsule-internal-joint { pointer-events: none; }
 .capsule-internal-sphere { fill: rgba(130, 99, 168, .08); stroke: #8263a8; stroke-width: 1.5; stroke-opacity: .58; stroke-dasharray: 3 3; }
 .capsule-internal-center { fill: #8263a8; fill-opacity: .62; stroke: #fff; stroke-width: 1; }

@@ -19,6 +19,8 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   source.setPerspectiveEnabled(false);
   source.setViewYRotation(35);
   source.setPeerGroupDistance("shoulder-band", 180);
+  source.setAxisExpansionRule({ kind: "peer-axis", peerGroupId: "shoulder-band" }, "directional");
+  source.setAxisExpansionRule({ kind: "joint-capsule-axis", jointId: "waist", axis: "x" }, "directional");
   source.setDefaultColor("#123456");
   source.setFaceColor("torso", "#abcdef");
   const serialized = JSON.stringify(createRigPreset(source.rig, {
@@ -48,6 +50,10 @@ test("a human-v1 preset round-trips pose, proportions, and colors", () => {
   assert.ok(Math.abs(target.getJoint("head").x - source.getJoint("head").x) < 1e-9);
   assert.ok(Math.abs(target.getJoint("head").y - source.getJoint("head").y) < 1e-9);
   assert.equal(target.getPeerGroupDistance("shoulder-band"), 180);
+  assert.deepEqual(target.rig.peerGroups.find((group) => group.id === "shoulder-band")?.axisExpansionRule,
+    { mode: "directional", fixedSide: -1 });
+  assert.deepEqual(target.getJoint("waist").capsuleAxisExpansionRules?.x,
+    { mode: "directional", fixedSide: -1 });
 });
 
 test("a body-relative JSON pose preserves the target body's rest depth", () => {

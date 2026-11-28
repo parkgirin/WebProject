@@ -48,6 +48,8 @@ export interface PolygonRenderPatch {
   id: string;
   points: Point[];
   depth: number;
+  /** Optional per-vertex camera depths for planar interpolation. */
+  depths?: number[];
 }
 
 export interface PolygonRenderSurface extends SurfaceStack {
@@ -85,7 +87,8 @@ export function surfaceDepthRange(surface: RenderSurface): { min: number; max: n
       max: Math.max(surface.startDepth + surface.startRadius, surface.endDepth + surface.endRadius),
     };
   }
-  const depths = surface.patches.map((patch) => patch.depth);
+  const depths = surface.patches.flatMap((patch) => patch.depths?.length === patch.points.length
+    ? patch.depths : [patch.depth]);
   return { min: Math.min(...depths), max: Math.max(...depths) };
 }
 
@@ -190,12 +193,16 @@ export function polygonDepthAt(surface: PolygonRenderSurface, point: Point): num
   for (const patch of surface.patches) {
     if (patch.points.length < 3) continue;
     for (let index = 1; index < patch.points.length - 1; index += 1) {
-      if (triangleDepthAt(
+      const patchDepths = patch.depths?.length === patch.points.length ? patch.depths : null;
+      const triangleDepth = triangleDepthAt(
         point,
         [patch.points[0], patch.points[index], patch.points[index + 1]],
-        [patch.depth, patch.depth, patch.depth],
-      ) !== null) {
-        depth = depth === null ? patch.depth : Math.max(depth, patch.depth);
+        patchDepths
+          ? [patchDepths[0], patchDepths[index], patchDepths[index + 1]]
+          : [patch.depth, patch.depth, patch.depth],
+      );
+      if (triangleDepth !== null) {
+        depth = depth === null ? triangleDepth : Math.max(depth, triangleDepth);
         break;
       }
     }

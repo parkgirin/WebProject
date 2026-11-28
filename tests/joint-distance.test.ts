@@ -5,7 +5,7 @@ import { renderInspector } from "../src/editor/inspector.ts";
 import type { EditorViewState } from "../src/editor/types.ts";
 import { createDefaultRig } from "../src/rig/default-rig.ts";
 import { DEFAULT_AVATAR_PRESET_ID, getAvatarProportionPreset } from "../src/presets/avatar-presets.ts";
-import { getJointParentWorldTransform, getJointWorldTransform } from "../src/rig/geometry.ts";
+import { getAxisPoint, getJointCapsuleEndWorldPoint, getJointParentWorldTransform, getJointWorldTransform } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
 const close = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
@@ -100,6 +100,63 @@ test("peer group distance moves both joints symmetrically and preserves their mi
   close(distance(state, "left-shoulder", "right-shoulder"), 200);
 });
 
+test("peer capsule axes use the same centered or directional expansion rule", () => {
+  const state = new RigState(createDefaultRig());
+  const leftBefore = position(state, "left-shoulder");
+  const rightBefore = position(state, "right-shoulder");
+  assert.deepEqual(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.axisExpansionRule,
+    { mode: "centered" });
+
+  state.setAxisExpansionRule({ kind: "peer-axis", peerGroupId: "shoulder-band" }, "directional");
+  state.setPeerGroupDistance("shoulder-band", 180);
+
+  assert.deepEqual(position(state, "left-shoulder"), leftBefore);
+  close(position(state, "right-shoulder").x, leftBefore.x + 180);
+  close(position(state, "right-shoulder").y, rightBefore.y);
+  assert.deepEqual(state.rig.peerGroups.find((group) => group.id === "shoulder-band")!.axisExpansionRule,
+    { mode: "directional", fixedSide: -1 });
+});
+
+test("joint capsule axes store the common expansion rule per local axis", () => {
+  const state = new RigState(createDefaultRig());
+  assert.deepEqual(state.getJoint("waist").capsuleAxisExpansionRules?.x, { mode: "centered" });
+  state.setAxisExpansionRule({ kind: "joint-capsule-axis", jointId: "waist", axis: "x" }, "directional");
+  assert.deepEqual(state.getJoint("waist").capsuleAxisExpansionRules?.x,
+    { mode: "directional", fixedSide: -1 });
+  assert.deepEqual(state.getJoint("waist").capsuleAxisExpansionRules?.y, undefined);
+});
+
+test("peer-aligned shoulder capsules obey the same axis expansion origin", () => {
+  const state = new RigState(createDefaultRig());
+  const shoulder = state.getJoint("left-shoulder");
+  const center = position(state, shoulder.id);
+  const directionalOuter = getJointCapsuleEndWorldPoint(state.rig, shoulder.id, "outer");
+  close(Math.hypot(directionalOuter.x - center.x, directionalOuter.y - center.y),
+    shoulder.capsuleFlatLengths!.x!);
+
+  state.setAxisExpansionRule(
+    { kind: "joint-capsule-axis", jointId: shoulder.id, axis: "x" }, "centered",
+  );
+  const centeredOuter = getJointCapsuleEndWorldPoint(state.rig, shoulder.id, "outer");
+  close(Math.hypot(centeredOuter.x - center.x, centeredOuter.y - center.y),
+    shoulder.capsuleFlatLengths!.x! / 2);
+});
+
+test("authored joint axes use the shared expansion rule directly", () => {
+  const state = new RigState(createDefaultRig());
+  const waist = state.getJoint("waist");
+  const axis = waist.axes.find((candidate) => candidate.id === "upper-torso")!;
+  const center = position(state, waist.id);
+  assert.notDeepEqual(getAxisPoint(state.rig, waist, axis, -1), { x: center.x, y: center.y });
+
+  state.setAxisExpansionRule(
+    { kind: "joint-axis", jointId: waist.id, axisId: axis.id }, "directional",
+  );
+
+  assert.deepEqual(getAxisPoint(state.rig, waist, axis, -1), { x: center.x, y: center.y });
+  assert.notDeepEqual(getAxisPoint(state.rig, waist, axis, 1), { x: center.x, y: center.y });
+});
+
 test("peer groups toggle their virtual capsule without changing joint transforms", () => {
   const state = new RigState(createDefaultRig());
   const before = state.rig.peerGroups.find((group) => group.id === "shoulder-band")!;
@@ -133,6 +190,8 @@ test("distance fields appear only for actual parent, child or peer relationships
   assert.match(element.innerHTML, /shoulder-band 가상 캡슐/);
   assert.match(element.innerHTML, /data-peer-distance="shoulder-band"/);
   assert.match(element.innerHTML, /data-peer-capsule="shoulder-band" checked/);
+  assert.match(element.innerHTML, /data-peer-axis-expansion="shoulder-band"/);
+  assert.match(element.innerHTML, /data-capsule-axis-expansion="x"/);
   assert.match(element.innerHTML, /data-peer-distance-range="shoulder-band"/);
   assert.match(element.innerHTML, /캡슐 길이/);
   assert.match(element.innerHTML, /data-peer-distance-step="10" data-peer-group="shoulder-band"/);

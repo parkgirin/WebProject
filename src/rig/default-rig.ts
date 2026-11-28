@@ -30,11 +30,11 @@ export function createDefaultRig(): Rig {
     joints: [
       { id: "scene-root", groupId: "torso", x: 300, y: preset.rootY, z: 0, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: false, bodyVisible: false },
       { id: "pelvis-pivot", groupId: "torso", parentJointId: "scene-root", x: 0, y: 60, z: depth.pelvis, localRotation: 0, isVirtual: true, radius: 8, axes: [], renderOrder: 0, guideVisible: true, bodyVisible: false },
-      { id: "waist", groupId: "torso", parentJointId: "pelvis-pivot", x: 0, y: -60, z: depth.waist, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: Math.max(0, (preset.waistRadius - preset.armRadius) * 2) }, axes: [{ id: "upper-torso", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: true },
+      { id: "waist", groupId: "torso", parentJointId: "pelvis-pivot", x: 0, y: -60, z: depth.waist, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: Math.max(0, (preset.waistRadius - preset.armRadius) * 2) }, capsuleAxisExpansionRules: { x: { mode: "centered" } }, axes: [{ id: "upper-torso", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: true },
       { id: "chest", groupId: "torso", parentJointId: "waist", x: 0, y: -preset.chestDistance, z: depth.chest, localRotation: 0, radius: 18, axes: [{ id: "neck", angle: 0, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 10, guideVisible: true, bodyVisible: false },
       { id: "head", groupId: "head", parentJointId: "chest", x: 0, y: -preset.headDistance, z: depth.chest, localRotation: 0, radius: 18, axes: [], renderOrder: 30, guideVisible: true, bodyVisible: false },
-      { id: "left-shoulder", groupId: "left-arm", parentJointId: "chest", x: -shoulderOffset, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: preset.armRadius }, capsuleFlatAlignment: "peer-outward", axes: [{ id: "upper-arm", angle: 90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 18, guideVisible: true, bodyVisible: true },
-      { id: "right-shoulder", groupId: "right-arm", parentJointId: "chest", x: shoulderOffset, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: preset.armRadius }, capsuleFlatAlignment: "peer-outward", axes: [{ id: "upper-arm", angle: -90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 22, guideVisible: true, bodyVisible: true },
+      { id: "left-shoulder", groupId: "left-arm", parentJointId: "chest", x: -shoulderOffset, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: preset.armRadius }, capsuleAxisExpansionRules: { x: { mode: "directional", fixedSide: -1 } }, capsuleFlatAlignment: "peer-outward", axes: [{ id: "upper-arm", angle: 90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 18, guideVisible: true, bodyVisible: true },
+      { id: "right-shoulder", groupId: "right-arm", parentJointId: "chest", x: shoulderOffset, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, surfaceProfileId: "rounded-rect", surfaceScale: { x: 1, y: 1, z: 1 }, capsuleFlatAxes: ["x"], capsuleFlatLengths: { x: preset.armRadius }, capsuleAxisExpansionRules: { x: { mode: "directional", fixedSide: -1 } }, capsuleFlatAlignment: "peer-outward", axes: [{ id: "upper-arm", angle: -90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 22, guideVisible: true, bodyVisible: true },
       { id: "left-elbow", groupId: "left-arm", parentJointId: "left-shoulder", parentAnchor: { type: "capsule-end", role: "outer" }, x: -preset.armSegmentLength, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, axes: [{ id: "lower-arm", angle: 90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 18, guideVisible: true, bodyVisible: true },
       { id: "right-elbow", groupId: "right-arm", parentJointId: "right-shoulder", parentAnchor: { type: "capsule-end", role: "outer" }, x: preset.armSegmentLength, y: 0, z: 0, localRotation: 0, radius: preset.armRadius, axes: [{ id: "lower-arm", angle: -90, pointSides: [-1, 1], alignment: "child-perpendicular" }], renderOrder: 22, guideVisible: true, bodyVisible: true },
       { id: "left-wrist", groupId: "left-arm", parentJointId: "left-elbow", x: -preset.armSegmentLength, y: 0, z: 0, localRotation: 0, radius: preset.wristRadius, axes: [], renderOrder: 18, guideVisible: true, bodyVisible: true },
@@ -47,8 +47,8 @@ export function createDefaultRig(): Rig {
       { id: "right-ankle", groupId: "right-leg", parentJointId: "right-knee", x: 0, y: preset.lowerLegLength, z: 0, localRotation: 0, radius: preset.ankleRadius, axes: [], renderOrder: 16, guideVisible: true, bodyVisible: true },
     ],
     peerGroups: [
-      { id: "shoulder-band", jointIds: ["left-shoulder", "right-shoulder"], virtualCapsule: true },
-      { id: "hip-band", jointIds: ["left-hip", "right-hip"], centerJointId: "pelvis-pivot", virtualCapsule: true },
+      { id: "shoulder-band", jointIds: ["left-shoulder", "right-shoulder"], virtualCapsule: true, axisExpansionRule: { mode: "centered" } },
+      { id: "hip-band", jointIds: ["left-hip", "right-hip"], centerJointId: "pelvis-pivot", virtualCapsule: true, axisExpansionRule: { mode: "centered" } },
     ],
     artShapes: [{ id: "head-base", kind: "sphere", vertices: [{ id: "center", source: "joint-center", jointId: "head", offsetX: 0, offsetY: 0 }], radius: 60, groupId: "head", layerOrder: 31, compositeMode: "paint", compositeGroupId: "composite-head-base" }],
     faces: [
@@ -76,6 +76,21 @@ export function createDefaultRig(): Rig {
         proceduralConnection: {
           start: { type: "peer-group", peerGroupId: "shoulder-band" },
           end: { type: "joint", jointId: "waist" },
+        },
+        torsoExpansion: {
+          length: preset.torsoExpansionLength,
+          forwardAngle: preset.torsoForwardAngle,
+          widthAxis: {
+            mode: "centered",
+            negativeDistance: preset.shoulderDistance / 2,
+            positiveDistance: preset.shoulderDistance / 2,
+          },
+          lengthAxis: {
+            mode: "directional",
+            fixedSide: -1,
+            negativeDistance: 0,
+            positiveDistance: preset.torsoExpansionLength,
+          },
         },
         rotationTarget: { type: "child", childJointId: "chest" },
         groupId: "torso",

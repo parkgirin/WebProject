@@ -28,6 +28,8 @@ export interface AvatarProportionPreset {
   kneeRadius: number;
   ankleRadius: number;
   chestDistance: number;
+  torsoExpansionLength: number;
+  torsoForwardAngle: number;
   headDistance: number;
   armSegmentLength: number;
   upperLegLength: number;
@@ -46,6 +48,8 @@ export interface AvatarProportionPreset {
 const ADULT_LENGTHS = {
   rootY: 320,
   chestDistance: 96,
+  torsoExpansionLength: 48,
+  torsoForwardAngle: 7,
   headDistance: 84,
   armSegmentLength: 96,
   upperLegLength: 120,
@@ -55,25 +59,31 @@ const ADULT_LENGTHS = {
 export const AVATAR_PROPORTION_PRESETS: readonly AvatarProportionPreset[] = [
   { id: "large", name: "대형", description: "넓어진 어깨와 큰 체격", ...ADULT_LENGTHS,
     shoulderDistance: 168, shoulderFlatLength: 12, waistRadius: 48, hipDistance: 62.4, armRadius: 24, wristRadius: 27, hipRadius: 30, kneeRadius: 27, ankleRadius: 30,
+    torsoExpansionLength: 54, torsoForwardAngle: 12,
     depthProfile: { chest: 0, waist: 5, pelvis: -7, hip: -12, knee: 3, ankle: 5 } },
   { id: "male-standard", name: "일반 남성체", description: "표준 균형형", ...ADULT_LENGTHS,
     shoulderDistance: 150, shoulderFlatLength: 10.5, waistRadius: 42, hipDistance: 63, armRadius: 21, wristRadius: 24, hipRadius: 28.5, kneeRadius: 25.5, ankleRadius: 28,
     depthProfile: { chest: 0, waist: 4, pelvis: -6, hip: -10, knee: 2, ankle: 4 } },
   { id: "male-slim", name: "슬림 남성체", description: "기본 여성체와 같은 인물의 남성형", ...ADULT_LENGTHS,
     shoulderDistance: 150, shoulderFlatLength: 9.75, waistRadius: 39, hipDistance: 66, armRadius: 19.5, wristRadius: 22, hipRadius: 28.5, kneeRadius: 24.5, ankleRadius: 27,
+    torsoExpansionLength: 45, torsoForwardAngle: 6,
     depthProfile: { chest: 0, waist: 5, pelvis: -5, hip: -9, knee: 3, ankle: 5 } },
   { id: "female", name: "기본 여성체", description: "슬림 남성체와 같은 인물의 여성형", ...ADULT_LENGTHS,
     shoulderDistance: 132, shoulderFlatLength: 9.75, waistRadius: 36, hipDistance: 84, armRadius: 19.5, wristRadius: 22, hipRadius: 28.5, kneeRadius: 24, ankleRadius: 27,
+    torsoExpansionLength: 45, torsoForwardAngle: 6,
     depthProfile: { chest: 0, waist: 6, pelvis: -8, hip: -14, knee: 3, ankle: 5 } },
   { id: "female-trapezoid", name: "사다리꼴 여성체", description: "고관절에서 무릎까지 점진 축소", ...ADULT_LENGTHS,
     shoulderDistance: 132, shoulderFlatLength: 10.5, waistRadius: 36, hipDistance: 79.2, armRadius: 21, wristRadius: 24, hipRadius: 38.4, kneeRadius: 27, ankleRadius: 30,
+    torsoExpansionLength: 45, torsoForwardAngle: 7,
     depthProfile: { chest: 0, waist: 6, pelvis: -10, hip: -18, knee: 4, ankle: 6 } },
   { id: "neutral-straight", name: "직선형 기본체", description: "굴곡이 적은 기본 픽토그램형", ...ADULT_LENGTHS,
     shoulderDistance: 120, shoulderFlatLength: 30, waistRadius: 60, hipDistance: 60, armRadius: 30, wristRadius: 30, hipRadius: 30, kneeRadius: 30, ankleRadius: 30,
+    torsoExpansionLength: 48, torsoForwardAngle: 4,
     depthProfile: { chest: 0, waist: 0, pelvis: 0, hip: 0, knee: 0, ankle: 0 } },
   { id: "child-neutral", name: "아동체", description: "성별 구분 없는 4등신", rootY: 422,
     shoulderDistance: 108, shoulderFlatLength: 9, waistRadius: 42, hipDistance: 50.4, armRadius: 18, wristRadius: 20, hipRadius: 24, kneeRadius: 21, ankleRadius: 23,
-    chestDistance: 84, headDistance: 78, armSegmentLength: 69, upperLegLength: 78, lowerLegLength: 96,
+    chestDistance: 84, torsoExpansionLength: 39, torsoForwardAngle: 4,
+    headDistance: 78, armSegmentLength: 69, upperLegLength: 78, lowerLegLength: 96,
     depthProfile: { chest: 0, waist: 2, pelvis: -3, hip: -5, knee: 1, ankle: 3 } },
 ];
 
@@ -98,6 +108,22 @@ export function applyAvatarProportionPreset(state: RigState, presetId: AvatarPre
     setDistance(state, "head", "chest", preset.headDistance);
     state.setPeerGroupDistance("shoulder-band", preset.shoulderDistance);
     state.setPeerGroupDistance("hip-band", preset.hipDistance);
+    const torsoFace = state.rig.faces.find((face) => face.proceduralSurface === "torso");
+    if (torsoFace) torsoFace.torsoExpansion = {
+      length: preset.torsoExpansionLength,
+      forwardAngle: preset.torsoForwardAngle,
+      widthAxis: {
+        mode: "centered",
+        negativeDistance: preset.shoulderDistance / 2,
+        positiveDistance: preset.shoulderDistance / 2,
+      },
+      lengthAxis: {
+        mode: "directional",
+        fixedSide: -1,
+        negativeDistance: 0,
+        positiveDistance: preset.torsoExpansionLength,
+      },
+    };
 
     for (const side of ["left", "right"] as const) {
       setDistance(state, `${side}-elbow`, `${side}-shoulder`, preset.armSegmentLength);

@@ -329,7 +329,13 @@ export function enablePointerInput(
         const group = options.state.rig.peerGroups.find((candidate) => candidate.id === id);
         if (!group || group.jointIds.length !== 2) return;
         const depth = getPeerDepth(options.state.rig, id);
-        center = projectPoint(options.state.rig, getPeerGroupPivot(options.state.rig, id), depth);
+        const rule = group.axisExpansionRule ?? { mode: "centered" as const };
+        const fixedJointId = rule.mode === "directional"
+          ? group.jointIds[(rule.fixedSide ?? -1) === -1 ? 0 : 1]
+          : null;
+        center = fixedJointId
+          ? projectPoint(options.state.rig, getJointWorldTransform(options.state.rig, fixedJointId), options.state.getJoint(fixedJointId).z)
+          : projectPoint(options.state.rig, getPeerGroupPivot(options.state.rig, id), depth);
         startLength = options.state.getPeerGroupDistance(id);
       } else {
         const joint = options.state.getJoint(id);

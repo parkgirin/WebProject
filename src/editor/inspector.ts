@@ -154,7 +154,8 @@ export function renderInspector(
       <div class="joint-distance-section">
         <strong>${escapeHtml(group.id)} ${group.virtualCapsule ? "가상 캡슐" : "동등 관계"}</strong>
         <label class="face-override-toggle"><input type="checkbox" data-peer-capsule="${escapeHtml(group.id)}"${group.virtualCapsule ? " checked" : ""} />두 관절을 가상 캡슐로 표시</label>
-        <label class="joint-distance-field"><span>${group.virtualCapsule ? "캡슐 길이" : "관절 중심 간격"}<small>양 끝 중심 간격 · 중점 기준 대칭 이동</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-peer-distance="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 동등 관절 중심 간격" /></label>
+        <label class="field-label"><span>축 확장 기준</span><select data-peer-axis-expansion="${escapeHtml(group.id)}"><option value="centered"${(group.axisExpansionRule?.mode ?? "centered") === "centered" ? " selected" : ""}>중심에서 동등 확장</option><option value="directional"${group.axisExpansionRule?.mode === "directional" ? " selected" : ""}>첫 관절 고정·단방향</option></select></label>
+        <label class="joint-distance-field"><span>${group.virtualCapsule ? "캡슐 길이" : "관절 중심 간격"}<small>${group.axisExpansionRule?.mode === "directional" ? "첫 관절 고정 · 둘째 관절 이동" : "양 끝 중심 간격 · 중점 기준 대칭 이동"}</small></span><input type="number" min="0" step="any" value="${distance.toFixed(2)}" data-peer-distance="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 동등 관절 중심 간격" /></label>
         <input class="peer-distance-range" type="range" min="0" max="${distanceRangeMax}" step="1" value="${distance.toFixed(2)}" data-peer-distance-range="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.id)} 캡슐 길이 슬라이더" />
         <div class="peer-distance-actions" aria-label="${escapeHtml(group.id)} 간격 빠른 조정">
           <button type="button" data-peer-distance-step="-10" data-peer-group="${escapeHtml(group.id)}">−10</button>
@@ -194,7 +195,7 @@ export function renderInspector(
         const fixedShoulderAxis = joint.capsuleFlatAlignment === "peer-outward";
         return `<label><input type="checkbox" data-capsule-axis="${axis}"${active ? " checked" : ""}${fixedShoulderAxis || !active && (joint.capsuleFlatAxes?.length ?? 0) >= 2 ? " disabled" : ""} />${axis.toUpperCase()} 평면</label>`;
       }).join("")}</div>
-      ${(joint.capsuleFlatAxes ?? []).map((axis) => `<label class="field-label">${joint.capsuleFlatAlignment === "peer-outward" ? "어깨 바깥 길이" : `${axis.toUpperCase()} 평면 길이`}<input type="number" min="0" step="0.5" value="${(joint.capsuleFlatLengths?.[axis] ?? joint.radius).toFixed(1)}" data-capsule-length="${axis}" /></label>`).join("")}
+      ${(joint.capsuleFlatAxes ?? []).map((axis) => `<label class="field-label">${joint.capsuleFlatAlignment === "peer-outward" ? "어깨 바깥 길이" : `${axis.toUpperCase()} 평면 길이`}<input type="number" min="0" step="0.5" value="${(joint.capsuleFlatLengths?.[axis] ?? joint.radius).toFixed(1)}" data-capsule-length="${axis}" /></label><label class="field-label"><span>${axis.toUpperCase()} 축 확장 기준</span><select data-capsule-axis-expansion="${axis}"><option value="centered"${(joint.capsuleAxisExpansionRules?.[axis]?.mode ?? "centered") === "centered" ? " selected" : ""}>중심에서 동등 확장</option><option value="directional"${joint.capsuleAxisExpansionRules?.[axis]?.mode === "directional" ? " selected" : ""}>음의 끝 고정·단방향</option></select></label>`).join("")}
       <p class="hint">${joint.capsuleFlatAlignment === "peer-outward" ? "어깨 중심은 몸통 쪽 안쪽 구입니다. 길이를 늘리면 바깥 구와 연결된 팔 전체가 몸 바깥으로 이동합니다." : "X/Y/Z는 표면 크기입니다. 캡슐 평면은 최대 2축까지 선택해 캡슐 또는 둥근사각형 단면으로 확장합니다."}</p>
     </div>
     <div class="axis-section">
@@ -225,6 +226,7 @@ export function renderInspector(
       ${selectedAxis ? `
         <label class="field-label">축 끝점 길이</label>
         <input type="number" min="1" step="1" value="${(selectedAxis.length ?? joint.radius).toFixed(1)}" data-axis-length />
+        <label class="field-label"><span>축 확장 기준</span><select data-joint-axis-expansion><option value="centered"${(selectedAxis.expansionRule?.mode ?? "centered") === "centered" ? " selected" : ""}>중심에서 동등 확장</option><option value="directional"${selectedAxis.expansionRule?.mode === "directional" ? " selected" : ""}>음의 끝 고정·단방향</option></select></label>
         <div class="axis-side-options" aria-label="활성 축 끝점">
           <label><input type="checkbox" data-axis-side="-1"${selectedAxis.pointSides.includes(-1) ? " checked" : ""} />− 끝점</label>
           <label><input type="checkbox" data-axis-side="1"${selectedAxis.pointSides.includes(1) ? " checked" : ""} />＋ 끝점</label>
@@ -249,6 +251,21 @@ export function renderInspector(
         <p>Shift+클릭이나 빈 공간 드래그로 여러 관절을 선택할 수 있습니다. 축선을 회전하면 연결된 하위 트리가 함께 움직입니다.</p>
       </div>`;
 
+  const torsoExpansionMarkup = selectedFace.proceduralSurface === "torso" && selectedFace.torsoExpansion
+    && selectedFace.torsoExpansion.widthAxis && selectedFace.torsoExpansion.lengthAxis ? `
+      <section class="property-group torso-axis-expansion-properties">
+        <span class="eyebrow">가슴 사각형 축 확장</span>
+        <div class="numeric-field-grid">
+          <label><span>어깨 폭 확장</span><select data-torso-axis-mode="widthAxis"><option value="centered"${selectedFace.torsoExpansion.widthAxis.mode === "centered" ? " selected" : ""}>중심에서 동등 확장</option><option value="directional"${selectedFace.torsoExpansion.widthAxis.mode === "directional" ? " selected" : ""}>각 변 독립 확장</option></select></label>
+          <label><span>가슴 방향 확장</span><select data-torso-axis-mode="lengthAxis"><option value="centered"${selectedFace.torsoExpansion.lengthAxis.mode === "centered" ? " selected" : ""}>중심에서 동등 확장</option><option value="directional"${selectedFace.torsoExpansion.lengthAxis.mode === "directional" ? " selected" : ""}>단일 축·각 변 독립</option></select></label>
+          <label><span>왼쪽 변 거리</span><input type="number" min="0" step="1" value="${selectedFace.torsoExpansion.widthAxis.negativeDistance}" data-torso-axis-distance="widthAxis" data-torso-axis-side="negativeDistance" /></label>
+          <label><span>오른쪽 변 거리</span><input type="number" min="0" step="1" value="${selectedFace.torsoExpansion.widthAxis.positiveDistance}" data-torso-axis-distance="widthAxis" data-torso-axis-side="positiveDistance" /></label>
+          <label><span>어깨쪽 변 거리</span><input type="number" min="0" step="1" value="${selectedFace.torsoExpansion.lengthAxis.negativeDistance}" data-torso-axis-distance="lengthAxis" data-torso-axis-side="negativeDistance" /></label>
+          <label><span>가슴쪽 변 거리</span><input type="number" min="0" step="1" value="${selectedFace.torsoExpansion.lengthAxis.positiveDistance}" data-torso-axis-distance="lengthAxis" data-torso-axis-side="positiveDistance" /></label>
+        </div>
+        <p class="hint">중심 확장은 양쪽 변 거리를 같은 값으로 유지합니다. 단일 축 확장은 반대편을 고정하고 선택한 변만 이동합니다.</p>
+      </section>` : "";
+
   const faceMarkup = `
     <h2>면 속성</h2>
     <div class="property-group">
@@ -265,6 +282,7 @@ export function renderInspector(
         <div>${renderLayerStepButtons("face", true)}</div>
       </div>
     </div>
+    ${torsoExpansionMarkup}
     <p class="hint">면을 선택한 상태에서는 순서 변경과 색상 설정이 이 면에 적용됩니다.</p>`;
 
   const shapeMarkup = selectedShape ? `
@@ -704,6 +722,14 @@ export function renderInspector(
       if (groupId) state.setPeerGroupVirtualCapsule(groupId, input.checked);
     });
   });
+  element.querySelectorAll<HTMLSelectElement>("[data-peer-axis-expansion]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const groupId = input.dataset.peerAxisExpansion;
+      if (groupId && (input.value === "centered" || input.value === "directional")) {
+        state.setAxisExpansionRule({ kind: "peer-axis", peerGroupId: groupId }, input.value);
+      }
+    });
+  });
   element.querySelectorAll<HTMLButtonElement>("[data-peer-distance-step]").forEach((button) => {
     button.addEventListener("click", () => {
       const groupId = button.dataset.peerGroup;
@@ -729,6 +755,12 @@ export function renderInspector(
   bindLiveRange(element, state, "#axis-angle", "#axis-angle-number", (value) => {
     if (joint && selection.axisId) state.setAxisAngle(joint.id, selection.axisId, value);
   });
+  element.querySelector<HTMLSelectElement>("[data-joint-axis-expansion]")?.addEventListener("change", (event) => {
+    const mode = (event.target as HTMLSelectElement).value;
+    if (joint && selection.axisId && (mode === "centered" || mode === "directional")) {
+      state.setAxisExpansionRule({ kind: "joint-axis", jointId: joint.id, axisId: selection.axisId }, mode);
+    }
+  });
   element.querySelectorAll<HTMLInputElement>("[data-surface-scale-axis]").forEach((input) => {
     input.addEventListener("change", () => {
       if (joint) state.setJointSurfaceScale(joint.id, input.dataset.surfaceScaleAxis as "x" | "y" | "z", input.valueAsNumber);
@@ -742,6 +774,15 @@ export function renderInspector(
   element.querySelectorAll<HTMLInputElement>("[data-capsule-length]").forEach((input) => {
     input.addEventListener("change", () => {
       if (joint) state.setJointCapsuleFlatLength(joint.id, input.dataset.capsuleLength as "x" | "y" | "z", input.valueAsNumber);
+    });
+  });
+  element.querySelectorAll<HTMLSelectElement>("[data-capsule-axis-expansion]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const axis = input.dataset.capsuleAxisExpansion;
+      if (joint && (axis === "x" || axis === "y" || axis === "z")
+        && (input.value === "centered" || input.value === "directional")) {
+        state.setAxisExpansionRule({ kind: "joint-capsule-axis", jointId: joint.id, axis }, input.value);
+      }
     });
   });
   element.querySelector<HTMLInputElement>("#joint-world-x")?.addEventListener("change", (event) => {
@@ -792,6 +833,28 @@ export function renderInspector(
   });
   element.querySelector<HTMLSelectElement>("[data-face-select]")?.addEventListener("change", (event) => {
     setViewState({ selectedFaceId: (event.target as HTMLSelectElement).value, selectedTarget: "face", selectedShapeId: null, selectedShapeVertexId: null });
+  });
+  element.querySelectorAll<HTMLSelectElement>("[data-torso-axis-mode]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const axisName = input.dataset.torsoAxisMode;
+      const mode = input.value;
+      if ((axisName === "widthAxis" || axisName === "lengthAxis")
+        && (mode === "centered" || mode === "directional")) {
+        state.setAxisExpansionRule({ kind: "face-axis", faceId: selectedFace.id, axis: axisName }, mode);
+      }
+    });
+  });
+  element.querySelectorAll<HTMLInputElement>("[data-torso-axis-distance]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const axisName = input.dataset.torsoAxisDistance;
+      const side = input.dataset.torsoAxisSide;
+      if ((axisName === "widthAxis" || axisName === "lengthAxis")
+        && (side === "negativeDistance" || side === "positiveDistance")) {
+        state.setAxisExpansionDistance(
+          { kind: "face-axis", faceId: selectedFace.id, axis: axisName }, side, input.valueAsNumber,
+        );
+      }
+    });
   });
   element.querySelector<HTMLInputElement>("[data-default-color]")?.addEventListener("change", (event) => {
     state.setDefaultColor((event.target as HTMLInputElement).value);

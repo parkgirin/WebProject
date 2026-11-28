@@ -132,3 +132,21 @@ test("the face shortcut lists only faces connected to the selected joints", () =
   assert.doesNotMatch(faceSelect, />연결 면: torso</);
   assert.match(element.innerHTML, /선택 관절 연결 면 2개/);
 });
+
+test("the torso face exposes independent axis expansion controls", () => {
+  const state = new RigState(createDefaultRig());
+  const element = {
+    dataset: {} as Record<string, string>, innerHTML: "",
+    querySelector: () => null, querySelectorAll: () => [],
+  } as unknown as HTMLElement;
+
+  renderInspector(element, state,
+    { jointId: null, axisId: null, jointIds: [] }, () => {},
+    { ...viewState, selectedTarget: "face", selectedFaceId: "torso" }, () => {});
+
+  assert.match(element.innerHTML, /data-torso-axis-mode="widthAxis"/);
+  assert.match(element.innerHTML, /data-torso-axis-mode="lengthAxis"/);
+  assert.equal((element.innerHTML.match(/data-torso-axis-distance=/g) ?? []).length, 4);
+  assert.match(element.innerHTML, /value="centered" selected/);
+  assert.match(element.innerHTML, /value="directional" selected/);
+});

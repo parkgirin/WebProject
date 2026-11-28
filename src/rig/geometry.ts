@@ -267,11 +267,17 @@ export function getJointCapsuleEndWorldPoint(
   const distance = Math.hypot(dx, dy);
   if (distance < 1e-9) return center;
   const derivedRole = joint.capsuleFlatAlignment === "peer-inward" ? "inner" : "outer";
-  if (role !== derivedRole) return center;
   const direction = joint.capsuleFlatAlignment === "peer-inward" ? 1 : -1;
+  const rule = joint.capsuleAxisExpansionRules?.[axis!] ?? { mode: "directional" as const, fixedSide: -1 as const };
+  const roleDirection = role === derivedRole ? 1 : -1;
+  const axisDistance = rule.mode === "centered"
+    ? length / 2 * roleDirection
+    : (rule.fixedSide ?? -1) === -1
+      ? role === derivedRole ? length : 0
+      : role === derivedRole ? 0 : -length;
   return {
-    x: center.x + dx / distance * length * direction,
-    y: center.y + dy / distance * length * direction,
+    x: center.x + dx / distance * axisDistance * direction,
+    y: center.y + dy / distance * axisDistance * direction,
   };
 }
 
@@ -593,10 +599,14 @@ export function getAxisPoint(
     : undefined;
   const origin = attachedChild ? getJointParentWorldTransform(rig, attachedChild.id) ?? world : world;
   const radians = (getAxisWorldAngle(rig, joint, axis) * Math.PI) / 180;
+  const length = axis.length ?? joint.radius;
+  const axisDistance = axis.expansionRule?.mode === "directional"
+    ? side === (axis.expansionRule.fixedSide ?? -1) ? 0 : length * side
+    : length * side;
 
   return {
-    x: origin.x + Math.cos(radians) * (axis.length ?? joint.radius) * side,
-    y: origin.y + Math.sin(radians) * (axis.length ?? joint.radius) * side,
+    x: origin.x + Math.cos(radians) * axisDistance,
+    y: origin.y + Math.sin(radians) * axisDistance,
   };
 }
 

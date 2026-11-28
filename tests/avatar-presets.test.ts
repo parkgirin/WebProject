@@ -29,6 +29,16 @@ test("all seven avatar presets apply their app dimensions to a valid rig", () =>
     applyAvatarProportionPreset(state, preset.id);
     close(state.getPeerGroupDistance("shoulder-band")!, preset.shoulderDistance);
     close(state.getPeerGroupDistance("hip-band")!, preset.hipDistance);
+    const torsoExpansion = state.rig.faces.find((face) => face.proceduralSurface === "torso")?.torsoExpansion;
+    close(torsoExpansion?.length ?? -1, preset.torsoExpansionLength);
+    close(torsoExpansion?.forwardAngle ?? -1, preset.torsoForwardAngle);
+    assert.deepEqual(torsoExpansion?.widthAxis, {
+      mode: "centered", negativeDistance: preset.shoulderDistance / 2,
+      positiveDistance: preset.shoulderDistance / 2,
+    });
+    assert.deepEqual(torsoExpansion?.lengthAxis, {
+      mode: "directional", fixedSide: -1, negativeDistance: 0, positiveDistance: preset.torsoExpansionLength,
+    });
     const waist = state.getJoint("waist");
     close(waist.radius, preset.armRadius);
     close(waist.radius + (waist.capsuleFlatLengths?.x ?? 0) / 2, preset.waistRadius);

@@ -39,7 +39,8 @@ export interface RigJointDefinition {
 }
 
 export type RigFaceDefinition = Pick<Face,
-  "id" | "vertices" | "proceduralSurface" | "proceduralConnection" | "cameraFacingLimb" | "rotationTarget">;
+  "id" | "vertices" | "proceduralSurface" | "proceduralConnection" | "torsoExpansion"
+  | "cameraFacingLimb" | "rotationTarget">;
 
 export interface BodyDefinition {
   id: string;
@@ -63,6 +64,7 @@ export interface BodyJointDefinition {
   capsuleFlatAxes?: Array<"x" | "y" | "z">;
   capsuleFlatLengths?: Partial<Record<"x" | "y" | "z", number>>;
   capsuleFlatAlignment?: "peer-inward" | "peer-outward";
+  capsuleAxisExpansionRules?: Joint["capsuleAxisExpansionRules"];
 }
 
 export interface PoseDefinition {
@@ -257,6 +259,7 @@ export function createRigDefinition(rig: Rig, id: string, family: string, versio
       vertices: structuredClone(face.vertices),
       ...(face.proceduralSurface ? { proceduralSurface: face.proceduralSurface } : {}),
       ...(face.proceduralConnection ? { proceduralConnection: structuredClone(face.proceduralConnection) } : {}),
+      ...(face.torsoExpansion ? { torsoExpansion: structuredClone(face.torsoExpansion) } : {}),
       ...(face.cameraFacingLimb ? { cameraFacingLimb: structuredClone(face.cameraFacingLimb) } : {}),
       rotationTarget: structuredClone(face.rotationTarget),
     })),
@@ -286,6 +289,7 @@ export function createBodyDefinition(
         ...(joint.capsuleFlatAxes ? { capsuleFlatAxes: [...joint.capsuleFlatAxes] } : {}),
         ...(joint.capsuleFlatLengths ? { capsuleFlatLengths: structuredClone(joint.capsuleFlatLengths) } : {}),
         ...(joint.capsuleFlatAlignment ? { capsuleFlatAlignment: joint.capsuleFlatAlignment } : {}),
+        ...(joint.capsuleAxisExpansionRules ? { capsuleAxisExpansionRules: structuredClone(joint.capsuleAxisExpansionRules) } : {}),
       };
       return [joint.id, bodyJoint];
     })),
@@ -452,6 +456,7 @@ export function materializeProjectRig(project: ProjectDocument): Rig {
       ...(body.capsuleFlatAxes ? { capsuleFlatAxes: [...body.capsuleFlatAxes] } : {}),
       ...(body.capsuleFlatLengths ? { capsuleFlatLengths: structuredClone(body.capsuleFlatLengths) } : {}),
       ...(body.capsuleFlatAlignment ? { capsuleFlatAlignment: body.capsuleFlatAlignment } : {}),
+      ...(body.capsuleAxisExpansionRules ? { capsuleAxisExpansionRules: structuredClone(body.capsuleAxisExpansionRules) } : {}),
       ...structuredClone(appearance),
       axes: definition.axes.map((axis) => ({
         ...structuredClone(axis),

@@ -1,6 +1,7 @@
 import {
   DEFAULT_RIG_LIMITS,
   type AxisPointSide,
+  type AxisExpansionRule,
   type ArtCompositeMode,
   type ArtShape,
   type ArtShapeVertex,
@@ -9,6 +10,35 @@ import {
   type Rig,
   type RigLimits,
 } from "./types.ts";
+
+function isValidAxisExpansionRule(rule: AxisExpansionRule | undefined): boolean {
+  return Boolean(rule && (rule.mode === "centered" || rule.mode === "directional")
+    && (rule.fixedSide === undefined || rule.fixedSide === -1 || rule.fixedSide === 1));
+}
+
+function normalizeAxisExpansionRules(rig: Rig): void {
+  for (const group of rig.peerGroups) group.axisExpansionRule ??= { mode: "centered" };
+  for (const joint of rig.joints) {
+    joint.capsuleAxisExpansionRules ??= {};
+    for (const axis of joint.capsuleFlatAxes ?? []) {
+      joint.capsuleAxisExpansionRules[axis] ??= joint.capsuleFlatAlignment
+        ? { mode: "directional", fixedSide: -1 }
+        : { mode: "centered" };
+    }
+  }
+  for (const face of rig.faces) {
+    const expansion = face.torsoExpansion;
+    if (!expansion) continue;
+    if (expansion.widthAxis?.mode === "directional") expansion.widthAxis.fixedSide ??= -1;
+    if (expansion.lengthAxis?.mode === "directional") expansion.lengthAxis.fixedSide ??= -1;
+  }
+}
+
+export type AxisExpansionTarget =
+  | { kind: "peer-axis"; peerGroupId: string }
+  | { kind: "joint-axis"; jointId: string; axisId: string }
+  | { kind: "joint-capsule-axis"; jointId: string; axis: "x" | "y" | "z" }
+  | { kind: "face-axis"; faceId: string; axis: "widthAxis" | "lengthAxis" };
 import {
   getAxisPoint,
   getArtShapeVertexPoint,
@@ -114,19 +144,65 @@ export function normalizeProceduralConnections(rig: Rig): void {
   const jointIds = new Set(rig.joints.map((joint) => joint.id));
   const peerGroupIds = new Set(rig.peerGroups.map((group) => group.id));
   for (const face of rig.faces) {
-    if (face.proceduralConnection) continue;
-    if (face.proceduralSurface === "torso"
+    if (!face.proceduralConnection && face.proceduralSurface === "torso"
       && jointIds.has("waist") && peerGroupIds.has("shoulder-band")) {
       face.proceduralConnection = {
         start: { type: "peer-group", peerGroupId: "shoulder-band" },
         end: { type: "joint", jointId: "waist" },
       };
-    } else if (face.proceduralSurface === "waist-hip"
+    } else if (!face.proceduralConnection && face.proceduralSurface === "waist-hip"
       && jointIds.has("waist") && peerGroupIds.has("hip-band")) {
       face.proceduralConnection = {
         start: { type: "joint", jointId: "waist" },
         end: { type: "peer-group", peerGroupId: "hip-band" },
       };
+    }
+    if (face.proceduralSurface === "torso") {
+      const connection = face.proceduralConnection;
+      const startPeerGroupId = connection?.start.type === "peer-group" ? connection.start.peerGroupId : null;
+      const endJointId = connection?.end.type === "joint" ? connection.end.jointId : null;
+      const startGroup = startPeerGroupId
+        ? rig.peerGroups.find((group) => group.id === startPeerGroupId)
+        : null;
+      const endJoint = endJointId
+        ? rig.joints.find((joint) => joint.id === endJointId)
+        : null;
+      const startJoints = startGroup?.jointIds
+        .map((jointId) => rig.joints.find((joint) => joint.id === jointId))
+        .filter((joint): joint is Rig["joints"][number] => Boolean(joint)) ?? [];
+      const startCenter = startJoints.length ? startJoints.reduce((sum, joint) => {
+        const world = getJointWorldTransform(rig, joint.id);
+        return { x: sum.x + world.x, y: sum.y + world.y, z: sum.z + joint.z };
+      }, { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+      if (startJoints.length) {
+        startCenter.x /= startJoints.length;
+        startCenter.y /= startJoints.length;
+        startCenter.z /= startJoints.length;
+      }
+      const endWorld = endJoint ? getJointWorldTransform(rig, endJoint.id) : null;
+      const connectionLength = endJoint && endWorld
+        ? Math.hypot(endWorld.x - startCenter.x, endWorld.y - startCenter.y, endJoint.z - startCenter.z)
+        : 96;
+      if (!face.torsoExpansion) {
+        face.torsoExpansion = { length: connectionLength / 2, forwardAngle: 7 };
+      }
+      const shoulderDistance = startJoints.length === 2 ? (() => {
+        const first = getJointWorldTransform(rig, startJoints[0].id);
+        const second = getJointWorldTransform(rig, startJoints[1].id);
+        return Math.hypot(second.x - first.x, second.y - first.y, startJoints[1].z - startJoints[0].z);
+      })() : 120;
+      face.torsoExpansion.widthAxis ??= {
+        mode: "centered",
+        negativeDistance: shoulderDistance / 2,
+        positiveDistance: shoulderDistance / 2,
+      };
+      face.torsoExpansion.lengthAxis ??= {
+        mode: "directional",
+        negativeDistance: 0,
+        positiveDistance: face.torsoExpansion.length,
+      };
+      face.torsoExpansion.length = face.torsoExpansion.lengthAxis.negativeDistance
+        + face.torsoExpansion.lengthAxis.positiveDistance;
     }
   }
 }
@@ -382,6 +458,11 @@ export function validateRig(
       && joint.capsuleFlatAlignment !== "peer-outward") {
       errors.push(`Invalid capsule flat alignment: ${joint.id}`);
     }
+    for (const [axis, rule] of Object.entries(joint.capsuleAxisExpansionRules ?? {})) {
+      if (!joint.capsuleFlatAxes?.includes(axis as "x" | "y" | "z") || !isValidAxisExpansionRule(rule)) {
+        errors.push(`Invalid capsule axis expansion rule: ${joint.id}.${axis}`);
+      }
+    }
     if (joint.parentAnchor !== undefined
       && (joint.parentAnchor.type !== "capsule-end" || joint.parentAnchor.role !== "outer")) {
       errors.push(`Invalid parent anchor: ${joint.id}`);
@@ -404,6 +485,9 @@ export function validateRig(
       axisIds.add(axis.id);
       if (axis.length !== undefined && (!(axis.length > 0) || !Number.isFinite(axis.length))) {
         errors.push(`Axis length must be positive: ${joint.id}.${axis.id}`);
+      }
+      if (axis.expansionRule !== undefined && !isValidAxisExpansionRule(axis.expansionRule)) {
+        errors.push(`Invalid axis expansion rule: ${joint.id}.${axis.id}`);
       }
 
       const sides = new Set<AxisPointSide>();
@@ -479,6 +563,9 @@ export function validateRig(
     if (group.virtualCapsule !== undefined && typeof group.virtualCapsule !== "boolean") {
       errors.push(`Peer virtual capsule must be boolean: ${group.id}`);
     }
+    if (group.axisExpansionRule !== undefined && !isValidAxisExpansionRule(group.axisExpansionRule)) {
+      errors.push(`Invalid peer axis expansion rule: ${group.id}`);
+    }
     if (group.centerJointId) {
       const center = rig.joints.find((joint) => joint.id === group.centerJointId);
       if (!center?.isVirtual) errors.push(`Peer center must be a virtual joint: ${group.id}.${group.centerJointId}`);
@@ -521,6 +608,21 @@ export function validateRig(
           }
         } else if (!rig.peerGroups.some((group) => group.id === section.peerGroupId)) {
           errors.push(`Unknown procedural section peer group: ${face.id}.${section.peerGroupId}`);
+        }
+      }
+    }
+    if (face.torsoExpansion !== undefined) {
+      if (face.proceduralSurface !== "torso" || !Number.isFinite(face.torsoExpansion.length)
+        || face.torsoExpansion.length < 0 || !Number.isFinite(face.torsoExpansion.forwardAngle)
+        || Math.abs(face.torsoExpansion.forwardAngle) > 90) {
+        errors.push(`Invalid torso expansion: ${face.id}`);
+      }
+      for (const axis of [face.torsoExpansion.widthAxis, face.torsoExpansion.lengthAxis]) {
+        if (!axis || !isValidAxisExpansionRule(axis)
+          || !Number.isFinite(axis.negativeDistance) || axis.negativeDistance < 0
+          || !Number.isFinite(axis.positiveDistance) || axis.positiveDistance < 0
+          || axis.mode === "centered" && Math.abs(axis.negativeDistance - axis.positiveDistance) > 1e-8) {
+          errors.push(`Invalid torso rectangle axis: ${face.id}`);
         }
       }
     }
@@ -654,6 +756,7 @@ export class RigState {
     normalizeCameraFacingLimbFaces(rig);
     normalizePeerGroupCapsules(rig);
     normalizeProceduralConnections(rig);
+    normalizeAxisExpansionRules(rig);
     normalizeConnectionControlAxes(rig);
     normalizeSurfaceProfiles(rig);
     normalizeArtShapeSpheres(rig);
@@ -741,6 +844,68 @@ export class RigState {
       throw new Error(`Unknown face: ${faceId}`);
     }
     return face;
+  }
+
+  /** Apply the same expansion-origin rule to any authored or derived axis. */
+  public setAxisExpansionRule(
+    target: AxisExpansionTarget,
+    mode: "centered" | "directional",
+    fixedSide: AxisPointSide = -1,
+  ): void {
+    const rule: AxisExpansionRule = mode === "centered" ? { mode } : { mode, fixedSide };
+    if (target.kind === "peer-axis") {
+      const group = this.rig.peerGroups.find((candidate) => candidate.id === target.peerGroupId);
+      if (!group || group.jointIds.length !== 2) return;
+      group.axisExpansionRule = rule;
+    } else if (target.kind === "joint-axis") {
+      const axis = this.getJoint(target.jointId).axes.find((candidate) => candidate.id === target.axisId);
+      if (!axis) return;
+      axis.expansionRule = rule;
+    } else if (target.kind === "joint-capsule-axis") {
+      const joint = this.getJoint(target.jointId);
+      if (!joint.capsuleFlatAxes?.includes(target.axis)) return;
+      joint.capsuleAxisExpansionRules ??= {};
+      joint.capsuleAxisExpansionRules[target.axis] = rule;
+      this.alignOutgoingConnectionAxes(joint.id);
+    } else {
+      const expansion = this.getFace(target.faceId).torsoExpansion;
+      const axis = expansion?.[target.axis];
+      if (!expansion || !axis) return;
+      axis.mode = rule.mode;
+      if (rule.fixedSide === undefined) delete axis.fixedSide;
+      else axis.fixedSide = rule.fixedSide;
+      if (mode === "centered") {
+        const distance = (axis.negativeDistance + axis.positiveDistance) / 2;
+        axis.negativeDistance = distance;
+        axis.positiveDistance = distance;
+      }
+      expansion.length = expansion.lengthAxis
+        ? expansion.lengthAxis.negativeDistance + expansion.lengthAxis.positiveDistance
+        : expansion.length;
+    }
+    this.notify();
+  }
+
+  /** Edit signed extents for axes that expose authored endpoint distances. */
+  public setAxisExpansionDistance(
+    target: Extract<AxisExpansionTarget, { kind: "face-axis" }>,
+    side: "negativeDistance" | "positiveDistance",
+    distance: number,
+  ): void {
+    if (!Number.isFinite(distance)) return;
+    const expansion = this.getFace(target.faceId).torsoExpansion;
+    const axis = expansion?.[target.axis];
+    if (!expansion || !axis) return;
+    const next = Math.max(0, distance);
+    axis[side] = next;
+    if (axis.mode === "centered") {
+      axis.negativeDistance = next;
+      axis.positiveDistance = next;
+    }
+    if (target.axis === "lengthAxis") {
+      expansion.length = axis.negativeDistance + axis.positiveDistance;
+    }
+    this.notify();
   }
 
   public getArtShape(shapeId: string) {
@@ -1301,7 +1466,7 @@ export class RigState {
       this.getJoint(group.jointIds[1]).z - this.getJoint(group.jointIds[0]).z);
   }
 
-  /** Set a two-member peer distance symmetrically, preserving its midpoint and pivot offset. */
+  /** Set a two-member peer distance using the peer axis' shared expansion rule. */
   public setPeerGroupDistance(peerGroupId: string, distance: number): void {
     if (!Number.isFinite(distance) || distance < 0) return;
     const group = this.rig.peerGroups.find((candidate) => candidate.id === peerGroupId);
@@ -1320,12 +1485,26 @@ export class RigState {
     const directionY = current > 1e-9 ? dy / current : 0;
     const directionZ = current > 1e-9 ? dz / current : 0;
     const half = distance / 2;
-    this.setJointWorldPosition(first, midpoint.x - directionX * half, midpoint.y - directionY * half);
-    this.setJointWorldPosition(second, midpoint.x + directionX * half, midpoint.y + directionY * half);
+    const rule = group.axisExpansionRule ?? { mode: "centered" as const };
+    const fixedSide = rule.fixedSide ?? -1;
+    const firstTarget = rule.mode === "centered"
+      ? { x: midpoint.x - directionX * half, y: midpoint.y - directionY * half, z: midpoint.z - directionZ * half }
+      : fixedSide === -1
+        ? { x: firstWorld.x, y: firstWorld.y, z: first.z }
+        : { x: secondWorld.x - directionX * distance, y: secondWorld.y - directionY * distance,
+          z: second.z - directionZ * distance };
+    const secondTarget = rule.mode === "centered"
+      ? { x: midpoint.x + directionX * half, y: midpoint.y + directionY * half, z: midpoint.z + directionZ * half }
+      : fixedSide === -1
+        ? { x: firstWorld.x + directionX * distance, y: firstWorld.y + directionY * distance,
+          z: first.z + directionZ * distance }
+        : { x: secondWorld.x, y: secondWorld.y, z: second.z };
+    this.setJointWorldPosition(first, firstTarget.x, firstTarget.y);
+    this.setJointWorldPosition(second, secondTarget.x, secondTarget.y);
     const firstPreviousZ = first.z;
     const secondPreviousZ = second.z;
-    first.z = midpoint.z - directionZ * half;
-    second.z = midpoint.z + directionZ * half;
+    first.z = firstTarget.z;
+    second.z = secondTarget.z;
     this.translateDescendantDepths(first.id, first.z - firstPreviousZ);
     this.translateDescendantDepths(second.id, second.z - secondPreviousZ);
     if (first.parentJointId === second.parentJointId) {
@@ -1343,12 +1522,22 @@ export class RigState {
       const restDirectionX = restDistance > 1e-9 ? restDx / restDistance : directionX;
       const restDirectionY = restDistance > 1e-9 ? restDy / restDistance : directionY;
       const restDirectionZ = restDistance > 1e-9 ? restDz / restDistance : directionZ;
-      first.baseOffset.x = restMidpoint.x - restDirectionX * half;
-      first.baseOffset.y = restMidpoint.y - restDirectionY * half;
-      first.baseOffset.z = restMidpoint.z - restDirectionZ * half;
-      second.baseOffset.x = restMidpoint.x + restDirectionX * half;
-      second.baseOffset.y = restMidpoint.y + restDirectionY * half;
-      second.baseOffset.z = restMidpoint.z + restDirectionZ * half;
+      if (rule.mode === "centered") {
+        first.baseOffset.x = restMidpoint.x - restDirectionX * half;
+        first.baseOffset.y = restMidpoint.y - restDirectionY * half;
+        first.baseOffset.z = restMidpoint.z - restDirectionZ * half;
+        second.baseOffset.x = restMidpoint.x + restDirectionX * half;
+        second.baseOffset.y = restMidpoint.y + restDirectionY * half;
+        second.baseOffset.z = restMidpoint.z + restDirectionZ * half;
+      } else if (fixedSide === -1) {
+        second.baseOffset.x = first.baseOffset.x + restDirectionX * distance;
+        second.baseOffset.y = first.baseOffset.y + restDirectionY * distance;
+        second.baseOffset.z = first.baseOffset.z + restDirectionZ * distance;
+      } else {
+        first.baseOffset.x = second.baseOffset.x - restDirectionX * distance;
+        first.baseOffset.y = second.baseOffset.y - restDirectionY * distance;
+        first.baseOffset.z = second.baseOffset.z - restDirectionZ * distance;
+      }
       first.baseDistance = Math.hypot(first.baseOffset.x, first.baseOffset.y, first.baseOffset.z);
       second.baseDistance = Math.hypot(second.baseOffset.x, second.baseOffset.y, second.baseOffset.z);
     }
@@ -1751,6 +1940,9 @@ export class RigState {
     joint.capsuleFlatAxes = [...axes];
     joint.capsuleFlatLengths ??= {};
     joint.capsuleFlatLengths[axis] ??= joint.radius;
+    joint.capsuleAxisExpansionRules ??= {};
+    if (enabled) joint.capsuleAxisExpansionRules[axis] ??= { mode: "centered" };
+    else delete joint.capsuleAxisExpansionRules[axis];
     this.notify();
   }
 

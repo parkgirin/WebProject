@@ -1,7 +1,7 @@
 import { createDefaultRig } from "../rig/default-rig.ts";
 import { captureBodyRelativePose, restoreBodyRelativePose } from "../rig/body-relative-pose.ts";
 import { normalizeArtShapeSpheres, validateRig, type RigState } from "../rig/rig-state.ts";
-import type { Rig } from "../rig/types.ts";
+import type { AxisExpansionRule, Rig } from "../rig/types.ts";
 import {
   quaternionBetweenVectors,
   quaternionFromEuler,
@@ -28,6 +28,7 @@ export type CompactRelativeJointPose = [
 export type CompactJointProportions = [
   jointIndex: number, x: number, y: number, radius: number, sideRadius?: number | null, restZ?: number,
   capsuleFlatLengths?: Partial<Record<"x" | "y" | "z", number>>,
+  capsuleAxisExpansionRules?: Partial<Record<"x" | "y" | "z", AxisExpansionRule>>,
 ];
 
 export interface PresetParts {
@@ -43,7 +44,11 @@ export interface RigPreset {
   createdAt: string;
   rigTemplate: typeof HUMAN_RIG_TEMPLATE_ID;
   pose?: LegacyPoseData | BodyRelativePoseData;
-  proportions?: { joints: CompactJointProportions[]; peerDistances?: Record<string, number> };
+  proportions?: {
+    joints: CompactJointProportions[];
+    peerDistances?: Record<string, number>;
+    peerAxisExpansionRules?: Record<string, AxisExpansionRule>;
+  };
   colors?: {
     defaultColor: string;
     palette: Rig["palette"];
@@ -83,7 +88,8 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
       const parent = joint.parentJointId ? rig.joints.find((candidate) => candidate.id === joint.parentJointId) : null;
       const rest = joint.baseOffset ?? { x: joint.x, y: joint.y, z: joint.z - (parent?.z ?? 0) };
       return [index, rest.x, rest.y, joint.radius, joint.sideRadius, rest.z,
-        joint.capsuleFlatLengths ? structuredClone(joint.capsuleFlatLengths) : undefined];
+        joint.capsuleFlatLengths ? structuredClone(joint.capsuleFlatLengths) : undefined,
+        joint.capsuleAxisExpansionRules ? structuredClone(joint.capsuleAxisExpansionRules) : undefined];
     }),
     peerDistances: Object.fromEntries(rig.peerGroups.flatMap((group) => {
       if (group.jointIds.length !== 2) return [];
@@ -91,6 +97,9 @@ export function createRigPreset(rig: Rig, parts: PresetParts): RigPreset {
       const second = rig.joints.find((joint) => joint.id === group.jointIds[1]);
       return first && second ? [[group.id, Math.hypot(second.x - first.x, second.y - first.y, second.z - first.z)]] : [];
     })),
+    peerAxisExpansionRules: Object.fromEntries(rig.peerGroups.map((group) => [
+      group.id, structuredClone(group.axisExpansionRule ?? { mode: "centered" }),
+    ])),
   };
   if (parts.colors) preset.colors = {
     defaultColor: rig.defaultColor,
@@ -181,6 +190,9 @@ export function applyRigPreset(state: RigState, preset: RigPreset, parts: Preset
     if (parts.proportions && preset.proportions) {
       for (const [jointId, value] of proportionEntries(preset)) if (jointId) {
         applyBodyProportions(state, jointId, value);
+      }
+      for (const [peerGroupId, rule] of Object.entries(preset.proportions.peerAxisExpansionRules ?? {})) {
+        state.setAxisExpansionRule({ kind: "peer-axis", peerGroupId }, rule.mode, rule.fixedSide);
       }
       for (const [peerGroupId, distance] of Object.entries(preset.proportions.peerDistances ?? {})) {
         if (isFiniteNumber(distance)) state.setPeerGroupDistance(peerGroupId, distance);
@@ -292,13 +304,26 @@ function isProportions(value: unknown): boolean {
   return isRecord(value) && isCompactEntries(value.joints, 4, (entry) => entry.slice(0, 4).every(isFiniteNumber)
     && (entry[4] === undefined || entry[4] === null || isFiniteNumber(entry[4]))
     && (entry[5] === undefined || isFiniteNumber(entry[5]))
-    && (entry[6] === undefined || entry[6] === null || isFlatLengths(entry[6])))
+    && (entry[6] === undefined || entry[6] === null || isFlatLengths(entry[6]))
+    && (entry[7] === undefined || entry[7] === null || isCapsuleAxisExpansionRules(entry[7])))
     && (value.peerDistances === undefined || isRecord(value.peerDistances)
-      && Object.values(value.peerDistances).every(isFiniteNumber));
+      && Object.values(value.peerDistances).every(isFiniteNumber))
+    && (value.peerAxisExpansionRules === undefined || isRecord(value.peerAxisExpansionRules)
+      && Object.values(value.peerAxisExpansionRules).every(isAxisExpansionRule));
 }
 function isFlatLengths(value: unknown): value is Partial<Record<"x" | "y" | "z", number>> {
   return isRecord(value) && Object.entries(value).every(([axis, length]) => (axis === "x" || axis === "y" || axis === "z")
     && isFiniteNumber(length) && length >= 0);
+}
+function isAxisExpansionRule(value: unknown): value is AxisExpansionRule {
+  return isRecord(value) && (value.mode === "centered" || value.mode === "directional")
+    && (value.fixedSide === undefined || value.fixedSide === -1 || value.fixedSide === 1);
+}
+function isCapsuleAxisExpansionRules(
+  value: unknown,
+): value is Partial<Record<"x" | "y" | "z", AxisExpansionRule>> {
+  return isRecord(value) && Object.entries(value).every(([axis, rule]) =>
+    (axis === "x" || axis === "y" || axis === "z") && isAxisExpansionRule(rule));
 }
 
 function applyBodyProportions(state: RigState, jointId: string, value: CompactJointProportions): void {
@@ -321,6 +346,12 @@ function applyBodyProportions(state: RigState, jointId: string, value: CompactJo
   }
   if (value[6]) for (const [axis, length] of Object.entries(value[6])) {
     state.setJointCapsuleFlatLength(jointId, axis as "x" | "y" | "z", length!);
+  }
+  if (value[7]) for (const [axis, rule] of Object.entries(value[7])) {
+    state.setAxisExpansionRule(
+      { kind: "joint-capsule-axis", jointId, axis: axis as "x" | "y" | "z" },
+      rule!.mode, rule!.fixedSide,
+    );
   }
 }
 function isCompactEntries(value: unknown, minimumLength: number, valid: (entry: unknown[]) => boolean): boolean {

@@ -7,6 +7,14 @@ import type { EditorViewState } from "../src/editor/types.ts";
 import { getCameraFacingLimbSurface, getJointTubeSurface, getJointViewRadius, getJointWorldTransform, getProjectedCircleConnectionSurface, getProjectedTubeGeometry, PROJECTION_ORIGIN, projectPoint, projectSphereCircle } from "../src/rig/geometry.ts";
 import { RigState } from "../src/rig/rig-state.ts";
 
+const torsoSurfacePoints = (markup: string) => {
+  const value = markup.match(/data-face-id="torso" data-torso-surface[^>]* points="([^"]+)/)?.[1];
+  return value?.split(" ").map((point) => {
+    const [x, y] = point.split(",").map(Number);
+    return { x, y };
+  });
+};
+
 test("limb tube creates circular eight-sided surfaces from joint x/y/z coordinates", () => {
   const rig = createDefaultRig();
   const shoulder = rig.joints.find((joint) => joint.id === "left-shoulder")!;
@@ -373,7 +381,8 @@ test("a torso polygon behind the neck does not erase the nearer tube", () => {
   const neckMask = host.innerHTML.match(
     /<mask[^>]*data-polygon-tube-occlusion-face-id="neck"[^>]*>([\s\S]*?)<\/mask>/,
   )?.[1] ?? "";
-  assert.doesNotMatch(neckMask, /data-polygon-depth-occluder="(?:peer-capsule:shoulder-band|torso-surface)"/);
+  assert.doesNotMatch(neckMask,
+    /data-polygon-depth-occluder="(?:peer-capsule:shoulder-band|torso-surface(?::opposite)?)"/);
 });
 
 test("head sphere and an unrelated arm use the shared surface-depth rule", () => {
@@ -829,10 +838,31 @@ test("straight torso keeps equal section widths through a Y-axis turn", () => {
   };
 
   renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
-  const torsoPoints = host.innerHTML.match(/data-face-id="torso" data-torso-surface points="([^"]+)/)?.[1]
-    .split(" ").map((point) => Number(point.split(",")[0]));
+  const torsoPoints = torsoSurfacePoints(host.innerHTML);
   assert.ok(torsoPoints);
-  assert.ok(Math.abs((torsoPoints[0] - torsoPoints[1]) - (torsoPoints[3] - torsoPoints[2])) < 1e-8);
+  assert.equal(torsoPoints.length, 6);
+  assert.ok(Math.abs((torsoPoints[0].x - torsoPoints[1].x) - (torsoPoints[5].x - torsoPoints[2].x)) < 1e-8);
+});
+
+test("angled torso splits its visible surface into two interpolated depth patches", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  rig.viewYRotation = 45;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: null, selectedTarget: "joint",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  assert.match(host.innerHTML, /data-torso-depth-patches="2"/);
+  const waistMask = host.innerHTML.match(
+    /<mask[^>]*data-outline-mask-joint-id="waist"[^>]*>([\s\S]*?)<\/mask>/,
+  )?.[1] ?? "";
+  assert.match(waistMask, /data-mask-surface-id="torso-surface"/);
+  assert.match(waistMask, /data-mask-surface-id="torso-surface:opposite"/);
 });
 
 test("shoulder capsules use inner spheres for a straight torso and outer spheres for arm pivots", () => {
@@ -850,8 +880,55 @@ test("shoulder capsules use inner spheres for a straight torso and outer spheres
   assert.match(host.innerHTML, /data-joint-capsule data-joint-id="left-shoulder"/);
   assert.match(host.innerHTML, /data-joint-capsule data-joint-id="right-shoulder"/);
   assert.match(host.innerHTML, /data-body-joint data-joint-capsule data-joint-id="waist"/);
-  assert.match(host.innerHTML,
-    /data-face-id="torso" data-torso-surface points="360,224 240,224 240,320 360,320"/);
+  const torsoPoints = torsoSurfacePoints(host.innerHTML)!;
+  assert.equal(torsoPoints.length, 6);
+  assert.deepEqual(torsoPoints.slice(0, 2), [{ x: 360, y: 224 }, { x: 240, y: 224 }]);
+  assert.deepEqual(torsoPoints.slice(3, 5), [{ x: 240, y: 320 }, { x: 360, y: 320 }]);
+  assert.ok(torsoPoints[2].y > 224 && torsoPoints[2].y < 320);
+  assert.ok(torsoPoints[5].y > 224 && torsoPoints[5].y < 320);
+  assert.match(host.innerHTML, /data-torso-expansion="48,4"/);
+});
+
+test("torso rectangle renders asymmetric edges only on directional axes", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  const expansion = rig.faces.find((face) => face.id === "torso")!.torsoExpansion!;
+  expansion.widthAxis = { mode: "directional", negativeDistance: 80, positiveDistance: 40 };
+  expansion.lengthAxis = { mode: "directional", negativeDistance: 8, positiveDistance: 56 };
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "torso", selectedTarget: "face",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+  const points = torsoSurfacePoints(host.innerHTML)!;
+  assert.equal(points[0].x, 340);
+  assert.equal(points[1].x, 220);
+  assert.ok(points[0].y < 224 && points[2].y > 224);
+  assert.match(host.innerHTML, /data-torso-width-axis="directional,80,40"/);
+  assert.match(host.innerHTML, /data-torso-length-axis="directional,8,56"/);
+});
+
+test("torso rectangle guide shows two virtual joints and one connected outline", () => {
+  const rig = createDefaultRig();
+  rig.perspectiveEnabled = false;
+  const host = { innerHTML: "" } as SVGSVGElement;
+  const viewState: EditorViewState = {
+    outlinesVisible: true, hideSameJointEdges: true, selectedFaceId: "torso", selectedTarget: "face",
+    inspectorTab: "selection", editBodyProportions: false, activeTool: "select", paintColor: "#dca27b",
+    paintPaletteId: null,
+  };
+
+  renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
+
+  assert.match(host.innerHTML, /data-torso-rectangle-guide data-face-id="torso"/);
+  assert.equal((host.innerHTML.match(/data-torso-virtual-joint=/g) ?? []).length, 2);
+  assert.match(host.innerHTML, /data-torso-virtual-joint="shoulder"/);
+  assert.match(host.innerHTML, /data-torso-virtual-joint="chest"/);
+  assert.match(host.innerHTML, /class="torso-rectangle-outline"/);
+  assert.match(host.innerHTML, /class="torso-rectangle-axis"/);
 });
 
 test("side-view torso exposes shoulder depth instead of collapsing its top edge", () => {
@@ -867,8 +944,12 @@ test("side-view torso exposes shoulder depth instead of collapsing its top edge"
 
   renderSvgEditor(host, rig, { jointId: null, axisId: null, jointIds: [] }, viewState);
 
-  assert.match(host.innerHTML,
-    /data-face-id="torso" data-torso-surface points="330,224 270,224 270,320 330,320"/);
+  const torsoPoints = torsoSurfacePoints(host.innerHTML)!;
+  assert.equal(torsoPoints.length, 6);
+  const shoulderCenterX = (torsoPoints[0].x + torsoPoints[1].x) / 2;
+  const chestCenterX = (torsoPoints[2].x + torsoPoints[5].x) / 2;
+  assert.ok(chestCenterX > shoulderCenterX);
+  assert.ok(torsoPoints[2].y > torsoPoints[1].y && torsoPoints[2].y < torsoPoints[3].y);
 });
 
 test("shoulder hierarchy guides start at the rendered outer arm pivot", () => {

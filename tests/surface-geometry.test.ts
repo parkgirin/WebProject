@@ -104,3 +104,25 @@ test("multi-joint polygons separate their outer boundary from depth patches", ()
   assert.deepEqual(surfaceDepthRange(polygon), { min: 3, max: 5 });
   assert.equal(surfaceDepthAt(polygon, { x: 9, y: 2 }), 3);
 });
+
+test("polygon patches interpolate camera depth across their vertices", () => {
+  const polygon: PolygonRenderSurface = {
+    kind: "polygon",
+    id: "torso-side",
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }],
+    patches: [{
+      id: "torso-side",
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }],
+      depth: 10,
+      depths: [0, 10, 20],
+    }],
+    bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+    jointIds: ["left-shoulder", "right-shoulder", "waist"],
+    order: 0,
+  };
+
+  assert.equal(polygonDepthAt(polygon, { x: 5, y: 0 }), 5);
+  assert.equal(polygonDepthAt(polygon, { x: 0, y: 5 }), 10);
+  assert.equal(polygonDepthAt(polygon, { x: 2.5, y: 2.5 }), 7.5);
+  assert.deepEqual(surfaceDepthRange(polygon), { min: 0, max: 20 });
+});

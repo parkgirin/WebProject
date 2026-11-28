@@ -570,3 +570,43 @@ test("legacy pelvis faces and helper axes migrate to the hip capsule", () => {
   assert.deepEqual(state.getJoint("waist").axes.map((axis) => axis.id), ["upper-torso"]);
   assert.deepEqual(state.getJoint("left-hip").axes.map((axis) => axis.id), ["upper-leg"]);
 });
+
+test("legacy torso surfaces derive a chest edge from their referenced sections", () => {
+  const rig = createDefaultRig();
+  const torso = rig.faces.find((face) => face.id === "torso")!;
+  delete torso.torsoExpansion;
+
+  const state = new RigState(rig);
+
+  assert.ok(state.rig.faces.find((face) => face.id === "torso")?.torsoExpansion);
+  closeTo(state.rig.faces.find((face) => face.id === "torso")!.torsoExpansion!.length, 48);
+  closeTo(state.rig.faces.find((face) => face.id === "torso")!.torsoExpansion!.forwardAngle, 7);
+  assert.equal(state.rig.faces.find((face) => face.id === "torso")!.torsoExpansion!.widthAxis!.mode, "centered");
+  assert.equal(state.rig.faces.find((face) => face.id === "torso")!.torsoExpansion!.lengthAxis!.mode, "directional");
+});
+
+test("torso rectangle axes support centered and directional edge expansion", () => {
+  const state = new RigState(createDefaultRig());
+  state.setAxisExpansionDistance(
+    { kind: "face-axis", faceId: "torso", axis: "widthAxis" }, "negativeDistance", 72,
+  );
+  assert.deepEqual(state.getFace("torso").torsoExpansion!.widthAxis, {
+    mode: "centered", negativeDistance: 72, positiveDistance: 72,
+  });
+
+  state.setAxisExpansionRule(
+    { kind: "face-axis", faceId: "torso", axis: "widthAxis" }, "directional",
+  );
+  state.setAxisExpansionDistance(
+    { kind: "face-axis", faceId: "torso", axis: "widthAxis" }, "positiveDistance", 45,
+  );
+  assert.deepEqual(state.getFace("torso").torsoExpansion!.widthAxis, {
+    mode: "directional", fixedSide: -1, negativeDistance: 72, positiveDistance: 45,
+  });
+
+  state.setAxisExpansionDistance(
+    { kind: "face-axis", faceId: "torso", axis: "lengthAxis" }, "positiveDistance", 60,
+  );
+  assert.equal(state.getFace("torso").torsoExpansion!.lengthAxis!.negativeDistance, 0);
+  assert.equal(state.getFace("torso").torsoExpansion!.length, 60);
+});
